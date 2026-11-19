@@ -2,6 +2,8 @@
 
 from collections.abc import Callable
 
+from sqlalchemy import inspect, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from contracts.v1.references.reference import (
@@ -49,6 +51,26 @@ class ReferenceStore:
     def add(self, record: ReferenceRecord) -> None:
         with self.sessionFactory() as session, session.begin():
             session.add(record)
+
+    def addOrGet(self, record: ReferenceRecord) -> ReferenceRecord:
+        """Store the record unless its lookup key is taken, then return the row that is stored.
+
+        INSERT ... ON CONFLICT DO NOTHING waits while another transaction inserts the same key,
+        so parallel requests from any process end with one row and one referenceId.
+        A SELECT before the INSERT could not promise that.
+        """
+        state = inspect(record)
+        values = {
+            attribute.key: state.dict[attribute.key]
+            for attribute in state.mapper.column_attrs
+            if attribute.key in state.dict
+        }
+        statement = insert(ReferenceRecord).values(values).on_conflict_do_nothing(index_elements=["lookup_key"])
+        with self.sessionFactory() as session, session.begin():
+            session.execute(statement)
+            stored = session.scalars(select(ReferenceRecord).where(ReferenceRecord.lookupKey == record.lookupKey)).one()
+            session.expunge(stored)
+        return stored
 
     def get(self, referenceId: str) -> ReferenceRecord | None:
         with self.sessionFactory() as session:

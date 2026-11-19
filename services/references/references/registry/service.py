@@ -35,12 +35,10 @@ class ReferenceService:
         self.idFactory = idFactory
 
     def request(self, request: ReferenceRequest) -> ReferenceResult:
-        existing = self.findSame(request)
-        if existing is not None:
-            return self.refresh(existing)
-        record = self.buildRecord(request, self.provider.find(request))
-        self.store.add(record)
-        return self.toResult(record)
+        record = self.findSame(request)
+        if record is None:
+            record = self.store.addOrGet(self.buildRecord(request, self.provider.find(request)))
+        return self.refresh(record)
 
     def get(self, referenceId: str) -> ReferenceResult | None:
         """Read the stored state; GET never creates a record or a new referenceId."""
@@ -74,7 +72,7 @@ class ReferenceService:
         return recordToResult(record, retryAfterS)
 
     def findSame(self, request: ReferenceRequest) -> ReferenceRecord | None:
-        """Requests with the same lookup key reuse one referenceId."""
+        """Fast path for a repeated request. Uniqueness itself comes from ReferenceStore.addOrGet."""
         with self.store.sessionFactory() as session:
             query = select(ReferenceRecord).where(ReferenceRecord.lookupKey == buildLookupKey(request))
             record = session.scalars(query).first()
