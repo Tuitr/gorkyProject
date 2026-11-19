@@ -36,7 +36,7 @@ assert ApiError.model_validate_json(wire) == error
 - pytest собирает файлы `test*.py` и функции `test*`. Вспомогательные функции и фикстуры не начинаем с `test`,
   иначе pytest примет их за тест: `buildEvent`, `makeClient`, а не `testClient`.
 - Перед полным прогоном поднять стенд: `docker compose -f deploy/compose.yaml up -d --wait`.
-  Тесты реестра эталонов берут адрес базы из `REFERENCES_DATABASE_URL` (по умолчанию порт 55432 из Compose)
+  Тесты реестра эталонов берут адрес базы из `REFERENCES_DATABASE_URL` (по умолчанию `127.0.0.1:15432` из Compose, порт меняется через `POSTGRES_PORT`)
   и падают с подсказкой, если база недоступна. Пропуск таких тестов не допускается.
 - Строгая типизация: `uv run mypy` (настройки и список целей в корневом `pyproject.toml`).
 

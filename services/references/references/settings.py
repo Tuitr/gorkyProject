@@ -6,7 +6,7 @@ REFERENCES_SERVICE_TOKENS: {"<token>": {"serviceName": "grading", "rights": ["re
 import os
 from dataclasses import dataclass
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://gorky:gorky@localhost:55432/gorky"
+DEFAULT_DATABASE_URL = "postgresql+psycopg://gorky:gorky@127.0.0.1:15432/gorky?connect_timeout=3"
 DB_SCHEMA = "refs"
 
 
