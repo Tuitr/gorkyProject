@@ -25,6 +25,8 @@ python_files = ["test*.py"]
 python_classes = ["Test*"]
 python_functions = ["test*"]
 addopts = ["--import-mode=importlib", "--strict-markers"]
+# Never exclude e2e here: the canonical `uv run pytest` must run the end-to-end scenario too.
+markers = ["e2e: end-to-end scenario against the Docker Compose stand (tests/e2e)"]
 
 [tool.mypy]
 strict = true
