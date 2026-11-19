@@ -1,6 +1,6 @@
 import { useActions } from '../actions'
 import { replaceTask } from '../api/generate'
-import type { Assignment, Variant } from '../domain'
+import type { Assignment, EquivFeature, Variant } from '../domain'
 import { href } from '../router'
 import { patch, useStore } from '../store'
 import { Badge, JobStatus } from '../ui'
@@ -173,21 +173,15 @@ export function Variants({ id }: { id: string }) {
                     })}
                   </div>
                   {feats.length > 0 && (
-                    <table className="features">
-                      <tbody>
-                        {feats.map((f) => (
-                          <tr key={f.name} className={f.soft ? 'is-soft' : ''}>
-                            <th>
-                              {f.name}
-                              {f.soft && <span className="soft-tag">на границе</span>}
-                            </th>
-                            {cols.map((v, i) => (
-                              <td key={v.id}>{f.values[i] ?? '—'}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <FeatureTable feats={feats.filter((f) => f.soft)} cols={cols.length} />
+                  )}
+                  {feats.some((f) => !f.soft) && (
+                    <details className="features-more">
+                      <summary>
+                        Признаки равнозначности · {feats.filter((f) => !f.soft).length} совпадают
+                      </summary>
+                      <FeatureTable feats={feats.filter((f) => !f.soft)} cols={cols.length} />
+                    </details>
                   )}
                 </div>
               )
@@ -196,5 +190,27 @@ export function Variants({ id }: { id: string }) {
         </>
       )}
     </div>
+  )
+}
+
+/** Признаки равнозначности номера: «на границе» показываем сразу, остальные — под спойлером. */
+function FeatureTable({ feats, cols }: { feats: EquivFeature[]; cols: number }) {
+  if (!feats.length) return null
+  return (
+    <table className="features">
+      <tbody>
+        {feats.map((f) => (
+          <tr key={f.name} className={f.soft ? 'is-soft' : ''}>
+            <th>
+              {f.name}
+              {f.soft && <span className="soft-tag">на границе</span>}
+            </th>
+            {Array.from({ length: cols }, (_, i) => (
+              <td key={i}>{f.values[i] ?? '—'}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }

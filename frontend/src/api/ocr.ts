@@ -13,6 +13,13 @@ export type OcrResult = { latex: string; lines: OcrLine[] }
 
 type Vertex = { x?: string; y?: string }
 type RawLine = { text?: string; boundingBox?: { vertices?: Vertex[] } }
+type OcrResponse = {
+  message?: string
+  error?: { message?: string }
+  result?: {
+    textAnnotation?: { width?: string; height?: string; blocks?: { lines?: RawLine[] }[]; markdown?: string; fullText?: string }
+  }
+}
 
 /** Уменьшает фото и перекодирует в JPEG, возвращает base64 без префикса data:. */
 export async function toJpegBase64(src: string, rotation = 0): Promise<string> {
@@ -46,16 +53,48 @@ export async function recognize(image: string): Promise<OcrResult> {
   return recognizeRaw(await toJpegBase64(image), 'JPEG')
 }
 
+/**
+ * У Yandex Vision лимит — 1 запрос в секунду на каталог. Все запросы идут по очереди
+ * с паузой, а при ответе «quota limit exceed» повторяются через нарастающую паузу.
+ */
+const GAP_MS = 1100
+let chain: Promise<unknown> = Promise.resolve()
+let lastAt = 0
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+function queued<T>(fn: () => Promise<T>): Promise<T> {
+  const run = chain.then(async () => {
+    const wait = lastAt + GAP_MS - Date.now()
+    if (wait > 0) await sleep(wait)
+    try {
+      return await fn()
+    } finally {
+      lastAt = Date.now()
+    }
+  })
+  chain = run.catch(() => undefined)
+  return run
+}
+
+const isQuota = (status: number, msg: string) => status === 429 || /quota|rate/i.test(msg)
+
 /** PDF (одна страница) или готовый base64-снимок. */
 export async function recognizeRaw(content: string, mimeType: 'JPEG' | 'PNG' | 'PDF'): Promise<OcrResult> {
-  const res = await fetch('/api/ocr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mimeType, languageCodes: ['ru', 'en'], model: 'math-markdown', content }),
-  })
-  const data = await res.json().catch(() => null)
-  if (!res.ok) {
-    throw new Error(data?.message ?? data?.error?.message ?? `OCR: ошибка ${res.status}`)
+  const body = JSON.stringify({ mimeType, languageCodes: ['ru', 'en'], model: 'math-markdown', content })
+  let data: OcrResponse | null = null
+  for (let attempt = 0; ; attempt++) {
+    const res = await queued(() =>
+      fetch('/api/ocr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
+    )
+    data = await res.json().catch(() => null)
+    if (res.ok) break
+    const msg = String(data?.message ?? data?.error?.message ?? `OCR: ошибка ${res.status}`)
+    // квота и разовые сбои шлюза (502/503/504) — повторяем
+    if (attempt < 4 && (isQuota(res.status, msg) || res.status >= 502)) {
+      await sleep(GAP_MS * (attempt + 1))
+      continue
+    }
+    throw new Error(isQuota(res.status, msg) ? 'Распознавание перегружено — попробуйте ещё раз через минуту.' : msg)
   }
   const t = data?.result?.textAnnotation ?? {}
   const W = Number(t.width)

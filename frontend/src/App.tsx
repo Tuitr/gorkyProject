@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
 import './App.css'
 import './mvp.css'
 import { href, useRoute } from './router'
 import { useStore } from './store'
+import { Donut } from './ui'
 import { AssignmentForm } from './screens/AssignmentForm'
 import { ClassReport } from './screens/ClassReport'
 import { Classes } from './screens/Classes'
@@ -58,9 +60,16 @@ export default function App() {
   if (path[0] === 'print') return <PrintView path={path.slice(1)} />
 
   const open = state.review.filter((r) => !r.resolved).length
+  const handed = state.submissions.filter((s) => s.pages.length && s.status !== 'none')
+  const processed = handed.filter((s) => s.status === 'processed').length
+  const approved = handed.filter((s) => s.approved).length
   const section = path[0] === 'a' || path[0] === 'new' ? '' : (path[0] ?? '')
-  const link = (to: string, label: string, extra?: React.ReactNode) => (
-    <a href={href(...(to ? [to] : []))} className={section === to ? 'is-active' : ''}>
+  const link = (to: string, label: string, extra?: ReactNode) => (
+    <a
+      href={href(...(to ? [to] : []))}
+      className={section === to ? 'is-active' : ''}
+      aria-current={section === to ? 'page' : undefined}
+    >
       {label}
       {extra}
     </a>
@@ -70,19 +79,38 @@ export default function App() {
     <div className="shell">
       <header className="shell__top">
         <a className="logo" href="#/">
-          <span className="logo__mark">✓</span>
-          <span>Проверка работ</span>
+          <span className="logo__mark" aria-hidden="true">
+            &gt;_
+          </span>
+          Spirit Code <span className="logo__sub">· Проверка работ</span>
         </a>
-        <nav className="shell__nav" aria-label="Разделы">
+        <nav className="shell__nav" aria-label="Основная навигация">
           {link('', 'Работы')}
-          {link('classes', 'Мои классы')}
+          {link('classes', 'Классы')}
           {link('queue', 'Очередь', open ? <span className="count">{open}</span> : null)}
-          {link('quick', 'Быстрая проверка')}
         </nav>
         <div className="shell__user">
-          <span className="muted small">{state.teacher.name}</span>
+          <div
+            className="shell__progress"
+            title={`Проверено ${processed} из ${handed.length} сданных работ, утверждено ${approved}`}
+          >
+            <Donut done={processed} total={handed.length} size={30} bare label={`Проверено ${processed} из ${handed.length}`} />
+            <span>
+              <b>
+                {processed} из {handed.length}
+              </b>{' '}
+              проверено
+            </span>
+          </div>
+          <a
+            href={href('quick')}
+            className={`shell__quiet${section === 'quick' ? ' is-active' : ''}`}
+            title="Проверить одно фото без класса и работы"
+          >
+            Быстрая проверка
+          </a>
           <button
-            className="link-btn"
+            className="shell__reset"
             onClick={() => confirm('Сбросить все данные и вернуть демо-данные?') && reset()}
             title="Вернуть демо-классы и демо-работу"
           >

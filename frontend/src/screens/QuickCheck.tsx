@@ -91,7 +91,7 @@ export function QuickCheck() {
         </div>
         <div className="page-head__actions">
           <button className="btn" onClick={() => fileRef.current?.click()}>
-            Загрузить фото
+            Загрузить фото (можно несколько)
           </button>
           <button className="btn btn--primary" onClick={() => setCameraOpen(true)}>
             📷 Сфотографировать
@@ -100,9 +100,10 @@ export function QuickCheck() {
             ref={fileRef}
             type="file"
             accept="image/*"
+            multiple
             hidden
             onChange={(e) => {
-              onFile(e.target.files?.[0])
+              Array.from(e.target.files ?? []).forEach((f) => onFile(f))
               e.target.value = ''
             }}
           />

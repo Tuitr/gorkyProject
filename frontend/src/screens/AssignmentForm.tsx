@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { splitTasksAi } from '../api/generate'
 import { readSource, splitTasks } from '../api/source'
-import { uid, WORK_TYPE_LABEL, type Assignment, type SourceFile, type SourceTask, type WorkType } from '../domain'
+import { sourceFiles, uid, WORK_TYPE_LABEL, type Assignment, type SourceFile, type SourceTask, type WorkType } from '../domain'
 import { go, href } from '../router'
 import { patch, useStore } from '../store'
 import { Badge, PageHead } from '../ui'
@@ -23,26 +24,60 @@ export function AssignmentForm({ id }: { id?: string }) {
   const [notes, setNotes] = useState(existing?.notes ?? '')
   const [classNotes, setClassNotes] = useState<Record<string, string>>(existing?.classNotes ?? {})
   const [openNotes, setOpenNotes] = useState<string[]>(Object.keys(existing?.classNotes ?? {}))
-  const [file, setFile] = useState<SourceFile | undefined>(existing?.file)
+  // Файлы с заданиями по порядку; text = null — файл сохранён раньше, его текст заново не читаем
+  const [items, setItems] = useState<{ source: SourceFile; text: string | null }[]>(() =>
+    existing ? sourceFiles(existing).map((source) => ({ source, text: null })) : [],
+  )
   const [parsed, setParsed] = useState<SourceTask[] | null>(null)
   const [pasted, setPasted] = useState('')
-  const [lastFile, setLastFile] = useState<File | null>(null)
+  const [lastFiles, setLastFiles] = useState<File[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const files = items.map((i) => i.source)
   const [draftKey] = useState(() => uid('parse'))
   const job = jobs[draftKey]
 
   if (id && !existing) return <NotFound />
 
-  const parse = (f: File) => {
-    setLastFile(f)
+  /** Делит на номера общий текст всех файлов: сначала нейросеть, при сбое — по «1)», «2.». */
+  const split = async (list: { text: string | null }[]) => {
+    const text = list.map((i) => i.text ?? '').filter(Boolean).join('\n')
+    if (!text.trim()) {
+      setParsed(null)
+      return
+    }
+    let tasks = splitTasks(text)
+    try {
+      // нейросеть делит на номера надёжнее регулярки (номера без «1)», мусор с картинок)
+      const ai = await splitTasksAi(text)
+      if (ai.length) tasks = ai.map((t) => ({ id: uid('t'), num: t.num, text: t.text, manual: false, max: 1 }))
+    } catch (e) {
+      console.warn('GigaChat не разделил номера, делим по «1)», «2.»', e)
+    }
+    setParsed(tasks)
+    if (!tasks.length) setPasted(text)
+  }
+
+  /** Добавляет файлы к уже выбранным (сохранённые раньше файлы без текста заменяются новыми). */
+  const addFiles = (fs: File[]) => {
+    if (!fs.length) return
+    setLastFiles(fs)
     setParsed(null)
-    if (!title.trim()) setTitle(f.name.replace(/\.(docx|pdf|jpe?g|png)$/i, ''))
-    void runJob(draftKey, 'ocr', 'Разбираем файл', async () => {
-      const { source, text } = await readSource(f)
-      setFile(source)
-      const tasks = splitTasks(text)
-      setParsed(tasks)
-      if (!tasks.length) setPasted(text)
+    if (!title.trim()) setTitle(fs[0].name.replace(/\.(docx|pdf|jpe?g|png|heic|webp)$/i, ''))
+    const kept = items.filter((i) => i.text !== null)
+    void runJob(draftKey, 'ocr', fs.length > 1 ? `Разбираем файлы (${fs.length})` : 'Разбираем файл', async () => {
+      const read: { source: SourceFile; text: string }[] = []
+      for (const f of fs) read.push(await readSource(f)) // по очереди — номера идут в порядке файлов
+      const next = [...kept, ...read]
+      setItems(next)
+      await split(next)
     })
+  }
+
+  const removeFile = (idx: number) => {
+    const next = items.filter((_, i) => i !== idx)
+    setItems(next)
+    setParsed(null)
+    if (next.some((i) => i.text)) void runJob(draftKey, 'ocr', 'Разбираем файлы', () => split(next))
   }
 
   const tasksToSave = parsed?.length ? parsed : pasted.trim() ? splitTasks(pasted) : null
@@ -62,7 +97,9 @@ export function AssignmentForm({ id }: { id?: string }) {
           classIds,
           notes,
           classNotes: cleanClassNotes,
-          ...(file !== a.file ? { file } : {}),
+          ...(items.some((i) => i.text !== null) || files.length !== sourceFiles(a).length
+            ? { file: files[0], files }
+            : {}),
           ...(tasksToSave?.length ? { tasks: tasksToSave, variants: [], features: {}, status: 'draft' as const } : {}),
         })),
       }))
@@ -75,7 +112,8 @@ export function AssignmentForm({ id }: { id?: string }) {
       title: title.trim(),
       type,
       createdAt: Date.now(),
-      file,
+      file: files[0],
+      files,
       classIds,
       notes,
       classNotes: cleanClassNotes,
@@ -119,36 +157,64 @@ export function AssignmentForm({ id }: { id?: string }) {
         </div>
 
         <div className="field">
-          <span>Файл с заданиями — DOCX или PDF</span>
-          <label className="dropzone">
+          <span>Файлы с заданиями — DOCX, PDF или фото (можно несколько)</span>
+          {files.length > 0 && (
+            <ol className="file-list">
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`}>
+                  <span>{f.kind === 'image' ? '🖼' : '📄'}</span>
+                  <b>{f.name}</b>
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    onClick={() => removeFile(i)}
+                    disabled={job?.status === 'running'}
+                    aria-label={`Убрать ${f.name}`}
+                    title="Убрать файл"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          <label
+            className={`dropzone${dragOver ? ' is-over' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDragOver(true)
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDragOver(false)
+              addFiles(Array.from(e.dataTransfer.files))
+            }}
+          >
             <input
               type="file"
+              multiple
               accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
               hidden
               onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) parse(f)
+                addFiles(Array.from(e.target.files ?? []))
                 e.target.value = ''
               }}
             />
-            {file ? (
-              <span>
-                📄 <b>{file.name}</b> <span className="muted small">— нажмите, чтобы заменить</span>
-              </span>
-            ) : (
-              <span>Нажмите, чтобы выбрать файл</span>
-            )}
+            <span>
+              {files.length ? '+ Добавить ещё файлы' : 'Нажмите или перетащите сюда файлы'}{' '}
+              <span className="muted small">— номера идут в порядке файлов</span>
+            </span>
           </label>
           {job?.status === 'running' && (
             <span className="job">
-              <span className="spinner spinner--sm" /> Разбираем файл…
+              <span className="spinner spinner--sm" /> {job.title}…
             </span>
           )}
           {job?.status === 'error' && (
             <span className="job job--err">
               <Badge tone="err">Сбой</Badge> {job.error}
-              {lastFile && (
-                <button className="link-btn" onClick={() => parse(lastFile)}>
+              {lastFiles.length > 0 && (
+                <button className="link-btn" onClick={() => addFiles(lastFiles)}>
                   Повторить
                 </button>
               )}
@@ -162,7 +228,7 @@ export function AssignmentForm({ id }: { id?: string }) {
           {existing && parsed?.length ? (
             <span className="muted small">При сохранении номера и варианты будут заменены — работа станет черновиком.</span>
           ) : null}
-          {(job?.status === 'error' || (parsed && !parsed.length) || (!existing && !file)) && (
+          {(job?.status === 'error' || (parsed && !parsed.length) || (!existing && !files.length)) && (
             <details className="paste" open={!!parsed && !parsed.length}>
               <summary>Или вставьте текст заданий</summary>
               <textarea

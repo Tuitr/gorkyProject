@@ -220,12 +220,47 @@ ${PLAIN}
 Схема: {"board":{"example":"...","task":{"topic":"...","text":"...","answer":"..."}},"topics":[{"topic":"...","tasks":[{"text":"...","answer":"..."}]}]}
 Поле board — только если просят разбор у доски.`
 
+const SPLIT_PROMPT = `Тебе дают строки файла с заданиями (контрольная, домашняя работа) в формате «номер_строки|текст»; длинные строки обрезаны.
+Найди, где начинается и заканчивается каждое задание. Номер задания — как в файле («1», «2а»); если номеров нет — нумеруй по порядку.
+from и to — номера строк (включительно) с условием задания. Шапку (название, класс, вариант, ФИО, общие инструкции) и ответы/решения в задания не включай.
+Ответ — ТОЛЬКО однострочный JSON без markdown.
+Схема: {"tasks":[{"num":"1","from":0,"to":2}]}`
+
+/**
+ * Делит текст на номера: модель возвращает только границы (строки from–to),
+ * а условия собираются из исходных строк — дословно и с коротким ответом модели (несколько секунд).
+ */
+async function splitTasks(creds: Creds, text: string) {
+  const lines = latexToText(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 400)
+  const user = lines.map((l, i) => `${i}|${l.length > 160 ? `${l.slice(0, 160)}…` : l}`).join('\n')
+  const raw = (await withRetry(() => chatJson(creds, SPLIT_PROMPT, user, 0.1, 1500))) as { tasks?: unknown }
+  const NUM_PREFIX = /^\s*(?:№\s*|задание\s+|задача\s+)?\d{1,2}[а-я]?\s*[.)]\s*/i
+  const tasks = (Array.isArray(raw.tasks) ? raw.tasks : [])
+    .map((t: { num?: unknown; from?: unknown; to?: unknown }) => {
+      const from = Math.max(0, Math.floor(Number(t.from)))
+      const to = Math.min(lines.length - 1, Math.floor(Number(t.to)))
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null
+      const body = lines.slice(from, to + 1).join('\n').replace(NUM_PREFIX, '').trim()
+      return { num: String(t.num ?? '').trim(), text: body }
+    })
+    .filter((t): t is { num: string; text: string } => !!t && !!t.num && !!t.text)
+  return { tasks }
+}
+
 type GenerateBody =
+  | { kind: 'split'; text: string }
   | { kind: 'variants'; tasks: { num: string; text: string }[]; count: number; notes?: string }
   | { kind: 'replace'; num: string; original: string; current: string; avoid: string[] }
   | { kind: 'practice'; topics: { topic: string; examples: string[]; count: number }[]; board: boolean }
 
 function generate(creds: Creds, body: GenerateBody) {
+  if (body.kind === 'split') {
+    return splitTasks(creds, body.text)
+  }
   if (body.kind === 'variants') {
     const names = 'БВГДЕ'.slice(0, Math.max(0, Math.min(5, body.count - 1)))
     const user =

@@ -41,7 +41,8 @@ export type Assignment = {
   title: string
   type: WorkType
   createdAt: number
-  file?: SourceFile
+  file?: SourceFile // первый файл (для старых данных)
+  files?: SourceFile[] // все файлы с заданиями по порядку
   classIds: Id[]
   notes: string // общие заметки «как проверять»
   classNotes: Record<Id, string> // заметки для конкретного класса
@@ -226,3 +227,6 @@ export function submissionTotal(a: Assignment, s: Submission) {
 }
 
 export const activeMistakes = (r: TaskResult) => r.mistakes.filter((m) => !m.dismissed)
+
+/** Все файлы исходника: новые работы хранят files, старые — один file. */
+export const sourceFiles = (a: Pick<Assignment, 'file' | 'files'>): SourceFile[] => a.files ?? (a.file ? [a.file] : [])

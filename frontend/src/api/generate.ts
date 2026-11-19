@@ -19,6 +19,14 @@ async function call(body: unknown): Promise<Raw> {
   return (data ?? {}) as Raw
 }
 
+/** Делит текст исходника на номера через GigaChat. Пустой результат — пусть сработает обычное деление. */
+export async function splitTasksAi(text: string): Promise<{ num: string; text: string }[]> {
+  const raw = await call({ kind: 'split', text })
+  return arr(raw.tasks)
+    .map((t) => ({ num: str(t.num).trim().replace(/[.)]+$/, ''), text: str(t.text).trim() }))
+    .filter((t) => t.num && t.text)
+}
+
 export const VARIANT_NAMES = ['А', 'Б', 'В', 'Г', 'Д', 'Е']
 
 /** Ключ к варианту А + варианты Б, В… + признаки равнозначности. */

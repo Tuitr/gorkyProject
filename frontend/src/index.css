@@ -1,46 +1,61 @@
+/* Тема «Бежевый» — как в Spirit Code (Desktop\Spirit Code\src\index.css).
+   Сверху — переменные Spirit Code, ниже — их псевдонимы под имена, которые использует эта платформа. */
 :root {
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #f8f9fb;
-  --text: #1c1f26;
-  --muted: #6b7280;
-  --border: #e3e5ea;
-  --accent: #4f46e5;
-  --accent-soft: #eef0ff;
-  --err: #dc2626;
-  --err-soft: rgba(220, 38, 38, 0.12);
-  --ok: #16a34a;
-  --ok-soft: #e8f7ee;
-  --mid: #d97706;
-  --mid-soft: #fdf3e3;
-  --radius: 12px;
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 16px rgba(16, 24, 40, 0.06);
+  --bg: #f1e8da;
+  --grid: #e7dccb;
+  --surface: #fbf6ee;
+  --surface-2: #efe5d6;
+  --inset: #fffdf9;
+  --line: #e0d2bf;
+  --line-soft: #e0d2bf;
 
-  font: 15px/1.5 system-ui, 'Segoe UI', Roboto, sans-serif;
+  --text: #2a1c12;
+  --text-2: #3d2c20;
+  --muted: #5e4b3c;
+  --faint: #7a6656;
+
+  /* --accent — заливки (кнопки, полосы), --accent-text — оранжевый текст на бежевом */
+  --accent: #ff8400;
+  --accent-hover: #ff9a2e;
+  --accent-text: #a14a00;
+  --accent-soft: #ffe6c7;
+  --accent-soft-strong: #ffd8a8;
+  --accent-line: rgba(161, 74, 0, 0.45);
+  --on-accent: #1a0e00;
+  --amber: #8a5a00;
+  --amber-soft: #fff0c2;
+
+  --danger: #b3361a;
+  --danger-soft: #ffe0d6;
+  --success: #2f7a3e;
+  --success-soft: #dcefdc;
+
+  --shadow: 0 8px 28px rgba(42, 28, 18, 0.12);
+
+  --font-display: Inter, system-ui, sans-serif;
+  --font-body: Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  /* псевдонимы для экранов платформы */
+  --border: var(--line);
+  --err: var(--danger);
+  --err-soft: var(--danger-soft);
+  --ok: var(--success);
+  --ok-soft: var(--success-soft);
+  --mid: var(--amber);
+  --mid-soft: var(--amber-soft);
+  --warn: var(--amber);
+  --warn-soft: var(--amber-soft);
+  --warn-line: #d9a400;
+  --info: var(--accent-text);
+  --info-soft: var(--accent-soft);
+  --radius: 20px;
+
+  font: 15px/1.5 var(--font-body);
   color: var(--text);
   background: var(--bg);
-  color-scheme: light dark;
+  color-scheme: light;
   -webkit-font-smoothing: antialiased;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111318;
-    --surface: #1a1d24;
-    --surface-2: #20242c;
-    --text: #e8eaee;
-    --muted: #9aa1ad;
-    --border: #2c313b;
-    --accent: #8b85ff;
-    --accent-soft: #252547;
-    --err: #f87171;
-    --err-soft: rgba(248, 113, 113, 0.16);
-    --ok: #4ade80;
-    --ok-soft: #173225;
-    --mid: #fbbf24;
-    --mid-soft: #3a2e14;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  }
 }
 
 *,
@@ -51,17 +66,65 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  font-family: var(--font-body);
+  background-color: var(--bg);
+  color: var(--text);
 }
 
 h1,
 h2,
 h3 {
   margin: 0;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-button {
-  font: inherit;
+a {
+  color: var(--accent-text);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
   color: inherit;
+}
+
+/* Поля ввода светлые; рамки и отступы задают сами компоненты */
+input:not([type='radio']):not([type='checkbox']):not([type='file']),
+select,
+textarea {
+  background-color: var(--inset);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input[type='radio'],
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: rgba(255, 132, 0, 0.3);
 }

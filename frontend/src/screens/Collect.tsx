@@ -164,7 +164,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
             const v = a.variants.find((x) => x.id === s?.variantId)
             const link = s && !st ? href('a', a.id, 'queue') : href('a', a.id, 's', cls.id, st!.id)
             return (
-              <tr key={st?.id ?? s!.id} className={s && attention.has(s.id) ? 'is-attention' : ''}>
+              <tr key={st?.id ?? s!.id} className={s && attention.has(s.id) ? 'is-attention' : status === 'none' ? 'is-none' : ''}>
                 <td>
                   <a href={link}>{st?.name ?? <i>Ученик не определён</i>}</a>
                 </td>
@@ -183,19 +183,23 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
                   {status === 'error' && s?.error && <div className="small err-text">{s.error}</div>}
                 </td>
                 <td className="table__actions">
-                  {status === 'error' && s && (
+                  {status === 'error' && s ? (
                     <button className="link-btn" onClick={() => void process(s.id)}>
                       Повторить
                     </button>
-                  )}
-                  {status === 'processed' && s && (
+                  ) : status === 'processed' && s ? (
                     <a className="link-btn" href={href('a', a.id, 'report', s.id)}>
                       Отчёт
                     </a>
+                  ) : status === 'none' ? (
+                    <a className="link-btn link-btn--quiet" href={link}>
+                      📷 Снять
+                    </a>
+                  ) : (
+                    <a className="link-btn" href={link}>
+                      Открыть
+                    </a>
                   )}
-                  <a className="link-btn" href={link}>
-                    {status === 'none' ? 'Снять' : 'Открыть'}
-                  </a>
                 </td>
               </tr>
             )

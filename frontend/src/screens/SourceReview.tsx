@@ -1,5 +1,5 @@
 import { parseRules } from '../api/source'
-import { uid, type Assignment, type SourceTask } from '../domain'
+import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
 import { href } from '../router'
 import { patch, useStore } from '../store'
 import { Badge } from '../ui'
@@ -63,7 +63,9 @@ export function SourceReview({ id }: { id: string }) {
         <section className="panel source__orig">
           <div className="panel__head">
             <h2>Оригинал</h2>
-            <span className="muted small">{a.file?.name ?? 'файл не загружен'}</span>
+            <span className="muted small">
+              {sourceFiles(a).map((f) => f.name).join(', ') || 'файл не загружен'}
+            </span>
           </div>
           <Original a={a} />
         </section>
@@ -113,11 +115,16 @@ export function SourceReview({ id }: { id: string }) {
                   </label>
                   <span className="spacer" />
                   {i > 0 && (
-                    <button className="link-btn" onClick={() => merge(i)} title="Склеить с предыдущим номером">
-                      ⤒ объединить строки
+                    <button className="link-btn src-task__tool" onClick={() => merge(i)} title="Склеить с предыдущим номером">
+                      ⤒ склеить с предыдущим
                     </button>
                   )}
-                  <button className="icon-btn" onClick={() => remove(t.id)} aria-label={`Удалить №${t.num}`}>
+                  <button
+                    className="icon-btn icon-btn--danger src-task__tool"
+                    onClick={() => remove(t.id)}
+                    aria-label={`Удалить №${t.num}`}
+                    title="Удалить номер"
+                  >
                     ✕
                   </button>
                 </div>
@@ -197,10 +204,23 @@ export function SourceReview({ id }: { id: string }) {
 }
 
 function Original({ a }: { a: Assignment }) {
-  const f = a.file
-  if (!f) return <p className="muted">Файл не загружен — номера введены вручную.</p>
+  const list = sourceFiles(a)
+  if (!list.length) return <p className="muted">Файл не загружен — номера введены вручную.</p>
+  return (
+    <div className="orig-list">
+      {list.map((f, i) => (
+        <div key={i} className="orig-item">
+          {list.length > 1 && <div className="orig-item__name muted small">{f.name}</div>}
+          <OriginalFile f={f} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OriginalFile({ f }: { f: SourceFile }) {
   if (f.kind === 'docx' && f.html) return <div className="docx" dangerouslySetInnerHTML={{ __html: f.html }} />
-  if (f.kind === 'pdf' && f.dataUrl) return <iframe className="pdf" src={f.dataUrl} title="Оригинал PDF" />
-  if (f.kind === 'image' && f.dataUrl) return <img className="orig-img" src={f.dataUrl} alt="Оригинал заданий" />
+  if (f.kind === 'pdf' && f.dataUrl) return <iframe className="pdf" src={f.dataUrl} title={`Оригинал: ${f.name}`} />
+  if (f.kind === 'image' && f.dataUrl) return <img className="orig-img" src={f.dataUrl} alt={f.name} />
   return <p className="muted">Предпросмотр недоступен.</p>
 }
