@@ -1,0 +1,24 @@
+# Local stand. For now only PostgreSQL for the reference registry (developer 3);
+# developer 1 extends it with Redis, SeaweedFS and the services (A1.1).
+name: gorky
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gorky
+      POSTGRES_PASSWORD: gorky
+      POSTGRES_DB: gorky
+    ports:
+      # Below 49152: Windows/Hyper-V often reserves dynamic ports and refuses to bind them.
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gorky -d gorky"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres-data:

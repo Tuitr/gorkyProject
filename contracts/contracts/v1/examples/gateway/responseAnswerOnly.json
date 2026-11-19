@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "taskResult.v1",
+  "taskResult": {
+    "taskId": "t1",
+    "answer": "correct",
+    "reasoning": "not_shown",
+    "method": "unconfirmed",
+    "issues": [],
+    "needsReview": false
+  },
+  "modelId": "fixture",
+  "providerRequestId": null
+}

@@ -1,0 +1,9 @@
+{
+  "requestId": "q1",
+  "promptVersion": "review.v1",
+  "taskId": "t1",
+  "statement": "Длина вектора (3; 4)",
+  "rubric": ["Нужно показать вычисление по формуле длины вектора"],
+  "steps": [{"stepId": "s1", "markdown": "Ответ: 5"}],
+  "reference": {"referenceId": "r1", "schemaId": "scalar.v1", "value": {"exact": "5"}}
+}
