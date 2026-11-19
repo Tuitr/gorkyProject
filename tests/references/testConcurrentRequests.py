@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from contracts.v1 import openapi
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
+from references.database import buildAlembicConfig
 from references.providers.fixture import FixtureProvider, ReferenceFixture
 from references.registry.keys import buildLookupKey
 from references.registry.service import ReferenceService
@@ -25,7 +26,6 @@ from references.registry.store import ReferenceStore
 from references.registry.tables import ReferenceRecord
 from shared.clock import ManualClock
 
-from .conftest import buildAlembicConfig
 
 EXAMPLES = Path(openapi.__file__).parent / "examples" / "references"
 WAIT_S = 10

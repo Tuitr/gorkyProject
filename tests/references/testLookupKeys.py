@@ -8,9 +8,9 @@ from sqlalchemy import Engine, text
 
 from contracts.v1 import openapi
 from contracts.v1.references.reference import ReferenceRequest
+from references.database import buildAlembicConfig
 from references.registry.keys import buildLookupKey
 
-from .conftest import buildAlembicConfig
 
 EXAMPLES = Path(openapi.__file__).parent / "examples" / "references"
 

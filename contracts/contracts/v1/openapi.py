@@ -149,7 +149,11 @@ def buildGatewayOpenApi() -> JsonObject:
                         ),
                         "429": errorResponse("Provider rate limit; retry after Retry-After with the same requestId"),
                         "502": errorResponse("code=model_invalid_output: provider answer failed the schema after retries"),
-                        "503": errorResponse("Provider unavailable; retryable"),
+                        "503": errorResponse(
+                            "Provider unavailable, or this requestId is still being reviewed; "
+                            "retry after Retry-After with the same requestId"
+                        ),
+                        "504": errorResponse("Provider timed out; retry with the same requestId"),
                     },
                 }
             }

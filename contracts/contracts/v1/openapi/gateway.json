@@ -398,7 +398,17 @@
                 }
               }
             },
-            "description": "Provider unavailable; retryable"
+            "description": "Provider unavailable, or this requestId is still being reviewed; retry after Retry-After with the same requestId"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Provider timed out; retry with the same requestId"
           }
         },
         "security": [

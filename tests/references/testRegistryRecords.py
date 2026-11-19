@@ -9,11 +9,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from contracts.v1.references.reference import ReferenceReady, ReferenceUnsupported
+from references.database import allMetadata, buildAlembicConfig
 from references.registry.store import ReferenceStore, recordToResult
-from references.registry.tables import Base, ReferenceRecord
+from references.registry.tables import ReferenceRecord
 from references.settings import DB_SCHEMA
-
-from .conftest import buildAlembicConfig
 
 
 def buildRecord(referenceId: str, **fields: object) -> ReferenceRecord:
@@ -47,7 +46,7 @@ def testTablesMatchMigrations(engine: Engine) -> None:
         context = MigrationContext.configure(
             connection, opts={"include_schemas": True, "include_name": onlyOwnSchema, "version_table_schema": DB_SCHEMA}
         )
-        assert compare_metadata(context, Base.metadata) == []
+        assert compare_metadata(context, allMetadata()) == []
 
 
 def testReadyRecordRoundTrip(sessionFactory: sessionmaker[Session]) -> None:
