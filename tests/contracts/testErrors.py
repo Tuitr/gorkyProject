@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from contracts.v1.common import ApiError
 
 
-def test_apiErrorRoundTrip() -> None:
+def testApiErrorRoundTrip() -> None:
     error = ApiError(code="not_found", message="Object is unavailable", retryable=False, traceId="t1")
 
     wire = json.loads(error.model_dump_json())
@@ -16,7 +16,7 @@ def test_apiErrorRoundTrip() -> None:
     assert ApiError.model_validate(wire) == error
 
 
-def test_apiErrorRejectsSnakeCaseTraceId() -> None:
+def testApiErrorRejectsSnakeCaseTraceId() -> None:
     wire = {"code": "conflict", "message": "Stale revision", "retryable": False, "trace_id": "t1"}
 
     with pytest.raises(ValidationError):

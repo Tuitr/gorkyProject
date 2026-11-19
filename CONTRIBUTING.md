@@ -30,6 +30,13 @@ wire = error.model_dump_json()
 assert ApiError.model_validate_json(wire) == error
 ```
 
+## Тесты
+
+- Все тесты собираются одной командой из корня: `uv run pytest`. Проверить состав: `uv run pytest --collect-only -q`.
+- pytest собирает файлы `test*.py` и функции `test*`. Вспомогательные функции и фикстуры не начинаем с `test`,
+  иначе pytest примет их за тест: `buildEvent`, `makeClient`, а не `testClient`.
+- Строгая типизация: `uv run mypy` (настройки и список целей в корневом `pyproject.toml`).
+
 ## Коммиты
 
 Сообщение целиком на английском: `type(scope): description`.
