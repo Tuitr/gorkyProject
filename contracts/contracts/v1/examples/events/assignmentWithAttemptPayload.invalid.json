@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "eventId": "e1",
+  "type": "assignment.published",
+  "traceId": "t1",
+  "occurredAt": "2026-11-20T09:30:00Z",
+  "payload": {
+    "assignmentId": "w1",
+    "assignmentRev": 1,
+    "studentId": "s1",
+    "attemptId": "a1",
+    "checkId": "c1",
+    "docRef": {
+      "bucket": "sources",
+      "key": "attempts/a1.docx",
+      "sha256": "80cd92beb39894db86ed18ffdd94ce518df8ce6b77e2df55a7d163465b113727"
+    }
+  }
+}

@@ -1,0 +1,243 @@
+{
+  "$defs": {
+    "AssignmentPublishedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "minLength": 1,
+          "title": "Eventid",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "title": "Occurredat",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AssignmentPublishedPayload"
+        },
+        "traceId": {
+          "minLength": 1,
+          "title": "Traceid",
+          "type": "string"
+        },
+        "type": {
+          "const": "assignment.published",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 1,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v",
+        "eventId",
+        "traceId",
+        "occurredAt",
+        "type",
+        "payload"
+      ],
+      "title": "AssignmentPublishedEvent",
+      "type": "object"
+    },
+    "AssignmentPublishedPayload": {
+      "additionalProperties": false,
+      "description": "A new revision of an assignment is ready: the worker may parse its tasks and request references.",
+      "properties": {
+        "assignmentId": {
+          "minLength": 1,
+          "title": "Assignmentid",
+          "type": "string"
+        },
+        "assignmentRev": {
+          "minimum": 1,
+          "title": "Assignmentrev",
+          "type": "integer"
+        },
+        "docRef": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "requirements": {
+          "items": {
+            "$ref": "#/$defs/TeacherRequirement"
+          },
+          "title": "Requirements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "assignmentId",
+        "assignmentRev",
+        "docRef",
+        "requirements"
+      ],
+      "title": "AssignmentPublishedPayload",
+      "type": "object"
+    },
+    "AttemptSubmittedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "minLength": 1,
+          "title": "Eventid",
+          "type": "string"
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "title": "Occurredat",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AttemptSubmittedPayload"
+        },
+        "traceId": {
+          "minLength": 1,
+          "title": "Traceid",
+          "type": "string"
+        },
+        "type": {
+          "const": "attempt.submitted",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 1,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v",
+        "eventId",
+        "traceId",
+        "occurredAt",
+        "type",
+        "payload"
+      ],
+      "title": "AttemptSubmittedEvent",
+      "type": "object"
+    },
+    "AttemptSubmittedPayload": {
+      "additionalProperties": false,
+      "description": "A student uploaded a work for one assignment revision: the worker starts check checkId.",
+      "properties": {
+        "assignmentId": {
+          "minLength": 1,
+          "title": "Assignmentid",
+          "type": "string"
+        },
+        "assignmentRev": {
+          "minimum": 1,
+          "title": "Assignmentrev",
+          "type": "integer"
+        },
+        "attemptId": {
+          "minLength": 1,
+          "title": "Attemptid",
+          "type": "string"
+        },
+        "checkId": {
+          "minLength": 1,
+          "title": "Checkid",
+          "type": "string"
+        },
+        "docRef": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "studentId": {
+          "minLength": 1,
+          "title": "Studentid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assignmentId",
+        "assignmentRev",
+        "studentId",
+        "attemptId",
+        "checkId",
+        "docRef"
+      ],
+      "title": "AttemptSubmittedPayload",
+      "type": "object"
+    },
+    "DocRef": {
+      "additionalProperties": false,
+      "description": "Immutable DOCX in S3. A new upload gets a new key; sha256 lets the reader verify the bytes.",
+      "properties": {
+        "bucket": {
+          "minLength": 1,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bucket",
+        "key",
+        "sha256"
+      ],
+      "title": "DocRef",
+      "type": "object"
+    },
+    "TeacherRequirement": {
+      "additionalProperties": false,
+      "description": "Teacher requirement for the method. taskNumber is the number printed in the DOCX; null means the whole assignment.",
+      "properties": {
+        "taskNumber": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tasknumber"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TeacherRequirement",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Value of the field `data` in the Redis stream checks.v1. `type` selects the payload.",
+  "discriminator": {
+    "mapping": {
+      "assignment.published": "#/$defs/AssignmentPublishedEvent",
+      "attempt.submitted": "#/$defs/AttemptSubmittedEvent"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AssignmentPublishedEvent"
+    },
+    {
+      "$ref": "#/$defs/AttemptSubmittedEvent"
+    }
+  ],
+  "title": "checks.v1 event (developer 1)"
+}
