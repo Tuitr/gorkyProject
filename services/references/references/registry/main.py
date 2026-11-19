@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult, referenceResultAdapter
+from references.providers.base import ReferenceProvider
 from references.providers.fixture import FixtureProvider
 from references.registry.service import ReferenceService
 from references.registry.store import ReferenceStore
@@ -27,7 +28,7 @@ def createApp(
     settings: Settings | None = None,
     *,
     sessionFactory: sessionmaker[Session] | None = None,
-    provider: FixtureProvider | None = None,
+    provider: ReferenceProvider | None = None,
     clock: Clock | None = None,
 ) -> FastAPI:
     settings = settings if settings is not None else Settings.fromEnv()

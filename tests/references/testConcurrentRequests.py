@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from contracts.v1 import openapi
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from references.database import buildAlembicConfig
-from references.providers.fixture import FixtureProvider, ReferenceFixture
+from references.providers.base import ProviderOutcome, ProviderTask
+from references.providers.fixture import FixtureProvider
 from references.registry.keys import buildLookupKey
 from references.registry.service import ReferenceService
 from references.registry.store import ReferenceStore
@@ -38,9 +39,9 @@ class RacingProvider(FixtureProvider):
         super().__init__(FixtureProvider.fromFile().fixtures)
         self.barrier = threading.Barrier(parties, timeout=WAIT_S)
 
-    def find(self, request: ReferenceRequest) -> ReferenceFixture | None:
+    def start(self, task: ProviderTask) -> ProviderOutcome:
         self.barrier.wait()
-        return super().find(request)
+        return super().start(task)
 
 
 def buildRequest(**changes: Any) -> ReferenceRequest:
@@ -97,7 +98,7 @@ def testRequestWaitsForTheUncommittedTwin(engine: Engine, sessionFactory: sessio
 
     with sessionFactory() as firstSession, ThreadPoolExecutor(max_workers=1) as pool:
         firstSession.begin()
-        firstSession.add(twin.buildRecord(request, provider.find(request)))
+        firstSession.add(twin.buildRecord(request, provider.start(ProviderTask.fromRequest(request))))
         firstSession.flush()
         late = pool.submit(service.request, request)
         waitForBlockedInsert(engine)

@@ -3,6 +3,7 @@
 A fixture matches when the cleaned statement and the constraints are exactly equal (constraint key
 order does not matter). Nothing is computed and nothing is taken from student work: an unknown or
 changed statement is unsupported. Real solvers replace this provider after task families are chosen.
+A fixture with pendingForS > 0 answers pending first and its final outcome on check().
 """
 
 import json
@@ -11,7 +12,10 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from contracts.v1.references.reference import VALUE_SCHEMAS, ReferenceRequest
+from contracts.v1.references.reference import VALUE_SCHEMAS
+from references.providers.base import PendingOutcome, ProviderOutcome, ProviderTask, ReadyOutcome, RefusedOutcome
+
+UNKNOWN_TASK = "unknown_task"
 
 DEFAULT_FIXTURES_PATH = Path(__file__).parents[1] / "fixtures" / "references.json"
 
@@ -39,6 +43,13 @@ class FixtureOutcome(BaseModel):
             raise ValueError("a failed fixture needs reasonCode and no value")
         return self
 
+    def toOutcome(self) -> ReadyOutcome | RefusedOutcome:
+        if self.state == "ready":
+            assert self.schemaId is not None and self.value is not None
+            return ReadyOutcome(source="fixture", schemaId=self.schemaId, value=self.value, solverVersion=None)
+        assert self.reasonCode is not None
+        return RefusedOutcome(state=self.state, reasonCode=self.reasonCode)
+
 
 class ReferenceFixture(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -62,8 +73,22 @@ class FixtureProvider:
         raw = json.loads(path.read_text(encoding="utf-8"))
         return cls([ReferenceFixture.model_validate(entry) for entry in raw])
 
-    def find(self, request: ReferenceRequest) -> ReferenceFixture | None:
+    def find(self, task: ProviderTask) -> ReferenceFixture | None:
         for fixture in self.fixtures:
-            if fixture.statement == request.statement and fixture.constraints == request.constraints:
+            if fixture.statement == task.statement and fixture.constraints == task.constraints:
                 return fixture
         return None
+
+    def start(self, task: ProviderTask) -> ProviderOutcome:
+        fixture = self.find(task)
+        if fixture is None:
+            return RefusedOutcome(state="unsupported", reasonCode=UNKNOWN_TASK)
+        if fixture.pendingForS > 0:
+            return PendingOutcome(retryAfterS=fixture.pendingForS)
+        return fixture.outcome.toOutcome()
+
+    def check(self, task: ProviderTask) -> ProviderOutcome:
+        fixture = self.find(task)
+        if fixture is None:
+            return RefusedOutcome(state="unsupported", reasonCode=UNKNOWN_TASK)
+        return fixture.outcome.toOutcome()
