@@ -45,6 +45,11 @@ class ModelCall(BaseModel):
     instructions: NonEmptyStr
     data: ReviewData
 
+    @property
+    def allowedStepIds(self) -> frozenset[str]:
+        """The stepIds the model saw; an issue may point only to these."""
+        return frozenset(step.stepId for step in self.data.steps)
+
 
 class ModelReply(BaseModel):
     """Raw model output. content is expected to be taskResult JSON, but nothing here checks it."""
@@ -60,8 +65,8 @@ class ConfigError(ValueError):
     """The environment does not choose a usable transport. Raised at startup, never per request."""
 
 
-class TransportError(Exception):
-    """A failed call, with an ApiError code from contracts v1. The message never holds request text or secrets."""
+class GatewayError(Exception):
+    """A gateway failure with an ApiError code. The message never holds request text or secrets."""
 
     def __init__(self, code: str, message: str, retryAfterS: int | None = None) -> None:
         super().__init__(message)
@@ -72,6 +77,14 @@ class TransportError(Exception):
     @property
     def retryable(self) -> bool:
         return self.code in RETRYABLE_CODES
+
+
+class TransportError(GatewayError):
+    """The provider call failed or answered something unusable."""
+
+
+class RequestRefused(GatewayError):
+    """The gateway refused before any provider call: bad promptVersion, unsafe text and the like."""
 
 
 TransportName = Literal["fixture", "gigachat"]

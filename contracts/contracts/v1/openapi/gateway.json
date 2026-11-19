@@ -368,7 +368,7 @@
                 }
               }
             },
-            "description": "Request does not match the schema"
+            "description": "code=invalid_input: schema error or unknown promptVersion; code=personal_data_suspected: the text looks like personal data, the model was not called"
           },
           "429": {
             "content": {

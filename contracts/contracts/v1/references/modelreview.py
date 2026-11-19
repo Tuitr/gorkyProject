@@ -5,6 +5,11 @@ to developer 2; taskResult is imported from contracts.v1.grading and never copie
 
 The request carries only mathematical content: no student name, file name, document metadata
 or closed dataset answers.
+
+promptVersion names a prompt file of developer 2: contracts/v1/grading/prompts/<promptVersion>.md.
+An unknown promptVersion is 422 invalid_input. If a step, the statement or the rubric still looks like
+personal data (a full name, e-mail, phone number), the gateway does not call the model and answers
+422 with code personal_data_suspected; retrying the same body does not help.
 """
 
 from typing import Annotated, Literal, Self
@@ -17,6 +22,8 @@ from contracts.v1.references.reference import VALUE_SCHEMAS
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 
 TASK_RESULT_SCHEMA_VERSION = "taskResult.v1"
+PERSONAL_DATA_SUSPECTED = "personal_data_suspected"
+"""Error code of POST /internal/v1/model/review, HTTP 422, not retryable."""
 
 
 class ReviewStep(BaseModel):

@@ -143,7 +143,10 @@ def buildGatewayOpenApi() -> JsonObject:
                         "401": errorResponse("Service token is missing or invalid"),
                         "403": errorResponse("Calling service has no right for this operation"),
                         "409": errorResponse("Same requestId with a different body"),
-                        "422": errorResponse("Request does not match the schema"),
+                        "422": errorResponse(
+                            "code=invalid_input: schema error or unknown promptVersion; "
+                            "code=personal_data_suspected: the text looks like personal data, the model was not called"
+                        ),
                         "429": errorResponse("Provider rate limit; retry after Retry-After with the same requestId"),
                         "502": errorResponse("code=model_invalid_output: provider answer failed the schema after retries"),
                         "503": errorResponse("Provider unavailable; retryable"),
