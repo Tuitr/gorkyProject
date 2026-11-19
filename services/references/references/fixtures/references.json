@@ -3,12 +3,47 @@
     "fixtureId": "vectorLength34",
     "statement": "Длина вектора (3; 4)",
     "constraints": {},
-    "outcome": {"state": "ready", "schemaId": "scalar.v1", "value": {"exact": "5"}}
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "5"
+      }
+    }
   },
   {
     "fixtureId": "vectorLengthZero",
     "statement": "Длина вектора (0; 0)",
     "constraints": {},
-    "outcome": {"state": "ready", "schemaId": "scalar.v1", "value": {"exact": "0"}}
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "0"
+      }
+    }
+  },
+  {
+    "fixtureId": "slowVectorLength",
+    "statement": "Длина вектора (6; 8)",
+    "constraints": {},
+    "pendingForS": 10,
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "10"
+      }
+    }
+  },
+  {
+    "fixtureId": "failingCandidate",
+    "statement": "Длина вектора (5; 12)",
+    "constraints": {},
+    "pendingForS": 10,
+    "outcome": {
+      "state": "validation_failed",
+      "reasonCode": "independent_tests_failed"
+    }
   }
 ]

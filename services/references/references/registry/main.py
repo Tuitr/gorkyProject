@@ -13,7 +13,7 @@ from references.registry.service import ReferenceService
 from references.registry.store import ReferenceStore
 from references.settings import Settings
 from shared.clock import Clock
-from shared.httperrors import installErrorHandlers
+from shared.httperrors import ApiProblem, installErrorHandlers
 from shared.servicetokens import ServiceIdentity, ServiceTokenRegistry, requireRight
 
 REQUEST_RIGHT = "references.request"
@@ -52,5 +52,14 @@ def createApp(
     ) -> JSONResponse:
         result = service.request(body)
         return resultResponse(result, 202 if result.state == "pending" else 200)
+
+    @app.get("/internal/v1/references/{referenceId}")
+    def getReference(
+        referenceId: str, caller: ServiceIdentity = Depends(requireRight(REQUEST_RIGHT))
+    ) -> JSONResponse:
+        result = service.get(referenceId)
+        if result is None:
+            raise ApiProblem("not_found", "No reference with this id")
+        return resultResponse(result, 200)
 
     return app
