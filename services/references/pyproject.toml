@@ -1,0 +1,26 @@
+[project]
+name = "gorky-references"
+version = "0.1.0"
+description = "Developer 3: reference registry and model gateway"
+requires-python = ">=3.13"
+dependencies = [
+    "gorky-contracts",
+    "gorky-shared",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+]
+
+[tool.uv.sources]
+gorky-contracts = { workspace = true }
+gorky-shared = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "references"
+module-root = ""
