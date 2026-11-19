@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from references.providers.fixture import FixtureProvider, ReferenceFixture
+from references.registry.keys import buildLookupKey
 from references.registry.store import ReferenceStore, recordToResult
 from references.registry.tables import ReferenceRecord
 from shared.clock import Clock, SystemClock
@@ -73,15 +74,9 @@ class ReferenceService:
         return recordToResult(record, retryAfterS)
 
     def findSame(self, request: ReferenceRequest) -> ReferenceRecord | None:
-        """Same assignment revision, task, statement and constraints reuse one referenceId."""
+        """Requests with the same lookup key reuse one referenceId."""
         with self.store.sessionFactory() as session:
-            query = select(ReferenceRecord).where(
-                ReferenceRecord.assignmentId == request.assignmentId,
-                ReferenceRecord.assignmentRev == request.assignmentRev,
-                ReferenceRecord.taskId == request.taskId,
-                ReferenceRecord.statement == request.statement,
-                ReferenceRecord.constraints == request.constraints,
-            )
+            query = select(ReferenceRecord).where(ReferenceRecord.lookupKey == buildLookupKey(request))
             record = session.scalars(query).first()
             if record is not None:
                 session.expunge(record)
@@ -90,6 +85,7 @@ class ReferenceService:
     def buildRecord(self, request: ReferenceRequest, fixture: ReferenceFixture | None) -> ReferenceRecord:
         record = ReferenceRecord(
             referenceId=self.idFactory(),
+            lookupKey=buildLookupKey(request),
             assignmentId=request.assignmentId,
             assignmentRev=request.assignmentRev,
             taskId=request.taskId,

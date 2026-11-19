@@ -15,6 +15,7 @@ from .conftest import buildAlembicConfig
 def buildRecord(referenceId: str, **fields: object) -> ReferenceRecord:
     base: dict[str, object] = {
         "referenceId": referenceId,
+        "lookupKey": f"k1:{referenceId}",
         "assignmentId": "w1",
         "assignmentRev": 1,
         "taskId": "t1",
