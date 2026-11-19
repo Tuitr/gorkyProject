@@ -1,0 +1,17 @@
+[project]
+name = "gorky-shared"
+version = "0.1.0"
+description = "Shared infrastructure for backend services: service tokens, HTTP errors"
+requires-python = ">=3.13"
+dependencies = ["gorky-contracts", "fastapi>=0.115"]
+
+[tool.uv.sources]
+gorky-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "shared"
+module-root = ""
