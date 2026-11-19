@@ -146,7 +146,7 @@ def testParallelRepeatWaitsAndModelIsCalledOnce(sessionFactory: sessionmaker[Ses
     assert duplicate.status_code == 503
     assert duplicate.json()["code"] == "unavailable"
     assert duplicate.json()["retryable"] is True
-    assert duplicate.headers["Retry-After"] == "90"
+    assert duplicate.headers["Retry-After"] == "300"
     assert conflicting.status_code == 409
     assert firstResponse.status_code == 200
     assert repeat.json() == firstResponse.json()

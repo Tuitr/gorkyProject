@@ -36,3 +36,20 @@ class ReviewCallRecord(Base):
     updatedAt: Mapped[datetime] = mapped_column(
         "updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ProviderSlotRecord(Base):
+    """One row per allowed concurrent call to a provider. A call runs only while it holds a slot lease.
+
+    not_before is shared by all slots of a provider: after 429/503 nobody calls before that time.
+    """
+
+    __tablename__ = "provider_slots"
+    __table_args__ = (CheckConstraint("slot_no >= 0", name="slot_no_not_negative"),)
+
+    provider: Mapped[str] = mapped_column("provider", String(32), primary_key=True)
+    slotNo: Mapped[int] = mapped_column("slot_no", Integer, primary_key=True)
+    leaseToken: Mapped[str | None] = mapped_column("lease_token", String(64))
+    leaseUntil: Mapped[datetime | None] = mapped_column("lease_until", DateTime(timezone=True))
+    holderRequestId: Mapped[str | None] = mapped_column("holder_request_id", String(128))
+    notBefore: Mapped[datetime | None] = mapped_column("not_before", DateTime(timezone=True))

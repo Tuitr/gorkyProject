@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from contracts.v1.common.errors import ERROR_STATUS
 from contracts.v1.references.modelreview import PERSONAL_DATA_SUSPECTED, ModelReviewRequest
 from references.gateway.idempotency import ReviewJournal
+from references.gateway.limiter import LimitedTransport, ProviderLimiter, RetryPolicy
 from references.gateway.prompts import PromptCatalog
 from references.gateway.service import ReviewService
 from references.gateway.settings import GatewaySettings, buildTransport
@@ -43,8 +44,11 @@ def createApp(
         sessionFactory = sessionmaker(create_engine(settings.databaseUrl), expire_on_commit=False)
     if transport is None:
         transport = buildTransport(settings, clock=clock)
-    journal = ReviewJournal(sessionFactory, clock, settings.leaseS)
-    service = ReviewService(journal, transport, prompts if prompts is not None else PromptCatalog())
+    limiter = ProviderLimiter(sessionFactory, clock, transport.name, settings.providerLimit, settings.leaseS)
+    policy = RetryPolicy(maxAttempts=settings.maxAttempts, maxWaitS=settings.maxWaitS)
+    limited = LimitedTransport(transport, limiter, clock, policy)
+    journal = ReviewJournal(sessionFactory, clock, settings.reviewLeaseS)
+    service = ReviewService(journal, limited, prompts if prompts is not None else PromptCatalog())
 
     app = FastAPI(title="Model gateway", version="1.0.0")
     installErrorHandlers(app)

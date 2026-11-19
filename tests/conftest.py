@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from references.database import buildAlembicConfig
 from references.settings import DB_SCHEMA, Settings
 
-TABLES = ("reference_records", "review_calls")
+TABLES = ("reference_records", "review_calls", "provider_slots")
 
 
 @pytest.fixture(scope="session")

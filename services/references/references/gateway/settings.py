@@ -22,7 +22,7 @@ TRANSPORTS: dict[str, TransportName] = {"fixture": "fixture", "gigachat": "gigac
 
 
 DEFAULT_LEASE_S = 90.0
-"""How long one worker owns a review call. Keep it above the transport timeout (GIGACHAT_TIMEOUT_S, 60 s)."""
+"""How long one provider call may hold its slot. Keep it above the transport timeout (GIGACHAT_TIMEOUT_S, 60 s)."""
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,14 @@ class GatewaySettings:
     databaseUrl: str = DEFAULT_DATABASE_URL
     serviceTokensJson: str = "{}"
     leaseS: float = DEFAULT_LEASE_S
+    providerLimit: int = 1
+    maxAttempts: int = 3
+    maxWaitS: float = 30.0
+
+    @property
+    def reviewLeaseS(self) -> float:
+        """How long one review owns its requestId: every wait plus every attempt."""
+        return self.maxWaitS + self.maxAttempts * self.leaseS
 
     @classmethod
     def fromEnv(cls, environ: Mapping[str, str] = os.environ) -> Self:
@@ -45,18 +53,25 @@ class GatewaySettings:
             reviewFixturesPath=Path(path) if path else DEFAULT_REVIEWS_PATH,
             databaseUrl=environ.get("GATEWAY_DATABASE_URL", DEFAULT_DATABASE_URL),
             serviceTokensJson=environ.get("GATEWAY_SERVICE_TOKENS", "{}"),
-            leaseS=parseLease(environ.get("GATEWAY_LEASE_S", str(DEFAULT_LEASE_S))),
+            leaseS=parsePositive(environ, "GATEWAY_LEASE_S", DEFAULT_LEASE_S),
+            providerLimit=int(parsePositive(environ, "GATEWAY_PROVIDER_LIMIT", 1, whole=True)),
+            maxAttempts=int(parsePositive(environ, "GATEWAY_MAX_ATTEMPTS", 3, whole=True)),
+            maxWaitS=parsePositive(environ, "GATEWAY_MAX_WAIT_S", 30.0),
         )
 
 
-def parseLease(value: str) -> float:
+def parsePositive(environ: Mapping[str, str], name: str, default: float, *, whole: bool = False) -> float:
+    raw = environ.get(name)
+    if raw is None:
+        return default
     try:
-        leaseS = float(value)
+        value = float(int(raw)) if whole else float(raw)
     except ValueError:
-        leaseS = 0
-    if leaseS <= 0:
-        raise ConfigError(f"GATEWAY_LEASE_S must be a positive number of seconds, got {value!r}")
-    return leaseS
+        value = 0
+    if value <= 0:
+        kind = "a positive whole number" if whole else "a positive number of seconds"
+        raise ConfigError(f"{name} must be {kind}, got {raw!r}")
+    return value
 
 
 def buildTransport(
