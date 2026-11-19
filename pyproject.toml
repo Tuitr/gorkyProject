@@ -1,0 +1,22 @@
+[project]
+name = "gorky-backend"
+version = "0.1.0"
+description = "Backend for checking school math work"
+requires-python = ">=3.13"
+dependencies = ["gorky-contracts"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["contracts"]
+
+[tool.uv.sources]
+gorky-contracts = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
