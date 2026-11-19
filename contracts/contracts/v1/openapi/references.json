@@ -1,0 +1,422 @@
+{
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "additionalProperties": false,
+        "description": "Error body for any non-2xx HTTP answer.\n\n401/403 access, 404 object unavailable, 409 revision or idempotency key conflict,\n422 schema error. Retry 429, 503 and timeouts with the same requestId.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "traceId": {
+            "title": "Traceid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "traceId"
+        ],
+        "title": "ApiError",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "ReferencePending": {
+        "additionalProperties": false,
+        "properties": {
+          "referenceId": {
+            "minLength": 1,
+            "title": "Referenceid",
+            "type": "string"
+          },
+          "retryAfterS": {
+            "minimum": 0,
+            "title": "Retryafters",
+            "type": "integer"
+          },
+          "state": {
+            "const": "pending",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "state",
+          "retryAfterS"
+        ],
+        "title": "ReferencePending",
+        "type": "object"
+      },
+      "ReferenceReady": {
+        "additionalProperties": false,
+        "properties": {
+          "referenceId": {
+            "minLength": 1,
+            "title": "Referenceid",
+            "type": "string"
+          },
+          "schemaId": {
+            "minLength": 1,
+            "title": "Schemaid",
+            "type": "string"
+          },
+          "solverVersion": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solverversion"
+          },
+          "source": {
+            "enum": [
+              "fixture",
+              "generated",
+              "manual"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "const": "ready",
+            "title": "State",
+            "type": "string"
+          },
+          "value": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Value",
+            "type": "object"
+          }
+        },
+        "required": [
+          "referenceId",
+          "state",
+          "source",
+          "schemaId",
+          "value",
+          "solverVersion"
+        ],
+        "title": "ReferenceReady",
+        "type": "object"
+      },
+      "ReferenceRequest": {
+        "additionalProperties": false,
+        "description": "Cleaned task statement and the assignment revision it belongs to.",
+        "properties": {
+          "assignmentId": {
+            "minLength": 1,
+            "title": "Assignmentid",
+            "type": "string"
+          },
+          "assignmentRev": {
+            "minimum": 1,
+            "title": "Assignmentrev",
+            "type": "integer"
+          },
+          "constraints": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Constraints",
+            "type": "object"
+          },
+          "familyHint": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Familyhint"
+          },
+          "statement": {
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          },
+          "taskId": {
+            "minLength": 1,
+            "title": "Taskid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignmentId",
+          "assignmentRev",
+          "taskId",
+          "statement",
+          "constraints"
+        ],
+        "title": "ReferenceRequest",
+        "type": "object"
+      },
+      "ReferenceUnsupported": {
+        "additionalProperties": false,
+        "description": "Final: no reference can be produced for this task. The task goes to the teacher.",
+        "properties": {
+          "reasonCode": {
+            "minLength": 1,
+            "title": "Reasoncode",
+            "type": "string"
+          },
+          "referenceId": {
+            "minLength": 1,
+            "title": "Referenceid",
+            "type": "string"
+          },
+          "state": {
+            "const": "unsupported",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "state",
+          "reasonCode"
+        ],
+        "title": "ReferenceUnsupported",
+        "type": "object"
+      },
+      "ReferenceValidationFailed": {
+        "additionalProperties": false,
+        "description": "Final: a candidate reference failed its checks. The task goes to the teacher.",
+        "properties": {
+          "reasonCode": {
+            "minLength": 1,
+            "title": "Reasoncode",
+            "type": "string"
+          },
+          "referenceId": {
+            "minLength": 1,
+            "title": "Referenceid",
+            "type": "string"
+          },
+          "state": {
+            "const": "validation_failed",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "state",
+          "reasonCode"
+        ],
+        "title": "ReferenceValidationFailed",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "serviceToken": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Reference API (developer 3)",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/internal/v1/references": {
+      "post": {
+        "description": "Idempotent: the same assignment, revision, task, statement and constraints return the same referenceId.",
+        "operationId": "requestReference",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "propertyName": "state"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReferenceReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReferenceUnsupported"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReferenceValidationFailed"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Final state"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferencePending"
+                }
+              }
+            },
+            "description": "Still preparing"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service token is missing or invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Calling service has no right for this operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Request does not match the schema"
+          }
+        },
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "summary": "Find or create the reference for one task of an assignment revision"
+      }
+    },
+    "/internal/v1/references/{referenceId}": {
+      "get": {
+        "operationId": "getReference",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referenceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "propertyName": "state"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReferenceReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReferencePending"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReferenceUnsupported"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ReferenceValidationFailed"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Stored state"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service token is missing or invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Calling service has no right for this operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "No reference with this id"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Request does not match the schema"
+          }
+        },
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "summary": "Read the stored state of a reference"
+      }
+    }
+  }
+}

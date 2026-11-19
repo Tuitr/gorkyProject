@@ -11,7 +11,7 @@
 | Манифест мини-набора | `dataset/` | № 1 | № 2, № 3 | планируется |
 | Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | планируется |
-| API эталонов `/internal/v1/references` | `references/reference.py` | № 3 | № 2 | планируется |
+| API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/` | № 3 | № 2 | готово |
 | Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py` | № 3 | № 2 | планируется |
 
 **`taskResult` существует в одном месте.** Конверт ответа шлюза (№ 3) ссылается на `grading/taskresult.py` (№ 2)
