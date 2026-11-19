@@ -10,9 +10,9 @@
 | События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/` | № 1 | № 2 | планируется |
 | Манифест мини-набора | `dataset/` | № 1 | № 2, № 3 | планируется |
 | Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
-| Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | планируется |
+| Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | черновик от № 3, ждёт подтверждения № 2 |
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/` | № 3 | № 2 | готово |
-| Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py` | № 3 | № 2 | планируется |
+| Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py`, `openapi/gateway.json`, `examples/gateway/` | № 3 | № 2 | готово |
 
 **`taskResult` существует в одном месте.** Конверт ответа шлюза (№ 3) ссылается на `grading/taskresult.py` (№ 2)
 и не заводит свою копию полей `answer`, `reasoning`, `method`, `issues`.

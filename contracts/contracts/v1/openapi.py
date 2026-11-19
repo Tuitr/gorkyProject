@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from contracts.v1.common.errors import ApiError
+from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import (
     ReferencePending,
     ReferenceReady,
@@ -121,8 +122,44 @@ def buildReferencesOpenApi() -> JsonObject:
     }
 
 
+def buildGatewayOpenApi() -> JsonObject:
+    models: list[type[BaseModel]] = [ModelReviewRequest, ModelReviewResponse, ApiError]
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "Model gateway (developer 3)", "version": "1.0.0"},
+        "paths": {
+            "/internal/v1/model/review": {
+                "post": {
+                    "operationId": "reviewTask",
+                    "summary": "Check one task of one attempt with the model",
+                    "description": (
+                        "taskResult follows contracts.v1.grading.taskresult (owner: developer 2). "
+                        "The same requestId with the same body returns the stored answer."
+                    ),
+                    "security": [{"serviceToken": []}],
+                    "requestBody": {"required": True, "content": jsonContent(schemaRef(ModelReviewRequest))},
+                    "responses": {
+                        "200": {"description": "Valid taskResult", "content": jsonContent(schemaRef(ModelReviewResponse))},
+                        "401": errorResponse("Service token is missing or invalid"),
+                        "403": errorResponse("Calling service has no right for this operation"),
+                        "409": errorResponse("Same requestId with a different body"),
+                        "422": errorResponse("Request does not match the schema"),
+                        "429": errorResponse("Provider rate limit; retry after Retry-After with the same requestId"),
+                        "502": errorResponse("code=model_invalid_output: provider answer failed the schema after retries"),
+                        "503": errorResponse("Provider unavailable; retryable"),
+                    },
+                }
+            }
+        },
+        "components": {
+            "schemas": buildComponents(models),
+            "securitySchemes": {"serviceToken": {"type": "http", "scheme": "bearer"}},
+        },
+    }
+
+
 def buildAll() -> dict[str, JsonObject]:
-    return {"references.json": buildReferencesOpenApi()}
+    return {"references.json": buildReferencesOpenApi(), "gateway.json": buildGatewayOpenApi()}
 
 
 def renderDocument(document: JsonObject) -> str:

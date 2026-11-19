@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "taskResult.v1",
+  "taskResult": {
+    "taskId": "t2",
+    "answer": "incorrect",
+    "reasoning": "invalid",
+    "method": "met",
+    "issues": [
+      {"issueId": "i1", "stepId": "s2", "category": "sign_error", "comment": "Потерян минус при раскрытии скобок", "correction": "-(3 - 5) = 2"},
+      {"issueId": "i2", "stepId": "s3", "category": "sign_error", "comment": "Следствие ошибки в шаге s2", "correction": "2² = 4", "causedByIssueId": "i1"},
+      {"issueId": "i3", "stepId": "s4", "category": "formula_error", "comment": "Неверная формула длины вектора", "correction": "|a| = √(x² + y²)"}
+    ],
+    "needsReview": false
+  },
+  "modelId": "GigaChat-Max",
+  "providerRequestId": "p-123"
+}

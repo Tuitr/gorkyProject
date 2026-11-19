@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "taskResult.v1",
+  "taskResult": {"taskId": "t1", "answer": "almost", "reasoning": "valid", "method": "met", "issues": [], "needsReview": false},
+  "modelId": "fixture"
+}
