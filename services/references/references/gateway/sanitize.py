@@ -13,15 +13,13 @@ Policy for personal data that is still inside the text:
 Logs and error messages name only the requestId, the field and the kind of finding, never the text.
 """
 
-import logging
 import re
 from collections import Counter
 
 from contracts.v1.references.modelreview import PERSONAL_DATA_SUSPECTED, ModelReviewRequest, ReviewStep
+from references.gateway.diagnostics import logEvent
 from references.gateway.prompts import PromptCatalog
 from references.gateway.transports.base import ModelCall, ProviderReference, RequestRefused, ReviewData
-
-logger = logging.getLogger("references.gateway")
 
 LABEL = (
     r"(?i:ФИО|Ф\.\s?И\.\s?О\.|фамилия|имя|отчество|ученица|ученик|учащаяся|учащийся|"
@@ -51,13 +49,8 @@ def findPersonalData(text: str) -> str | None:
     return None
 
 
-def refuse(request: ModelReviewRequest, where: str, kind: str) -> RequestRefused:
-    logger.warning(
-        "model call stopped before sending: requestId=%s %s looks like personal data (%s)",
-        request.requestId,
-        where,
-        kind,
-    )
+def refuse(where: str, kind: str) -> RequestRefused:
+    """Logged by the review service with the request ids; the message names the place and kind only."""
     return RequestRefused(
         PERSONAL_DATA_SUSPECTED, f"{where} looks like personal data ({kind}); the model was not called"
     )
@@ -76,10 +69,10 @@ def keptSteps(request: ModelReviewRequest) -> tuple[ReviewStep, ...]:
             continue
         kind = findPersonalData(step.markdown)
         if kind is not None:
-            raise refuse(request, f"step {step.stepId}", kind)
+            raise refuse(f"step {step.stepId}", kind)
         kept.append(step)
     if removed:
-        logger.info("signature steps removed: requestId=%s stepIds=%s", request.requestId, ",".join(removed))
+        logEvent("review.signatureStepsRemoved", stage="sanitize", requestId=request.requestId, stepIds=removed)
     if not kept:
         raise RequestRefused("invalid_input", "no solution steps are left after removing signature lines")
     return tuple(kept)
@@ -92,7 +85,7 @@ def buildModelCall(request: ModelReviewRequest, prompts: PromptCatalog) -> Model
     ]:
         kind = findPersonalData(text)
         if kind is not None:
-            raise refuse(request, where, kind)
+            raise refuse(where, kind)
     data = ReviewData(
         statement=request.statement,
         rubric=tuple(request.rubric),

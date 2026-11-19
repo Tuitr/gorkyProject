@@ -146,7 +146,7 @@ def testParallelRepeatWaitsAndModelIsCalledOnce(sessionFactory: sessionmaker[Ses
     assert duplicate.status_code == 503
     assert duplicate.json()["code"] == "unavailable"
     assert duplicate.json()["retryable"] is True
-    assert duplicate.headers["Retry-After"] == "300"
+    assert duplicate.headers["Retry-After"] == "600"
     assert conflicting.status_code == 409
     assert firstResponse.status_code == 200
     assert repeat.json() == firstResponse.json()
@@ -186,7 +186,7 @@ def testInvalidModelAnswerIsNotStored(sessionFactory: sessionmaker[Session]) -> 
     assert first.status_code == 502
     assert first.json()["code"] == "model_invalid_output"
     assert second.status_code == 502
-    assert len(transport.calls) == 2
+    assert len(transport.calls) == 4, "two format attempts for each of the two requests"
     (record,) = readRecords(sessionFactory)
     assert (record.state, record.response, record.lastErrorCode) == ("pending", None, "model_invalid_output")
 

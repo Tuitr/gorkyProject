@@ -3,7 +3,7 @@
 A separate process and container from the registry; it shares only the PostgreSQL schema `refs`.
 """
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -17,7 +17,7 @@ from references.gateway.service import ReviewService
 from references.gateway.settings import GatewaySettings, buildTransport
 from references.gateway.transports.base import GatewayError, ModelTransport
 from shared.clock import Clock, SystemClock
-from shared.httperrors import ApiProblem, installErrorHandlers
+from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
 from shared.servicetokens import ServiceIdentity, ServiceTokenRegistry, requireRight
 
 REVIEW_RIGHT = "model.review"
@@ -48,7 +48,8 @@ def createApp(
     policy = RetryPolicy(maxAttempts=settings.maxAttempts, maxWaitS=settings.maxWaitS)
     limited = LimitedTransport(transport, limiter, clock, policy)
     journal = ReviewJournal(sessionFactory, clock, settings.reviewLeaseS)
-    service = ReviewService(journal, limited, prompts if prompts is not None else PromptCatalog())
+    catalog = prompts if prompts is not None else PromptCatalog()
+    service = ReviewService(journal, limited, catalog, formatAttempts=settings.formatAttempts)
 
     app = FastAPI(title="Model gateway", version="1.0.0")
     installErrorHandlers(app)
@@ -57,10 +58,10 @@ def createApp(
 
     @app.post("/internal/v1/model/review")
     def reviewTask(
-        body: ModelReviewRequest, caller: ServiceIdentity = Depends(requireRight(REVIEW_RIGHT))
+        body: ModelReviewRequest, request: Request, caller: ServiceIdentity = Depends(requireRight(REVIEW_RIGHT))
     ) -> JSONResponse:
         try:
-            response = service.review(body)
+            response = service.review(body, traceId=getTraceId(request))
         except GatewayError as error:
             raise toProblem(error) from error
         return JSONResponse(status_code=200, content=response.model_dump(mode="json"))

@@ -35,11 +35,12 @@ class GatewaySettings:
     providerLimit: int = 1
     maxAttempts: int = 3
     maxWaitS: float = 30.0
+    formatAttempts: int = 2
 
     @property
     def reviewLeaseS(self) -> float:
-        """How long one review owns its requestId: every wait plus every attempt."""
-        return self.maxWaitS + self.maxAttempts * self.leaseS
+        """How long one review owns its requestId: every wait and every attempt, for each format attempt."""
+        return self.formatAttempts * (self.maxWaitS + self.maxAttempts * self.leaseS)
 
     @classmethod
     def fromEnv(cls, environ: Mapping[str, str] = os.environ) -> Self:
@@ -57,6 +58,7 @@ class GatewaySettings:
             providerLimit=int(parsePositive(environ, "GATEWAY_PROVIDER_LIMIT", 1, whole=True)),
             maxAttempts=int(parsePositive(environ, "GATEWAY_MAX_ATTEMPTS", 3, whole=True)),
             maxWaitS=parsePositive(environ, "GATEWAY_MAX_WAIT_S", 30.0),
+            formatAttempts=int(parsePositive(environ, "GATEWAY_FORMAT_ATTEMPTS", 2, whole=True)),
         )
 
 

@@ -3,9 +3,11 @@
 Messages are fixed texts: never the request body, student work or secrets.
 """
 
+import re
 import uuid
+from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -13,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from contracts.v1.common.errors import ERROR_STATUS, RETRYABLE_CODES, ApiError
 
 TRACE_HEADER = "X-Trace-Id"
+TRACE_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 STATUS_CODES: dict[int, str] = {status: code for code, status in ERROR_STATUS.items()}
 
@@ -29,8 +32,21 @@ class ApiProblem(Exception):
 
 
 def getTraceId(request: Request) -> str:
-    incoming = request.headers.get(TRACE_HEADER)
-    return incoming if incoming else uuid.uuid4().hex
+    """One traceId per request: the caller's X-Trace-Id if it looks like an id, otherwise a new one."""
+    known = getattr(request.state, "traceId", None)
+    if isinstance(known, str):
+        return known
+    incoming = request.headers.get(TRACE_HEADER, "")
+    traceId = incoming if TRACE_ID.fullmatch(incoming) else uuid.uuid4().hex
+    request.state.traceId = traceId
+    return traceId
+
+
+async def assignTraceId(request: Request, callNext: Callable[[Request], Awaitable[Response]]) -> Response:
+    traceId = getTraceId(request)
+    response = await callNext(request)
+    response.headers.setdefault(TRACE_HEADER, traceId)
+    return response
 
 
 def errorResponse(
@@ -64,6 +80,8 @@ async def handleUnexpected(request: Request, exc: Exception) -> JSONResponse:
 
 
 def installErrorHandlers(app: FastAPI) -> None:
+    """ApiError for every failure, and the same X-Trace-Id on the response, in errors and in logs."""
+    app.middleware("http")(assignTraceId)
     app.add_exception_handler(ApiProblem, handleApiProblem)
     app.add_exception_handler(RequestValidationError, handleValidationError)
     app.add_exception_handler(StarletteHTTPException, handleHttpException)

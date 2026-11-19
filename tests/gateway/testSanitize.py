@@ -148,7 +148,6 @@ def testPersonalDataInFreeTextStopsTheCall(
     for leaked in (MARKER, "marker.test", "912"):
         assert leaked not in raised.value.message
         assert leaked not in caplog.text
-    assert "q1" in caplog.text
 
 
 MATH_LINES = [
