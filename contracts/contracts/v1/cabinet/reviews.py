@@ -1,4 +1,4 @@
-"""Public teacher operations and the draft grading receipts consumed by the cabinet."""
+"""Public teacher review operations and the grading receipts the cabinet passes on."""
 
 from typing import Annotated, Literal, Self
 
@@ -14,13 +14,17 @@ class ReviewInput(BaseModel):
 
 
 class RemoveIssue(ReviewInput):
+    """Issue ids are unique within a task. Without taskId the cabinet finds the only task holding the id."""
+
     type: Literal["remove_issue"]
     issueId: NonEmptyStr
+    taskId: NonEmptyStr | None = None
 
 
 class UpdateIssue(ReviewInput):
     type: Literal["update_issue"]
     issueId: NonEmptyStr
+    taskId: NonEmptyStr | None = None
     comment: NonEmptyStr
     correction: NonEmptyStr
 
@@ -75,13 +79,3 @@ class ReviewConflict(ApiError):
 
     code: Literal["conflict"]
     resultRev: ResultRevision
-
-
-class MarkdownRef(BaseModel):
-    bucket: Literal["results"]
-    key: NonEmptyStr
-    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-
-
-class PublishedMarkdown(ReviewRevision):
-    markdownRef: MarkdownRef

@@ -122,9 +122,14 @@ class ResultStore:
             if row is None:
                 return pendingStatus(job)
             if row.markdownRef is None:
-                return CheckStatus(checkId=checkId, state="running", reason="awaiting_artifact")
+                return CheckStatus(checkId=checkId, attemptId=CheckOutcome.model_validate(row.outcome).attemptId,
+                                   state="running", reason="awaiting_artifact")
             ref = MarkdownRef.model_validate(row.markdownRef)
-            result = publishedResult(row.outcome, ref)
+            accepted = session.scalar(
+                select(func.max(CheckResultRevision.resultRev))
+                .where(CheckResultRevision.checkId == checkId, CheckResultRevision.acceptedAt.is_not(None))
+            )
+            result = publishedResult(row.outcome, ref).model_copy(update={"publishedResultRev": accepted})
         requireArtifact(ref)
         return result
 
@@ -139,14 +144,17 @@ def publishedResult(outcome: dict[str, object], ref: MarkdownRef) -> PublishedCh
 
 
 def pendingStatus(job: CheckJob) -> CheckStatus:
+    attemptId = AttemptSubmittedInput.model_validate(job.payload).attemptId
     match job.state:
         case "queued":
-            return CheckStatus(checkId=job.checkId, state="queued", reason="queued_for_grading")
+            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="queued", reason="queued_for_grading")
         case "waiting_reference":
-            return CheckStatus(checkId=job.checkId, state="waiting_reference", reason="awaiting_reference")
+            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="waiting_reference",
+                               reason="awaiting_reference")
         case "needs_review":
-            return CheckStatus(checkId=job.checkId, state="needs_review", reason=job.completedStage or "manual_review")
+            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="needs_review",
+                               reason=job.completedStage or "manual_review")
         case "failed":
-            return CheckStatus(checkId=job.checkId, state="failed", reason="grading_failed")
+            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="failed", reason="grading_failed")
         case _:
-            return CheckStatus(checkId=job.checkId, state="running", reason="grading_in_progress")
+            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="running", reason="grading_in_progress")

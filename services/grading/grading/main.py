@@ -45,8 +45,12 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
 
     @app.get("/internal/v1/assignments/{id}/report")
     def getReport(id: str, caller: Annotated[ServiceIdentity, Depends(requireRight("reports.read"))],
-                  rev: Annotated[int | None, Query(ge=1)] = None) -> AssignmentReport:
-        report = reports.read(id, rev)
+                  rev: Annotated[int | None, Query(ge=1)] = None,
+                  assignmentRev: Annotated[int | None, Query(ge=1)] = None,
+                  excludeCheckId: Annotated[list[str] | None, Query()] = None) -> AssignmentReport:
+        if rev is not None and (assignmentRev is not None or excludeCheckId):
+            raise ApiProblem("invalid_input", "rev reads a saved snapshot; assignmentRev and excludeCheckId build a new one")
+        report = reports.read(id, rev, assignmentRev=assignmentRev, excludedCheckIds=frozenset(excludeCheckId or ()))
         if report is None:
             raise ApiProblem("not_found", "Assignment or report snapshot not found")
         return report

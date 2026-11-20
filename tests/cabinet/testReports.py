@@ -1,11 +1,12 @@
 from cabinet.reports import combineReport
-from contracts.v1.cabinet.reports import GradingReport, GradingTaskTotals
+from contracts.v1.grading.assignmentreport import AssignmentReport, TaskDistribution
 
 
 def testEmptyClassHasUndefinedShares() -> None:
-    summary = GradingReport(
-        assignmentId="assignment-1", assignmentRev=1, results=[],
-        tasks=[GradingTaskTotals(taskId="1", correct=0, incorrect=0, skipped=0)],
+    summary = AssignmentReport(
+        assignmentId="assignment-1", assignmentRev=1, rev=1, studentCount=0, students=[],
+        tasks=[TaskDistribution(taskId="1", answer={}, reasoning={}, method={}, needsReview=0, missing=0,
+                                correctShare=None, categories=[])],
     )
 
     report = combineReport("assignment-1", 1, [], {}, summary)

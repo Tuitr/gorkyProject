@@ -10,7 +10,7 @@
 | Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает DOCX или ZIP с работами; `GET /v1/uploads/{uploadId}` возвращает состояния файлов; `POST /v1/uploads/{uploadId}/bindings` подтверждает ученика |
 | События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | записываются в PostgreSQL outbox и доставляются в Redis Streams |
 | Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | эталоны [открытого mini.v1](../../../tools/dataset/releases/mini.v1/) сверены; разметка ожидает сверки № 2 |
-| Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | черновик для стыка B5.1 и A7.1. Кабинет читает его через `GET /v1/checks/{checkId}` |
+| Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | стык B5.1 и A7.1, сверен сквозным тестом `tests/e2e`. Кабинет читает его через `GET /v1/checks/{checkId}` |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | готово: № 2 принял схему в `grading/review.py` (B4.2) |
 | Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | готово: действует `review.v2.md` (№ 2, `grading/review.py`); `review.v1` снят |
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/`; обмены для № 2 (ready, pending → ready, unsupported, validation_failed) — `examples/references/exchanges/` | № 3 | № 2 | готово |
@@ -132,37 +132,50 @@
 и запрашивает статус у `GET /internal/v1/checks/{checkId}` со служебным правом `checks.read`.
 Чужие и неизвестные проверки возвращают тот же `404` без вызова `grading`.
 
-Ответ `200` содержит `checkId`, `attemptId` и `state`. Для незавершённой проверки или ошибки есть `reason`.
+Ответ `200` содержит `checkId`, `attemptId` и `state`. Варианта два, их различает наличие `taskResults`:
+
+- `CheckPending` — результата нет: `queued`, `waiting_reference`, `running`, `failed` или `needs_review` без
+  черновика (например, вариант не удалось разобрать). Есть `reason`.
+- `CheckReady` — результат есть: `taskResults`, `overallReview` и текущий `resultRev`. `state` равен `ready`
+  или `needs_review`, если хотя бы у одного задания `needsReview`; такие задания учитель проверяет сам.
+
 Если проверка уже создана в кабинете, а `grading` ещё возвращает контрактный `not_found`, кабинет показывает
-`queued`. При `ready` ответ содержит `taskResults`, `overallReview` и текущий `resultRev`. Если есть
-`publishedResultRev`, он указывает опубликованную ревизию. При отличии номеров текущий результат относится
-к черновику. `markdownRef` и ключи S3 остаются во внутреннем API.
+`queued`. Если есть `publishedResultRev`, он указывает последнюю опубликованную учителем ревизию. При отличии
+номеров текущий результат относится к черновику. `markdownRef` и ключи S3 остаются во внутреннем API.
 
 Недоступность `grading` даёт `503`, таймаут запроса — `504`, невалидный ответ или несовпадение `checkId`
 либо `attemptId` — `502` с кодом `grading_invalid_response`. Кабинет передаёт `X-Trace-Id` в `grading`.
 
 ### Отчёт по классу
 
-`GET /v1/assignments/{assignmentId}/report?rev=N` проверяет владельца ревизии и читает предварительный контракт
-`GET /internal/v1/assignments/{assignmentId}/report?rev=N`. В моделях `cabinet/reports.py` поле `rev` означает
-ревизию варианта, а у каждой выбранной проверки её версия указана в `resultRev`. `grading` возвращает одну
-выбранную пару `checkId` и `resultRev` на ученика, счётчики верных, неверных и пропущенных по заданиям и
-число учеников с замечаниями каждой категории. Формат сводки ждёт сверки с разработчиком № 2.
+`GET /v1/assignments/{assignmentId}/report?rev=N` проверяет владельца ревизии варианта `N` и читает
+`GET /internal/v1/assignments/{assignmentId}/report?assignmentRev=N` (модель `grading/assignmentreport.py`).
+У внутреннего маршрута `rev` — номер сохранённого снимка отчёта, а не варианта: с `rev` он возвращает этот
+снимок, без `rev` считает отчёт ревизии `assignmentRev` (по умолчанию последней) и сохраняет его снимком.
+`grading` выбирает одну проверку на ученика и считает исходы по заданиям и учеников по категориям замечаний.
+Кабинет переводит это в `cabinet/reports.py`: `correct`, `incorrect`, `skipped` из распределения ответов,
+`issuesByCategory` — число затронутых учеников.
 
 Кабинет добавляет список класса, несдавших и сдавших без выбранного результата. Доли делятся на число
 уникальных сдавших этот вариант, а при отсутствии сдач равны `null`. `unchecked` считает сдавших без
 одного из трёх исходов задания, поэтому пропуск — отдельный исход.
 Если в ревизии есть удалённые сдачи, кабинет передаёт их проверки повторяемым параметром `excludeCheckId`.
-Внутренний API должен исключить эти проверки при выборе результата ученика и подсчёте итогов.
+Внутренний API исключает эти проверки при выборе результата ученика и подсчёте итогов. Вместе с `rev` эти
+параметры дают `422`. Если `grading` ещё не получил вариант, кабинет отдаёт отчёт без результатов.
 
 ### Правки и выгрузка отзыва
 
-`PATCH /v1/checks/{checkId}/review` принимает `baseRev`, `editId` и список типизированных `changes`.
-`POST /v1/checks/{checkId}/publish` принимает `resultRev`. После проверки владельца кабинет передаёт их
-одноимённым маршрутам `/internal/v1`, добавляя `actorId` из сессии. При конфликте `409` кабинет возвращает
-текущий `resultRev` в конверте ошибки.
+`PATCH /v1/checks/{checkId}/review` принимает `baseRev`, `editId` и список типизированных `changes`
+(`cabinet/reviews.py`). `POST /v1/checks/{checkId}/publish` принимает `resultRev`. После проверки владельца
+кабинет передаёт их одноимённым маршрутам `/internal/v1`, добавляя `actorId` из сессии. Правки он переводит
+в операции `grading/reviewedit.py`: `remove_issue` → `removeIssue`, `update_issue` → `updateIssue`,
+`update_verdict` → `setVerdict`, `update_overall_review` → `setOverallReview`. Идентификатор замечания
+уникален внутри задания, поэтому в `remove_issue` и `update_issue` стоит передавать `taskId`. Без него кабинет
+читает ревизию `baseRev` и находит единственное задание с этим `issueId`, иначе отвечает `422`.
+При конфликте `409` `grading` присылает текущую ревизию в заголовке `X-Result-Rev`, кабинет возвращает её
+полем `resultRev` в конверте ошибки.
 
-`GET /v1/checks/{checkId}/markdown?rev=N` запрашивает у внутреннего маршрута ссылку `markdownRef` на опубликованную
-ревизию `N` с полями `bucket`, `key` и `sha256`. Кабинет сверяет идентификатор, ревизию и контрольную сумму,
-отдаёт файл как `text/markdown` и скрывает параметры S3. Модели `cabinet/reviews.py` описывают формат
-кабинета и предварительный формат ответов `grading` для сверки с разработчиком № 2.
+`GET /v1/checks/{checkId}/markdown?rev=N` отдаёт опубликованную ревизию `N` как `text/markdown`. Кабинет
+получает файл от `GET /internal/v1/checks/{checkId}/markdown?rev=N`: `grading` читает объект из бакета
+`results` и сверяет `sha256` из `markdownRef`, так что параметры S3 наружу не выходят. Неопубликованная
+ревизия — `404`.

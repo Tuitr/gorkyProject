@@ -32,7 +32,7 @@
         "type": "object"
       },
       "CheckPending": {
-        "description": "A check without a ready result, including terminal failures and cases for manual review.",
+        "description": "A check without a result yet, a terminal failure, or a manual review without any draft to show.",
         "properties": {
           "attemptId": {
             "minLength": 1,
@@ -71,6 +71,7 @@
         "type": "object"
       },
       "CheckReady": {
+        "description": "A completed result. needs_review means at least one task result is flagged for the teacher.",
         "properties": {
           "attemptId": {
             "minLength": 1,
@@ -106,7 +107,10 @@
             "type": "integer"
           },
           "state": {
-            "const": "ready",
+            "enum": [
+              "ready",
+              "needs_review"
+            ],
             "title": "State",
             "type": "string"
           },
@@ -276,17 +280,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "discriminator": {
-                    "mapping": {
-                      "failed": "#/components/schemas/CheckPending",
-                      "needs_review": "#/components/schemas/CheckPending",
-                      "queued": "#/components/schemas/CheckPending",
-                      "ready": "#/components/schemas/CheckReady",
-                      "running": "#/components/schemas/CheckPending",
-                      "waiting_reference": "#/components/schemas/CheckPending"
-                    },
-                    "propertyName": "state"
-                  },
                   "oneOf": [
                     {
                       "$ref": "#/components/schemas/CheckPending"

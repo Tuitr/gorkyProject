@@ -33,7 +33,9 @@ def testCabinetServesPublicAuthContract() -> None:
             "#/components/schemas/AssignmentSummary"
         )
         checks = schema["paths"]["/v1/checks/{checkId}"]["get"]["responses"]
-        assert checks["200"]["content"]["application/json"]["schema"]["discriminator"]["propertyName"] == "state"
+        # needs_review comes with or without a result, so the variants are told apart by taskResults, not by state.
+        variants = checks["200"]["content"]["application/json"]["schema"]["oneOf"]
+        assert {variant["$ref"].rsplit("/", 1)[1] for variant in variants} == {"CheckPending", "CheckReady"}
         for status in ("401", "422", "429"):
             body = login["responses"][status]["content"]["application/json"]
             assert body["schema"]["$ref"] == "#/components/schemas/ApiError"

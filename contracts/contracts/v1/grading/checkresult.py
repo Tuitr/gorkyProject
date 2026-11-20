@@ -29,11 +29,14 @@ class CheckOutcome(BaseModel):
 class PublishedCheck(CheckOutcome):
     state: Literal["ready", "needs_review"]
     markdownRef: MarkdownRef
+    publishedResultRev: Annotated[int, Field(ge=1)] | None = None
+    """The latest revision the teacher published (accepted), if any. Filled only by the read API."""
 
 
 class CheckStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     checkId: str
+    attemptId: str
     state: Literal["queued", "running", "waiting_reference", "needs_review", "failed"]
     reason: str

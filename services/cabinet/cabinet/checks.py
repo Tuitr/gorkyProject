@@ -39,11 +39,15 @@ def requireOwnedCheck(db: Session, checkId: str, teacherId: str) -> str:
 
 def readGradingCheck(
     settings: Settings, checkId: str, attemptId: str, traceId: str, transport: httpx.BaseTransport | None = None,
+    *, resultRev: int | None = None,
 ) -> CheckStatus:
-    response = sendGradingRequest(settings, "GET", f"/internal/v1/checks/{checkId}", traceId, transport)
+    params: dict[str, int | list[str]] | None = {"resultRev": resultRev} if resultRev is not None else None
+    response = sendGradingRequest(settings, "GET", f"/internal/v1/checks/{checkId}", traceId, transport, params=params)
 
     try:
         if response.status_code == 404 and ApiError.model_validate_json(response.content).code == "not_found":
+            if resultRev is not None:
+                raise ApiProblem("not_found", "Result revision not found")
             # The cabinet committed the check, but the worker has not received it yet.
             return CheckPending(checkId=checkId, attemptId=attemptId, state="queued", reason="Проверка ожидает обработки.")
         if response.status_code != 200:

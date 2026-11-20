@@ -33,20 +33,21 @@ from cabinet.documents import readDocx
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.reports import combineReport, deletedReportCheckIds, readReportRoster
-from cabinet.reviews import loadMarkdown, reviewConflictResponse
+from cabinet.reviews import gradingChanges, readMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.registration import TeacherRegistration
-from contracts.v1.cabinet.reports import AssignmentReport, GradingReport
-from contracts.v1.cabinet.reviews import EditReview, PublishedMarkdown, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
+from contracts.v1.cabinet.reports import AssignmentReport
+from contracts.v1.cabinet.reviews import EditReview, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import TeacherRequirement
-from contracts.v1.grading.checks import CheckStatus
+from contracts.v1.grading.assignmentreport import AssignmentReport as GradingReport
+from contracts.v1.grading.checks import CheckReady, CheckStatus
 from shared.clock import Clock, SystemClock
 from shared.dotenv import loadDotEnv
 from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
@@ -373,14 +374,19 @@ def createApp(
         with sessionFactory() as db:
             classId = requireOwnedAssignment(db, assignmentId, rev, teacher.teacherId)
             excluded = deletedReportCheckIds(db, assignmentId, rev)
-        params: dict[str, int | list[str]] = {"rev": rev}
+        params: dict[str, int | list[str]] = {"assignmentRev": rev}
         if excluded:
             params["excludeCheckId"] = excluded
         upstream = sendGradingRequest(
             settings, "GET", f"/internal/v1/assignments/{assignmentId}/report", getTraceId(request), gradingTransport,
             params=params,
         )
-        summary = readGradingModel(upstream, GradingReport)
+        if upstream.status_code == 404 and upstream.headers.get("content-type", "").startswith("application/json") \
+                and upstream.json().get("code") == "not_found":
+            # grading has not received this revision yet: nothing is counted so far.
+            summary = GradingReport(assignmentId=assignmentId, assignmentRev=rev, rev=1, studentCount=0, students=[], tasks=[])
+        else:
+            summary = readGradingModel(upstream, GradingReport)
         with sessionFactory() as db:
             roster, checks = readReportRoster(db, classId, assignmentId, rev)
         return combineReport(assignmentId, rev, roster, checks, summary)
@@ -397,11 +403,21 @@ def createApp(
         checkId: str, body: EditReview, request: Request, teacher: TeacherSession = Depends(currentTeacher),
     ) -> ReviewEdited | Response:
         with sessionFactory() as db:
-            requireOwnedCheck(db, checkId, teacher.teacherId)
+            attemptId = requireOwnedCheck(db, checkId, teacher.teacherId)
         traceId = getTraceId(request)
+
+        def readBase() -> CheckReady:
+            base = readGradingCheck(settings, checkId, attemptId, traceId, gradingTransport, resultRev=body.baseRev)
+            if not isinstance(base, CheckReady):
+                raise ApiProblem("conflict", "The base revision has no result to edit")
+            return base
+
         upstream = sendGradingRequest(
             settings, "PATCH", f"/internal/v1/checks/{checkId}/review", traceId, gradingTransport,
-            body={**body.model_dump(mode="json", exclude_none=True), "actorId": teacher.teacherId},
+            body={
+                "baseRev": body.baseRev, "editId": body.editId, "actorId": teacher.teacherId,
+                "changes": gradingChanges(body.changes, readBase),
+            },
         )
         if upstream.status_code == 409:
             return reviewConflictResponse(upstream, traceId)
@@ -453,11 +469,8 @@ def createApp(
             settings, "GET", f"/internal/v1/checks/{checkId}/markdown", getTraceId(request), gradingTransport,
             params={"rev": rev},
         )
-        artifact = readGradingModel(upstream, PublishedMarkdown)
-        if (artifact.checkId, artifact.resultRev) != (checkId, rev):
-            raise invalidGradingResponse()
         return Response(
-            content=loadMarkdown(settings, artifact.markdownRef), media_type="text/markdown",
+            content=readMarkdown(upstream), media_type="text/markdown",
             headers={
                 "Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="feedback-r{rev}.md"',
                 "X-Content-Type-Options": "nosniff",

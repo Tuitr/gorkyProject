@@ -29,6 +29,8 @@ from sqlalchemy.orm import Session, sessionmaker
 import cabinet.database
 import cabinet.settings
 import contracts.v1
+import grading.database
+import grading.settings
 import references.database
 import references.settings
 
@@ -36,7 +38,7 @@ EXAMPLES_DIR = Path(contracts.v1.__file__).parent / "examples"
 ROLES_SQL = Path(__file__).parents[1] / "deploy" / "postgres" / "init" / "10-roles.sql"
 ADMIN_DATABASE_URL = "postgresql+psycopg://gorky:gorky@127.0.0.1:15432/gorky?connect_timeout=3"
 START_HINT = "Run: docker compose -f deploy/compose.yaml up -d --wait"
-SERVICE_SCHEMAS = ("cabinet", "grading", references.settings.DB_SCHEMA)
+SERVICE_SCHEMAS = (cabinet.settings.DB_SCHEMA, grading.settings.DB_SCHEMA, references.settings.DB_SCHEMA)
 TABLES = ("reference_records", "review_calls", "provider_slots")
 
 
@@ -66,10 +68,13 @@ class ServiceMigrations:
 
 
 def serviceMigrations() -> list[ServiceMigrations]:
-    """Every service with an Alembic environment; grading joins when developer 2 adds one."""
+    """Every service with an Alembic environment. The running stand needs all three before the E2E scenario."""
     return [
         ServiceMigrations(
             cabinet.settings.DB_SCHEMA, cabinet.settings.Settings.fromEnv().databaseUrl, cabinet.database.buildAlembicConfig
+        ),
+        ServiceMigrations(
+            grading.settings.DB_SCHEMA, grading.settings.Settings.fromEnv().databaseUrl, grading.database.buildAlembicConfig
         ),
         ServiceMigrations(
             references.settings.DB_SCHEMA,

@@ -1,4 +1,4 @@
-"""The cabinet report and the draft summary it consumes from grading."""
+"""The cabinet report. The grading summary it is built from is contracts.v1.grading.assignmentreport."""
 
 from typing import Annotated
 
@@ -24,17 +24,6 @@ class GradingTaskTotals(BaseModel):
     incorrect: Count
     skipped: Count
     issuesByCategory: dict[NonEmptyStr, Count] = Field(default_factory=dict)
-
-
-class GradingReport(BaseModel):
-    """One selected check/revision per student. Task counts refer to these selected results."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    assignmentId: NonEmptyStr
-    assignmentRev: Revision
-    results: list[ReportResult]
-    tasks: list[GradingTaskTotals]
 
 
 class ReportTask(GradingTaskTotals):

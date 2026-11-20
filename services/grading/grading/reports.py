@@ -21,24 +21,27 @@ class ReportStore:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
 
-    def read(self, assignmentId: str, rev: int | None = None) -> AssignmentReport | None:
+    def read(self, assignmentId: str, rev: int | None = None, *, assignmentRev: int | None = None,
+             excludedCheckIds: frozenset[str] = frozenset()) -> AssignmentReport | None:
+        """With rev, return that snapshot. Otherwise compute the report of assignmentRev (default: the latest
+        revision) without the excluded checks, the attempts the cabinet deleted, and pin it as a snapshot."""
         with Session(self.engine) as session, session.begin():
             if rev is not None:
                 snapshot = session.get(AssignmentReportSnapshot, (assignmentId, rev))
                 return AssignmentReport.model_validate(snapshot.report) if snapshot is not None else None
             # Only one request can allocate a new snapshot number for this assignment at a time.
             session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended("grading.report:" + assignmentId, 0))))
-            assignment = session.scalar(
-                select(AssignmentJob).filter_by(assignmentId=assignmentId)
-                .order_by(AssignmentJob.assignmentRev.desc()).limit(1)
-            )
+            revisions = select(AssignmentJob).filter_by(assignmentId=assignmentId)
+            if assignmentRev is not None:
+                revisions = revisions.filter_by(assignmentRev=assignmentRev)
+            assignment = session.scalar(revisions.order_by(AssignmentJob.assignmentRev.desc()).limit(1))
             if assignment is None:
                 return None
             latest = session.scalar(
                 select(AssignmentReportSnapshot).filter_by(assignmentId=assignmentId)
                 .order_by(AssignmentReportSnapshot.rev.desc()).limit(1)
             )
-            report = currentReport(session, assignment, latest.rev if latest is not None else 1)
+            report = currentReport(session, assignment, latest.rev if latest is not None else 1, excludedCheckIds)
             if latest is not None:
                 if report == AssignmentReport.model_validate(latest.report):
                     return report
@@ -50,7 +53,8 @@ class ReportStore:
             return report
 
 
-def currentReport(session: Session, assignment: AssignmentJob, rev: int) -> AssignmentReport:
+def currentReport(session: Session, assignment: AssignmentJob, rev: int,
+                  excludedCheckIds: frozenset[str] = frozenset()) -> AssignmentReport:
     completed = (
         select(
             CheckJob.checkId.label("checkId"),
@@ -60,7 +64,7 @@ def currentReport(session: Session, assignment: AssignmentJob, rev: int) -> Assi
         .join(CheckResultRevision, CheckResultRevision.checkId == CheckJob.checkId)
         .where(
             CheckJob.assignmentId == assignment.assignmentId, CheckJob.assignmentRev == assignment.assignmentRev,
-            CheckResultRevision.markdownRef.is_not(None),
+            CheckResultRevision.markdownRef.is_not(None), CheckJob.checkId.not_in(excludedCheckIds),
         )
         .group_by(CheckJob.checkId)
         .subquery()

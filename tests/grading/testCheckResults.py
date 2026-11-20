@@ -113,7 +113,9 @@ def testRecoversDraftAndReadsPublishedRevisions(
     draft = worker.results.findDraft(checkId, "initial")
     assert draft is not None and draft.resultRev == 1 and draft.taskResults == [result]
     assert "Ответ отличается от эталона." in draft.overallReview
-    assert api.get(url, headers=headers).json() == {"checkId": checkId, "state": "running", "reason": "awaiting_artifact"}
+    assert api.get(url, headers=headers).json() == {
+        "checkId": checkId, "attemptId": "a1", "state": "running", "reason": "awaiting_artifact",
+    }
 
     clock.advance(61)
     recovered = GradingWorker(StreamConsumer(stream, "recovered", streamName=streamName), gradingEngine, clock=clock.now)
@@ -156,6 +158,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     with Session(gradingEngine) as session:
         accepted = session.get_one(CheckResultRevision, (checkId, 1))
         assert accepted.acceptedAt == initialAcceptance and accepted.acceptedBy == "teacher"
+    first = first.model_copy(update={"publishedResultRev": 1})
     assert resume() == first
     with pytest.raises(ArtifactUnavailable, match="bytes differ"):
         storage.save(checkId, 1, "Этот текст нельзя положить по ключу опубликованного отчёта.")
@@ -196,6 +199,10 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert after.tasks[0].categories == []
     assert api.get(reportUrl, params={"rev": before.rev}, headers=headers).json() == before.model_dump(mode="json")
     assert api.get(url, params={"resultRev": 3}, headers=headers).status_code == 404
+    withoutDeleted = api.get(reportUrl, params={"assignmentRev": 1, "excludeCheckId": checkId}, headers=headers)
+    assert withoutDeleted.status_code == 200 and withoutDeleted.json()["students"] == []
+    assert api.get(reportUrl, params={"assignmentRev": 2}, headers=headers).status_code == 404
+    assert api.get(reportUrl, params={"rev": 1, "excludeCheckId": checkId}, headers=headers).status_code == 422
 
     manualText = "Мой отзыв о решении."
     manual = {"baseRev": 2, "editId": "manual", "actorId": "teacher", "changes": [
@@ -220,7 +227,9 @@ def testRecoversDraftAndReadsPublishedRevisions(
     storage.client.put_object(Bucket="results", Key=secondRef.key, Body=b"different bytes")
     assert api.get(url, params={"resultRev": 2}, headers=headers).status_code == 503
     assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 503
-    assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json")
+    assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json") | {
+        "publishedResultRev": 2,
+    }, "publishedResultRev is the latest revision the teacher published, whichever revision is read"
 
 
 def testInlineMarkupKeepsOnlySafeMath() -> None:

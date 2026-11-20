@@ -7,7 +7,8 @@ from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.classes import StudentRecord
 from cabinet.gradingclient import invalidGradingResponse
 from contracts.v1.cabinet.classes import StudentSummary
-from contracts.v1.cabinet.reports import AssignmentReport, GradingReport, ReportTask
+from contracts.v1.cabinet.reports import AssignmentReport, ReportResult, ReportTask
+from contracts.v1.grading.assignmentreport import AssignmentReport as GradingReport
 
 
 def readReportRoster(
@@ -51,12 +52,15 @@ def deletedReportCheckIds(db: Session, assignmentId: str, assignmentRev: int) ->
 def combineReport(
     assignmentId: str, assignmentRev: int, roster: list[StudentSummary], checks: dict[str, str], upstream: GradingReport,
 ) -> AssignmentReport:
+    """grading counts its selected result per student; the cabinet adds the roster and the public shares."""
     if (upstream.assignmentId, upstream.assignmentRev) != (assignmentId, assignmentRev):
         raise invalidGradingResponse()
-    reviewed = {result.studentId for result in upstream.results}
-    if len(reviewed) != len(upstream.results) or any(
-        checks.get(result.checkId) != result.studentId for result in upstream.results
-    ):
+    results = [
+        ReportResult(studentId=student.studentId, checkId=student.checkId, resultRev=student.resultRev)
+        for student in upstream.students
+    ]
+    reviewed = {result.studentId for result in results}
+    if len(reviewed) != len(results) or any(checks.get(result.checkId) != result.studentId for result in results):
         raise invalidGradingResponse()
     if len({task.taskId for task in upstream.tasks}) != len(upstream.tasks):
         raise invalidGradingResponse()
@@ -66,19 +70,21 @@ def combineReport(
     waiting = submitted - reviewed
     tasks = []
     for task in upstream.tasks:
-        counted = task.correct + task.incorrect + task.skipped
-        if counted > len(reviewed) or any(count > len(reviewed) for count in task.issuesByCategory.values()):
+        correct, incorrect, skipped = (task.answer.get(verdict, 0) for verdict in ("correct", "incorrect", "skipped"))
+        counted = correct + incorrect + skipped
+        affected = {trend.category: trend.affectedStudents for trend in task.categories}
+        if counted > len(reviewed) or any(count > len(reviewed) for count in affected.values()):
             raise invalidGradingResponse()
         tasks.append(ReportTask(
-            taskId=task.taskId, correct=task.correct, incorrect=task.incorrect, skipped=task.skipped,
-            issuesByCategory=task.issuesByCategory, unchecked=total - counted,
-            correctShare=task.correct / total if total else None,
-            incorrectShare=task.incorrect / total if total else None,
-            skippedShare=task.skipped / total if total else None,
+            taskId=task.taskId, correct=correct, incorrect=incorrect, skipped=skipped,
+            issuesByCategory=affected, unchecked=total - counted,
+            correctShare=correct / total if total else None,
+            incorrectShare=incorrect / total if total else None,
+            skippedShare=skipped / total if total else None,
         ))
     return AssignmentReport(
         assignmentId=assignmentId, assignmentRev=assignmentRev, students=roster, submittedCount=total,
         notSubmitted=[student for student in roster if student.studentId not in submitted],
         waiting=[student for student in roster if student.studentId in waiting],
-        results=upstream.results, tasks=tasks,
+        results=results, tasks=tasks,
     )

@@ -45,6 +45,8 @@ from cabinet.settings import DB_SCHEMA, Settings
 from cabinet.uploads import SubmissionDocument, UploadFileRecord, UploadRecord, storeUpload
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE
 from contracts.v1.events.checks import AssignmentPublishedEvent, AttemptSubmittedEvent, TeacherRequirement, checksEventAdapter
+from contracts.v1.grading.assignmentreport import AssignmentReport as AssignmentReportSummary
+from contracts.v1.grading.assignmentreport import CategoryTrend, ReportStudent, TaskDistribution
 from shared.buckets import RESULTS_BUCKET, SOURCES_BUCKET
 from shared.clock import ManualClock
 
@@ -1179,14 +1181,9 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
 
     def summary(request: Request) -> Response:
         requested.append(request)
-        return Response(200, json={
-            "assignmentId": assignmentId, "assignmentRev": 1,
-            "results": [
-                {"checkId": "new", "studentId": "reviewed", "resultRev": 2},
-                {"checkId": "skip", "studentId": "skipped", "resultRev": 1},
-            ],
-            "tasks": [{"taskId": "1", "correct": 1, "incorrect": 0, "skipped": 1, "issuesByCategory": {"sign": 1}}],
-        })
+        return Response(200, json=gradingReport(
+            assignmentId, [("reviewed", "new", 2), ("skipped", "skip", 1)], [("1", 1, 0, 1, {"sign": 1})],
+        ))
 
     app = createApp(
         replace(Settings.fromEnv(), gradingServiceToken="test-cabinet"), sessionFactory=cabinetSessions,
@@ -1213,7 +1210,27 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
         }]
         assert len(requested) == 1
         assert requested[0].url.path == f"/internal/v1/assignments/{assignmentId}/report"
-        assert requested[0].url.params["rev"] == "1"
+        assert dict(requested[0].url.params) == {"assignmentRev": "1"}
+
+
+def gradingReport(
+    assignmentId: str, results: list[tuple[str, str, int]], tasks: list[tuple[str, int, int, int, dict[str, int]]],
+) -> dict[str, object]:
+    """grading's AssignmentReport: results are (studentId, checkId, resultRev); tasks are
+    (taskId, correct, incorrect, skipped, affected students by category)."""
+    count = len(results)
+    return AssignmentReportSummary(
+        assignmentId=assignmentId, assignmentRev=1, rev=1, studentCount=count,
+        students=[ReportStudent(studentId=studentId, attemptId=checkId, checkId=checkId, resultRev=resultRev,
+                                selection="draft") for studentId, checkId, resultRev in results],
+        tasks=[TaskDistribution(
+            taskId=taskId, answer={"correct": correct, "incorrect": incorrect, "skipped": skipped, "unreadable": 0},
+            reasoning={}, method={}, needsReview=0, missing=count - correct - incorrect - skipped,
+            correctShare=correct / count if count else None,
+            categories=[CategoryTrend(category=category, affectedStudents=affected, primaryIssues=affected)
+                        for category, affected in categories.items()],
+        ) for taskId, correct, incorrect, skipped, categories in tasks],
+    ).model_dump(mode="json")
 
 
 @pytest.fixture
@@ -1372,11 +1389,7 @@ def testDeletingOneSubmissionHidesItsChecksAndAllowsResubmission(
     def grading(request: Request) -> Response:
         assert request.url.path == f"/internal/v1/assignments/{assignmentId}/report"
         assert request.url.params.get_list("excludeCheckId") == removedCheckIds
-        return Response(200, json={
-            "assignmentId": assignmentId, "assignmentRev": 1,
-            "results": [{"studentId": studentId, "checkId": retainedCheckId, "resultRev": 1}],
-            "tasks": [{"taskId": "1", "correct": 1, "incorrect": 0, "skipped": 0}],
-        })
+        return Response(200, json=gradingReport(assignmentId, [(studentId, retainedCheckId, 1)], [("1", 1, 0, 0, {})]))
 
     settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
     app = createApp(
@@ -1434,77 +1447,87 @@ def testTeacherEditsPublishesAndDownloadsAnExplicitRevision(
     cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
 ) -> None:
     checkId, owner = reviewedCheck
+    with cabinetSessions() as db:
+        attemptId = db.execute(select(CheckRecord.attemptId)).scalar_one()
     settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
-    adminSettings = replace(
-        settings, s3AccessKeyId=os.environ.get("S3_ACCESS_KEY_ID", "gorky-dev"),
-        s3SecretAccessKey=os.environ.get("S3_SECRET_ACCESS_KEY", "gorky-dev-secret"),
-    )
     original = "# Исходный отзыв\n".encode()
-    key = f"review-tests/{checkId}/r1.md"
-    edit = {"baseRev": 1, "editId": "edit-1", "changes": [{"type": "remove_issue", "issueId": "i1"}]}
+    edit = {"baseRev": 1, "editId": "edit-1", "changes": [
+        {"type": "remove_issue", "issueId": "i1"},
+        {"type": "update_verdict", "taskId": "t1", "reasoning": "valid"},
+    ]}
+    issue = {"issueId": "i1", "stepId": "s1", "category": "sign", "comment": "Лишний знак.", "correction": "13"}
+    base = {
+        "checkId": checkId, "attemptId": attemptId, "state": "ready", "resultRev": 1, "overallReview": "Отзыв.",
+        "taskResults": [{"taskId": "t1", "answer": "correct", "reasoning": "invalid", "method": "optional",
+                         "issues": [issue], "needsReview": False}],
+        "markdownRef": {"bucket": "results", "key": "internal", "sha256": "0" * 64},
+    }
+    calls: list[tuple[str, str]] = []
 
     def grading(request: Request) -> Response:
         assert request.headers["Authorization"] == "Bearer test-cabinet"
         path = f"/internal/v1/checks/{checkId}"
+        calls.append((request.method, request.url.path))
+        if request.method == "GET" and request.url.path == path:
+            assert dict(request.url.params) == {"resultRev": "1"}
+            return Response(200, json=base)
         if request.method == "PATCH":
             assert request.url.path == f"{path}/review"
             body = json.loads(request.content)
             if body["editId"] == "stale-edit":
-                return Response(409, json={
-                    "code": "conflict", "message": "internal details", "retryable": False,
-                    "traceId": "grading", "resultRev": 2,
+                return Response(409, headers={"X-Result-Rev": "2"}, json={
+                    "code": "conflict", "message": "internal details", "retryable": False, "traceId": "grading",
                 })
-            assert body == {**edit, "actorId": owner}
+            assert body == {"baseRev": 1, "editId": "edit-1", "actorId": owner, "changes": [
+                {"op": "removeIssue", "taskId": "t1", "issueId": "i1"},
+                {"op": "setVerdict", "taskId": "t1", "reasoning": "valid"},
+            ]}
             return Response(200, json={"checkId": checkId, "editId": "edit-1", "resultRev": 2})
         if request.method == "POST":
             assert request.url.path == f"{path}/publish"
             assert json.loads(request.content) == {"resultRev": 1, "actorId": owner}
-            return Response(200, json={"checkId": checkId, "resultRev": 1})
+            return Response(200, json={"checkId": checkId, "resultRev": 1, "markdownRef": base["markdownRef"]})
         assert request.method == "GET" and request.url.path == f"{path}/markdown"
         if request.url.params["rev"] == "2":
             return Response(404, json={
                 "code": "not_found", "message": "Revision is a draft", "retryable": False, "traceId": "grading",
             })
         assert request.url.params["rev"] == "1"
-        return Response(200, json={
-            "checkId": checkId, "resultRev": 1,
-            "markdownRef": {"bucket": RESULTS_BUCKET, "key": key, "sha256": hashlib.sha256(original).hexdigest()},
-        })
+        return Response(200, content=original, headers={"Content-Type": "text/markdown; charset=utf-8"})
 
     app = createApp(
         settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock,
         gradingTransport=MockTransport(grading),
     )
-    with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(adminSettings)) as s3:
-        if RESULTS_BUCKET not in {bucket.get("Name") for bucket in s3.list_buckets().get("Buckets", [])}:
-            s3.create_bucket(Bucket=RESULTS_BUCKET)
-        s3.put_object(Bucket=RESULTS_BUCKET, Key=key, Body=original)
-        try:
-            assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
-            path = f"/v1/checks/{checkId}"
-            changed = client.patch(f"{path}/review", json=edit)
-            assert changed.status_code == 200, changed.text
-            assert changed.json() == {"checkId": checkId, "editId": "edit-1", "resultRev": 2}
-            stale = client.patch(f"{path}/review", json={**edit, "editId": "stale-edit"})
-            assert stale.status_code == 409 and stale.json()["resultRev"] == 2
-            assert "internal details" not in stale.text
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        path = f"/v1/checks/{checkId}"
+        changed = client.patch(f"{path}/review", json=edit)
+        assert changed.status_code == 200, changed.text
+        assert changed.json() == {"checkId": checkId, "editId": "edit-1", "resultRev": 2}
+        assert [method for method, _ in calls] == ["GET", "PATCH"], "the task of i1 is looked up once"
+        calls.clear()
+        withTask = {"type": "remove_issue", "taskId": "t1", "issueId": "i1"}
+        stale = client.patch(f"{path}/review", json={**edit, "editId": "stale-edit", "changes": [withTask]})
+        assert stale.status_code == 409 and stale.json()["resultRev"] == 2
+        assert "internal details" not in stale.text
+        assert [method for method, _ in calls] == ["PATCH"], "a named task needs no lookup"
+        unknown = client.patch(f"{path}/review", json={**edit, "changes": [{"type": "remove_issue", "issueId": "i9"}]})
+        assert unknown.status_code == 422 and unknown.json()["code"] == "invalid_input"
 
-            published = client.post(f"{path}/publish", json={"resultRev": 1})
-            assert published.status_code == 200, published.text
-            assert published.json() == {"checkId": checkId, "resultRev": 1}
-            assert client.get(f"{path}/markdown?rev=2").status_code == 404
-            downloaded = client.get(f"{path}/markdown?rev=1")
-            assert downloaded.status_code == 200, downloaded.text
-            assert downloaded.headers["content-type"].startswith("text/markdown")
-            assert downloaded.headers["content-disposition"].startswith("attachment;")
-            assert downloaded.content == original
-        finally:
-            s3.delete_object(Bucket=RESULTS_BUCKET, Key=key)
+        published = client.post(f"{path}/publish", json={"resultRev": 1})
+        assert published.status_code == 200, published.text
+        assert published.json() == {"checkId": checkId, "resultRev": 1}
+        assert client.get(f"{path}/markdown?rev=2").status_code == 404
+        downloaded = client.get(f"{path}/markdown?rev=1")
+        assert downloaded.status_code == 200, downloaded.text
+        assert downloaded.headers["content-type"].startswith("text/markdown")
+        assert downloaded.headers["content-disposition"].startswith("attachment;")
+        assert downloaded.content == original
 
 
 def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
     cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     checkId, _ = reviewedCheck
     addTeacher(cabinetSessions, "teacher.other@example.org")
@@ -1519,10 +1542,6 @@ def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
             "checkId": checkId, "attemptId": attemptId, "state": "queued", "reason": "Ожидает проверки",
         })
 
-    def unexpectedStorage(*args: object) -> bytes:
-        raise AssertionError("A refused download must not read S3")
-
-    monkeypatch.setattr("cabinet.main.loadMarkdown", unexpectedStorage)
     app = createApp(
         replace(Settings.fromEnv(), gradingServiceToken="test-cabinet"), sessionFactory=cabinetSessions,
         passwords=Passwords(CountingHasher()), clock=clock, gradingTransport=MockTransport(grading),
