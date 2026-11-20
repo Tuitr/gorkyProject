@@ -2,15 +2,14 @@ import { useState } from 'react'
 import { REVIEW_LABEL, type ReviewItem, type State, type Submission } from '../domain'
 import { href } from '../router'
 import { patch, useStore } from '../store'
-import { Badge, Crop, Modal, PageHead } from '../ui'
+import { Badge, Crop, PageHead } from '../ui'
 import { AssignmentHeader, NotFound, useOwnClasses } from './common'
 
 /** Экран 7. Спорные места: карточка на работу ученика (фото, имя, число предполагаемых ошибок и недочётов);
- *  по нажатию — окно со спорными местами этой работы. */
+ *  по нажатию — сразу страница проверки этой работы, спорные места разбираются там (QueueCard). */
 export function Queue({ assignmentId }: { assignmentId?: string }) {
   const { state } = useStore()
   const classes = useOwnClasses()
-  const [openSub, setOpenSub] = useState<string | null>(null)
   const a = assignmentId ? state.assignments.find((x) => x.id === assignmentId) : undefined
   if (assignmentId && !a) return <NotFound />
 
@@ -33,9 +32,6 @@ export function Queue({ assignmentId }: { assignmentId?: string }) {
   }
   const studentName = (s: Submission) =>
     state.classes.find((c) => c.id === s.classId)?.students.find((x) => x.id === s.studentId)?.name ?? 'Ученик не определён'
-  const current = works.find((w) => w.s.id === openSub)
-  // в окне — нерассмотренные места; когда разобрано последнее, работа уходит из списка и окно закрывается
-  const currentItems = open.filter((r) => r.submissionId === openSub)
 
   return (
     <div className={a ? 'page page--wide' : 'page'}>
@@ -49,7 +45,7 @@ export function Queue({ assignmentId }: { assignmentId?: string }) {
         <ul className="qworks">
           {works.map(({ s, count }) => (
             <li key={s.id}>
-              <button className="qwork" onClick={() => setOpenSub(s.id)}>
+              <a className="qwork" href={href('a', s.assignmentId, 'report', s.id, { from: 'queue' })}>
                 <span className="qwork__photo">
                   {s.pages[0] ? <img src={s.pages[0].image} alt="" /> : <span className="muted small">Нет фото</span>}
                 </span>
@@ -57,26 +53,18 @@ export function Queue({ assignmentId }: { assignmentId?: string }) {
                 <span className="qwork__count">
                   Предположительных ошибок и недочётов: <b>{count}</b>
                 </span>
-              </button>
+              </a>
             </li>
           ))}
         </ul>
       )}
 
-      {current && (
-        <Modal title={studentName(current.s)} onClose={() => setOpenSub(null)} wide>
-          <ul className="queue queue--modal">
-            {currentItems.map((r) => (
-              <QueueCard key={r.id} r={r} />
-            ))}
-          </ul>
-        </Modal>
-      )}
     </div>
   )
 }
 
-function QueueCard({ r }: { r: ReviewItem }) {
+/** Разбор одного спорного места; onReport — уже на странице проверки работы (без ссылок на неё же). */
+export function QueueCard({ r, onReport }: { r: ReviewItem; onReport?: boolean }) {
   const { state, update, toast } = useStore()
   const s = state.submissions.find((x) => x.id === r.submissionId) as Submission
   const a = state.assignments.find((x) => x.id === s.assignmentId)!
@@ -141,11 +129,16 @@ function QueueCard({ r }: { r: ReviewItem }) {
         </span>
       </div>
       <div className="qcard__body">
-        {page && (
-          <a href={href('a', a.id, s.studentId ? 'report' : 'queue', ...(s.studentId ? [s.id] : []))} className="qcard__crop">
-            <Crop src={page.image} box={r.box} />
-          </a>
-        )}
+        {page &&
+          (onReport ? (
+            <span className="qcard__crop">
+              <Crop src={page.image} box={r.box} />
+            </span>
+          ) : (
+            <a href={href('a', a.id, s.studentId ? 'report' : 'queue', ...(s.studentId ? [s.id] : []))} className="qcard__crop">
+              <Crop src={page.image} box={r.box} />
+            </a>
+          ))}
         <div className="qcard__info">
           <b>{student?.name ?? 'Ученик не определён'}</b>
           {task && <span className="muted small"> · №{task.num}</span>}
@@ -221,9 +214,11 @@ function QueueCard({ r }: { r: ReviewItem }) {
                   <button className="btn" onClick={() => resolve(undefined, 'Автоматическая оценка сохранена')}>
                     Сохранить автоматическую оценку
                   </button>
-                  <a className="link-btn" href={href('a', a.id, 'report', s.id)}>
-                    Проверить другой способ решения
-                  </a>
+                  {!onReport && (
+                    <a className="link-btn" href={href('a', a.id, 'report', s.id)}>
+                      Проверить другой способ решения
+                    </a>
+                  )}
                 </>
               )}
               {r.kind === 'reshoot' && (

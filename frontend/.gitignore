@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# учётные записи и ключ подписи сессий (server/auth.ts)
+.data
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

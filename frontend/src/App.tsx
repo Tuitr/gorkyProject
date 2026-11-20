@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import './App.css'
 import './mvp.css'
 import { href, useRoute } from './router'
-import { useStore } from './store'
+import { shortName, useStore } from './store'
 import { Donut } from './ui'
 import { AssignmentForm } from './screens/AssignmentForm'
 import { ClassReport } from './screens/ClassReport'
@@ -58,7 +58,7 @@ function Screen() {
 
 export default function App() {
   const { path } = useRoute()
-  const { state, reset } = useStore()
+  const { state, reset, user, logout } = useStore()
   if (path[0] === 'print') return <PrintView path={path.slice(1)} />
 
   const open = state.review.filter((r) => !r.resolved).length
@@ -118,6 +118,16 @@ export default function App() {
           >
             Демонстрационные данные
           </button>
+          {user && (
+            <span className="shell__teacher" title={`${user.name} · ${user.email}`}>
+              {shortName(user)}
+              {logout && (
+                <button className="shell__logout" onClick={logout}>
+                  Выйти
+                </button>
+              )}
+            </span>
+          )}
         </div>
       </header>
       <main className="shell__main">

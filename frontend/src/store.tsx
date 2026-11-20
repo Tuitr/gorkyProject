@@ -8,6 +8,34 @@ import type { Job, JobKind, State } from './domain'
  */
 
 const LS_KEY = 'gorky-mvp-v1'
+/** Кому уже отданы данные, накопленные в браузере до появления входа (общий ключ LS_KEY). */
+const LEGACY_OWNER_KEY = 'gorky-mvp-legacy-owner'
+
+export type AuthUser = { id: string; name: string; lastName: string; firstName: string; middleName: string; email: string }
+
+/** «Иванова Анна Сергеевна» → «Иванова А. С.» */
+export const shortName = (u: AuthUser) =>
+  u.lastName ? [u.lastName, ...[u.firstName, u.middleName].filter(Boolean).map((p) => `${p[0]}.`)].join(' ') : u.name
+
+/** Делает учителя владельцем состояния: его id и имя, его классы (бывшие классы прежнего владельца). */
+function asTeacher(s: State, user: AuthUser): State {
+  const prev = s.teacher.id
+  return {
+    ...s,
+    teacher: { id: user.id, name: user.name },
+    classes: s.classes.map((c) => (c.ownerId === prev ? { ...c, ownerId: user.id } : c)),
+  }
+}
+
+const emptyState = (user: AuthUser): State => ({
+  version: 1,
+  teacher: { id: user.id, name: user.name },
+  classes: [],
+  assignments: [],
+  submissions: [],
+  review: [],
+  practices: [],
+})
 const DB_NAME = 'gorky-mvp'
 const DB_STORE = 'blobs'
 
@@ -90,12 +118,27 @@ type Store = {
   /** Запускает фоновую задачу; повторный вызов с тем же id, пока идёт первый, игнорируется. */
   runJob: (id: string, kind: JobKind, title: string, fn: () => Promise<void>) => Promise<void>
   toast: (text: string, kind?: Toast['kind']) => void
+  /** вошедший учитель (без входа — в тестах/предпросмотре — undefined) */
+  user?: AuthUser
+  logout?: () => void
 }
 
 const Ctx = createContext<Store | null>(null)
 
 /** initial — готовое состояние (для тестов/предпросмотра); без него читаем из браузера. */
-export function StoreProvider({ children, initial }: { children: ReactNode; initial?: State }) {
+export function StoreProvider({
+  children,
+  initial,
+  user,
+  logout,
+}: {
+  children: ReactNode
+  initial?: State
+  user?: AuthUser
+  logout?: () => void
+}) {
+  // у каждого учителя свои данные в браузере
+  const key = user ? `${LS_KEY}:${user.id}` : LS_KEY
   const [state, setState] = useState<State | null>(initial ?? null)
   const [jobs, setJobs] = useState<Record<string, Job>>({})
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -107,17 +150,26 @@ export function StoreProvider({ children, initial }: { children: ReactNode; init
 
   useEffect(() => {
     if (initial) return
+    const fresh = () => (user ? emptyState(user) : seedState())
     let raw: string | null = null
     try {
-      raw = localStorage.getItem(LS_KEY)
+      raw = localStorage.getItem(key)
+      // данные, накопленные в этом браузере до появления входа, достаются первому вошедшему учителю
+      if (!raw && user && !localStorage.getItem(LEGACY_OWNER_KEY)) {
+        const legacy = localStorage.getItem(LS_KEY)
+        if (legacy) {
+          localStorage.setItem(LEGACY_OWNER_KEY, user.id)
+          raw = legacy
+        }
+      }
     } catch {
-      /* хранилище недоступно — работаем на демо-данных */
+      /* хранилище недоступно — работаем на пустых/демо-данных */
     }
-    if (!raw) return setState(seedState())
+    if (!raw) return setState(fresh())
     hydrate(raw)
-      .then((s) => setState(s.version === 1 ? s : seedState()))
-      .catch(() => setState(seedState()))
-  }, [initial])
+      .then((s) => setState(s.version !== 1 ? fresh() : user ? asTeacher(s, user) : s))
+      .catch(() => setState(fresh()))
+  }, [initial, key, user])
 
   // сохранение с небольшой задержкой
   useEffect(() => {
@@ -126,11 +178,11 @@ export function StoreProvider({ children, initial }: { children: ReactNode; init
       const pending = new Map<string, string>()
       const json = dehydrate(state, pending)
       Promise.all([...pending].map(([k, v]) => idbPut(k, v)))
-        .then(() => localStorage.setItem(LS_KEY, json))
+        .then(() => localStorage.setItem(key, json))
         .catch((e) => console.warn('Не удалось сохранить состояние', e))
     }, 400)
     return () => clearTimeout(t)
-  }, [state])
+  }, [state, key])
 
   const toast = useCallback((text: string, kind: Toast['kind'] = 'info') => {
     const id = Date.now() + Math.random()
@@ -154,12 +206,12 @@ export function StoreProvider({ children, initial }: { children: ReactNode; init
   }, [])
 
   const update = useCallback((fn: (s: State) => State) => setState((s) => (s ? fn(s) : s)), [])
-  const reset = useCallback(() => setState(seedState()), [])
+  const reset = useCallback(() => setState(user ? asTeacher(seedState(), user) : seedState()), [user])
   const getState = useCallback(() => stateRef.current as State, [])
 
   const value = useMemo(
-    () => (state ? { state, update, getState, reset, jobs, runJob, toast } : null),
-    [state, update, getState, reset, jobs, runJob, toast],
+    () => (state ? { state, update, getState, reset, jobs, runJob, toast, user, logout } : null),
+    [state, update, getState, reset, jobs, runJob, toast, user, logout],
   )
 
   if (!value) {

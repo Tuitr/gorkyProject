@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
+import { authPlugin } from './server/auth.ts'
 import { gigachatPlugin } from './server/gigachat.ts'
 import { qwenPlugin } from './server/qwen.ts'
 
@@ -22,7 +23,8 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), gigachatPlugin(env), qwenPlugin(env)],
+    // authPlugin — первым: без входа остальные /api/* отвечают 401
+    plugins: [authPlugin(env), react(), gigachatPlugin(env), qwenPlugin(env)],
     server: { proxy: ocrProxy },
     preview: { proxy: ocrProxy },
   }

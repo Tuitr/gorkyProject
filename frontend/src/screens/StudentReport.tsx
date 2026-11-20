@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ErrorPanel } from '../components/ErrorPanel'
 import { CATEGORY_LABEL, TECHNIQUE_LABEL, activeMistakes, submissionTotal, taskScore, type TaskResult } from '../domain'
-import { href } from '../router'
+import { href, useRoute } from '../router'
 import { useStore } from '../store'
 import { Badge, Photo, type Tone } from '../ui'
 import { NotFound, useAssignment } from './common'
@@ -18,6 +18,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   const { a, classes } = useAssignment(id)
   const [panel, setPanel] = useState<string | null>(null)
   const [pageIdx, setPageIdx] = useState(0)
+  const fromQueue = useRoute().query.get('from') === 'queue'
   const s = state.submissions.find((x) => x.id === submissionId)
   const cls = classes.find((c) => c.id === s?.classId)
   if (!a || !s || !cls) return <NotFound what={!a ? 'Работа' : 'Сданная работа'} />
@@ -35,7 +36,11 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   return (
     <div className="page page--wide report-page">
       <div className="muted small no-print">
-        <a href={href('a', a.id, 'sheet', { c: cls.id })}>← Ведомость {cls.name}</a>
+        {fromQueue ? (
+          <a href="#/queue">← Спорные места</a>
+        ) : (
+          <a href={href('a', a.id, 'sheet', { c: cls.id })}>← Ведомость {cls.name}</a>
+        )}
       </div>
       <div className="page-head">
         <div>
@@ -53,7 +58,6 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
               {s.teacherTotal != null ? 'итог учителя' : total.preliminary ? 'предварительно' : 'баллов'}
             </span>
           </div>
-          {s.approved ? <Badge tone="ok">утверждено</Badge> : <Badge tone="warn">не утверждено</Badge>}
           <button className="btn no-print" onClick={() => print()}>
             Печать
           </button>
