@@ -57,6 +57,12 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
     setError('')
     if (isReg && password !== password2) return setError('Пароли не совпадают.')
     if (isReg && !lastName.trim() && !firstName.trim()) return setError('Укажите фамилию и имя.')
+    // те же правила, что у кабинета (TeacherRegistration): иначе он отвечает 422 без подсказки, какое поле не так
+    if (isReg && password.length < 8) return setError('Пароль должен быть не короче 8 символов.')
+    if (isReg && !/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(email.trim()))
+      return setError('Укажите настоящий адрес почты, например ivanov@mail.ru.')
+    if (isReg && /\.(local|localhost|test|example|invalid|internal)$/i.test(email.trim()))
+      return setError('Служебные домены (.local, .test и подобные) кабинет не принимает — укажите обычную почту.')
     setBusy(true)
     try {
       onDone(isReg ? await register({ lastName, firstName, middleName }, email, password) : await login(email, password))
