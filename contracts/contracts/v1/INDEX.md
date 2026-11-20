@@ -9,7 +9,7 @@
 | Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает DOCX или ZIP с работами; `GET /v1/uploads/{uploadId}` возвращает состояния файлов; `POST /v1/uploads/{uploadId}/bindings` подтверждает ученика |
 | События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | записываются в PostgreSQL outbox и доставляются в Redis Streams |
 | Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | схема и генератор готовы; [открытый mini.v1](../../../tools/dataset/releases/mini.v1/) ожидает сверки № 2 и № 3 |
-| Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
+| Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | черновик для стыка B5.1 и A7.1. Кабинет читает его через `GET /v1/checks/{checkId}` |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | черновик от № 3, ждёт подтверждения № 2 |
 | Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | `review.v1.md` — черновик от № 3, ждёт № 2 |
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/` | № 3 | № 2 | готово |
@@ -38,7 +38,7 @@
 
 - Каждый вызов `/internal/v1` несёт `Authorization: Bearer <служебный токен>` вызывающего сервиса.
   Cookie учителя внутренние вызовы не авторизует. Проверка: `shared.servicetokens.requireRight`.
-- Права операций: `references.request` (POST и GET эталонов), `model.review` (вызов шлюза).
+- Права операций: `checks.read` (чтение проверки), `references.request` (POST и GET эталонов), `model.review` (вызов шлюза).
 - Любая ошибка — `ApiError {code, message, retryable, traceId}`, коды и статусы в `common/errors.py`.
   Повторяемые коды: `rate_limited`, `unavailable`, `timeout` (с тем же requestId и с учётом Retry-After).
   `conflict` (409), `invalid_input` (422), `personal_data_suspected` (422, только шлюз) и `model_invalid_output` (502)
@@ -99,3 +99,18 @@
 
 [Пример передачи работ](examples/handoff/README.md) содержит полученные через `XREAD` сообщения
 и оба синтетических DOCX. Проверка `tests/infra/testChecksHandoff.py` читает документы с правами сервиса проверки.
+
+### Статус и результат проверки
+
+`GET /v1/checks/{checkId}` принимает `checkId` из статуса загрузки. Кабинет проверяет владельца класса
+и запрашивает статус у `GET /internal/v1/checks/{checkId}` со служебным правом `checks.read`.
+Чужие и неизвестные проверки возвращают тот же `404` без вызова `grading`.
+
+Ответ `200` содержит `checkId`, `attemptId` и `state`. Для незавершённой проверки или ошибки есть `reason`.
+Если проверка уже создана в кабинете, а `grading` ещё возвращает контрактный `not_found`, кабинет показывает
+`queued`. При `ready` ответ содержит `taskResults`, `overallReview` и текущий `resultRev`. Если есть
+`publishedResultRev`, он указывает опубликованную ревизию. При отличии номеров текущий результат относится
+к черновику. `markdownRef` и ключи S3 остаются во внутреннем API.
+
+Недоступность `grading` даёт `503`, таймаут запроса — `504`, невалидный ответ или несовпадение `checkId`
+либо `attemptId` — `502` с кодом `grading_invalid_response`. Кабинет передаёт `X-Trace-Id` в `grading`.

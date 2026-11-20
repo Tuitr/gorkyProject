@@ -9,6 +9,7 @@ import secrets
 import uuid
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Request, Response, UploadFile
 from pydantic import Json
 from starlette.datastructures import UploadFile as MultipartFile
@@ -22,6 +23,7 @@ from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
 from cabinet.auth.throttle import LoginThrottle
 from cabinet.bindingconfirmation import confirmBinding
+from cabinet.checks import readGradingCheck, requireOwnedCheck
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.documents import readDocx
 from cabinet.outbox import EventContext, OutboxRecord
@@ -34,6 +36,7 @@ from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import TeacherRequirement
+from contracts.v1.grading.checks import CheckStatus
 from shared.clock import Clock, SystemClock
 from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
 
@@ -84,6 +87,7 @@ def createApp(
     sessionFactory: sessionmaker[Session] | None = None,
     passwords: Passwords | None = None,
     clock: Clock | None = None,
+    gradingTransport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
     settings = settings if settings is not None else Settings.fromEnv()
     if sessionFactory is None:
@@ -266,6 +270,19 @@ def createApp(
     ) -> BindingConfirmed:
         with sessionFactory.begin() as db:
             return confirmBinding(db, uploadId, teacher.teacherId, body, event)
+
+    @v1.get(
+        "/checks/{checkId}",
+        response_model_exclude_none=True,
+        responses={
+            401: {"model": ApiError}, 404: {"model": ApiError}, 502: {"model": ApiError},
+            503: {"model": ApiError}, 504: {"model": ApiError},
+        },
+    )
+    def readCheck(checkId: str, request: Request, teacher: TeacherSession = Depends(currentTeacher)) -> CheckStatus:
+        with sessionFactory() as db:
+            attemptId = requireOwnedCheck(db, checkId, teacher.teacherId)
+        return readGradingCheck(settings, checkId, attemptId, getTraceId(request), gradingTransport)
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

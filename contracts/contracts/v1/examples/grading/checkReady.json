@@ -1,0 +1,18 @@
+{
+  "checkId": "check-1",
+  "attemptId": "attempt-1",
+  "state": "ready",
+  "resultRev": 2,
+  "publishedResultRev": 1,
+  "taskResults": [
+    {
+      "taskId": "task-1",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  ],
+  "overallReview": "Длина вектора найдена верно."
+}

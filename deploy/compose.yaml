@@ -18,6 +18,8 @@ services:
     environment:
       S3_ENDPOINT_URL: http://seaweedfs:8333
       CABINET_DATABASE_URL: &cabinet-db postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
+      CABINET_GRADING_BASE_URL: ${CABINET_GRADING_BASE_URL:-http://grading:8000}
+      CABINET_GRADING_SERVICE_TOKEN: ${CABINET_GRADING_SERVICE_TOKEN:-}
     ports:
       - "127.0.0.1:${CABINET_PORT:-18080}:8000"
     healthcheck:

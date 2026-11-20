@@ -96,6 +96,11 @@ assert ApiError.model_validate_json(wire) == error
 
 Идентификатор также приходит в заголовке `X-Trace-Id`.
 
+Для `GET /v1/checks/{checkId}` задайте адрес API проверки в `CABINET_GRADING_BASE_URL` и токен кабинета
+в `CABINET_GRADING_SERVICE_TOKEN`. Зарегистрируйте этот токен в `grading` с правом `checks.read`.
+Compose по умолчанию использует `http://grading:8000`. Тесты кабинета проверяют стык на HTTP-заглушке.
+Код развёрнутого `grading` должен реализовать [внутренний контракт чтения](contracts/contracts/v1/openapi/grading.json).
+
 ### Публикация событий кабинета
 
 Compose запускает отдельный процесс `outbox-publisher`. Для локального запуска процесса вне Docker

@@ -1,0 +1,353 @@
+{
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "additionalProperties": false,
+        "description": "Error body for any non-2xx HTTP answer.\n\n401/403 access, 404 object unavailable, 409 revision or idempotency key conflict,\n422 schema error. Retry 429, 503 and timeouts with the same requestId.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "traceId": {
+            "title": "Traceid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "traceId"
+        ],
+        "title": "ApiError",
+        "type": "object"
+      },
+      "CheckPending": {
+        "description": "A check without a ready result, including terminal failures and cases for manual review.",
+        "properties": {
+          "attemptId": {
+            "minLength": 1,
+            "title": "Attemptid",
+            "type": "string"
+          },
+          "checkId": {
+            "minLength": 1,
+            "title": "Checkid",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "waiting_reference",
+              "running",
+              "needs_review",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkId",
+          "attemptId",
+          "state",
+          "reason"
+        ],
+        "title": "CheckPending",
+        "type": "object"
+      },
+      "CheckReady": {
+        "properties": {
+          "attemptId": {
+            "minLength": 1,
+            "title": "Attemptid",
+            "type": "string"
+          },
+          "checkId": {
+            "minLength": 1,
+            "title": "Checkid",
+            "type": "string"
+          },
+          "overallReview": {
+            "minLength": 1,
+            "title": "Overallreview",
+            "type": "string"
+          },
+          "publishedResultRev": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Publishedresultrev"
+          },
+          "resultRev": {
+            "minimum": 1,
+            "title": "Resultrev",
+            "type": "integer"
+          },
+          "state": {
+            "const": "ready",
+            "title": "State",
+            "type": "string"
+          },
+          "taskResults": {
+            "items": {
+              "$ref": "#/components/schemas/TaskResult"
+            },
+            "title": "Taskresults",
+            "type": "array"
+          }
+        },
+        "required": [
+          "checkId",
+          "attemptId",
+          "state",
+          "resultRev",
+          "taskResults",
+          "overallReview"
+        ],
+        "title": "CheckReady",
+        "type": "object"
+      },
+      "Issue": {
+        "additionalProperties": false,
+        "description": "One error at one step. A consequence points to its root error through causedByIssueId.",
+        "properties": {
+          "category": {
+            "minLength": 1,
+            "title": "Category",
+            "type": "string"
+          },
+          "causedByIssueId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Causedbyissueid"
+          },
+          "comment": {
+            "minLength": 1,
+            "title": "Comment",
+            "type": "string"
+          },
+          "correction": {
+            "minLength": 1,
+            "title": "Correction",
+            "type": "string"
+          },
+          "issueId": {
+            "minLength": 1,
+            "title": "Issueid",
+            "type": "string"
+          },
+          "stepId": {
+            "minLength": 1,
+            "title": "Stepid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issueId",
+          "stepId",
+          "category",
+          "comment",
+          "correction"
+        ],
+        "title": "Issue",
+        "type": "object"
+      },
+      "TaskResult": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "enum": [
+              "correct",
+              "incorrect",
+              "skipped",
+              "unreadable"
+            ],
+            "title": "Answer",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "met",
+              "unmet",
+              "unconfirmed",
+              "optional"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "needsReview": {
+            "title": "Needsreview",
+            "type": "boolean"
+          },
+          "reasoning": {
+            "enum": [
+              "valid",
+              "invalid",
+              "not_shown",
+              "unknown"
+            ],
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "taskId": {
+            "minLength": 1,
+            "title": "Taskid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "answer",
+          "reasoning",
+          "method",
+          "issues",
+          "needsReview"
+        ],
+        "title": "TaskResult",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "serviceToken": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Grading result read API (draft)",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/internal/v1/checks/{checkId}": {
+      "get": {
+        "description": "Requires checks.read. A check not yet consumed from Redis returns not_found.",
+        "operationId": "readCheck",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/CheckPending",
+                      "needs_review": "#/components/schemas/CheckPending",
+                      "queued": "#/components/schemas/CheckPending",
+                      "ready": "#/components/schemas/CheckReady",
+                      "running": "#/components/schemas/CheckPending",
+                      "waiting_reference": "#/components/schemas/CheckPending"
+                    },
+                    "propertyName": "state"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CheckPending"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CheckReady"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "State or current result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service token is missing or invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Calling service has no right for this operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "No check with this id"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Grading service is unavailable"
+          }
+        },
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "summary": "Read the stored state or current result of a check"
+      }
+    }
+  }
+}

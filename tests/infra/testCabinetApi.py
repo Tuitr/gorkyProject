@@ -16,6 +16,8 @@ def testCabinetServesPublicLoginContract() -> None:
         schema = response.json()
         assert all(path.startswith("/v1/") for path in schema["paths"])
         login = schema["paths"]["/v1/sessions"]["post"]
+        checks = schema["paths"]["/v1/checks/{checkId}"]["get"]["responses"]
+        assert checks["200"]["content"]["application/json"]["schema"]["discriminator"]["propertyName"] == "state"
         for status in ("401", "422", "429"):
             body = login["responses"][status]["content"]["application/json"]
             assert body["schema"]["$ref"] == "#/components/schemas/ApiError"

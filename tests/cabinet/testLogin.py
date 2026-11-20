@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
@@ -24,7 +24,7 @@ from alembic.migration import MigrationContext
 from argon2 import PasswordHasher, Type
 from docx import Document
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx import MockTransport, Request, Response
 from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -907,6 +907,83 @@ def testDuplicateAttemptsAreSharedAcrossConcurrentConfirmations(
             s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
         for record in db.scalars(select(AssignmentRecord)):
             s3.delete_object(Bucket=record.bucket, Key=record.objectKey)
+
+
+def testOnlyOwnerReadsCheckFromGrading(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+    contractExample: Callable[[str], dict[str, object]],
+) -> None:
+    owner, other = "teacher.owner", "teacher.other"
+    addTeacher(cabinetSessions, owner)
+    addTeacher(cabinetSessions, other)
+    settings = replace(Settings.fromEnv(), gradingBaseUrl="http://grading:8000", gradingServiceToken="test-cabinet")
+    requests: list[Request] = []
+    gradingResponse = Response(500)
+
+    def readGrading(request: Request) -> Response:
+        requests.append(request)
+        return gradingResponse
+
+    app = createApp(
+        settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock,
+        gradingTransport=MockTransport(readGrading),
+    )
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, owner, PASSWORD)[0] == 200
+        created = client.post("/v1/classes", json={"name": "8А"})
+        assert created.status_code == 201, created.text
+        classPath = f"/v1/classes/{created.json()['classId']}"
+        assert client.post(f"{classPath}/students", json={"name": "Иванов Иван"}).status_code == 201
+        assignment = client.post(
+            f"{classPath}/assignments", data={"requirements": "[]"},
+            files={"file": ("variant.docx", assignmentDocx("Найдите длину вектора."))},
+        )
+        assert assignment.status_code == 201, assignment.text
+        submission = client.post(
+            f"/v1/assignments/{assignment.json()['assignmentId']}/uploads", data={"assignmentRev": "1"},
+            files={"file": ("Иванов Иван.docx", assignmentDocx("Длина вектора равна 5."))},
+        )
+        assert submission.status_code == 202, submission.text
+        progress = client.get(f"/v1/uploads/{submission.json()['uploadId']}")
+        assert progress.status_code == 200, progress.text
+        file = progress.json()["files"][0]
+        assert file["status"] == "bound"
+        checkId, attemptId = file["checkId"], file["attemptId"]
+        path = f"/v1/checks/{checkId}"
+        headers = {"X-Trace-Id": "check-read-test"}
+
+        for filename in ("checkQueued.json", "checkNeedsReview.json", "checkReady.json"):
+            example = contractExample(f"grading/{filename}")
+            expected = {**example, "checkId": checkId, "attemptId": attemptId}
+            gradingResponse = Response(200, json={**expected, "markdownRef": {"bucket": "results", "key": "internal"}})
+            result = client.get(path, headers=headers)
+            assert result.status_code == 200, result.text
+            assert result.json() == expected
+            assert result.headers["cache-control"] == "no-store"
+            assert result.headers["x-trace-id"] == headers["X-Trace-Id"]
+
+        assert len(requests) == 3
+        for request in requests:
+            assert request.method == "GET"
+            assert str(request.url) == f"http://grading:8000/internal/v1/checks/{checkId}"
+            assert request.headers["authorization"] == "Bearer test-cabinet"
+            assert request.headers["x-trace-id"] == headers["X-Trace-Id"]
+            assert "cookie" not in request.headers
+
+        assert login(client, other, PASSWORD)[0] == 200
+        denied = client.get(path, headers=headers)
+        missing = client.get(f"/v1/checks/{uuid.uuid4()}", headers=headers)
+        assert denied.status_code == missing.status_code == 404
+        assert denied.json() == missing.json()
+        assert client.delete("/v1/sessions/current").status_code == 204
+        assert client.get(path).status_code == 401
+        assert len(requests) == 3
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        for upload in db.scalars(select(UploadFileRecord)):
+            s3.delete_object(Bucket=upload.bucket, Key=upload.objectKey)
+        for variant in db.scalars(select(AssignmentRecord)):
+            s3.delete_object(Bucket=variant.bucket, Key=variant.objectKey)
 
 
 def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
