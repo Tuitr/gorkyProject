@@ -5,7 +5,7 @@ import { SUBMISSION_STATUS_LABEL, uid, type Page, type State, type Submission } 
 import { compressImage, rotateImage } from '../photos'
 import { go, href } from '../router'
 import { hashString, useStore } from '../store'
-import { Badge, JobStatus, Modal } from '../ui'
+import { Badge, JobStatus, Modal, TextPage } from '../ui'
 import { STATUS_TONE } from './Collect'
 import { NotFound, useAssignment } from './common'
 
@@ -194,10 +194,17 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
           <ol className="pages">
             {pages.map((p, i) => (
               <li key={p.id} className="page-thumb">
+                {p.kind === 'text' ? (
+                  <div className="page-thumb__img">
+                    <TextPage lines={p.lines} compact />
+                  </div>
+                ) : (
                 <button className="page-thumb__img" onClick={() => setZoom(p.image)} aria-label={`Увеличить страницу ${i + 1}`}>
                   <img src={p.image} alt={`Страница ${i + 1}`} />
                   <span className="page-thumb__n">{i + 1}</span>
                 </button>
+                )}
+                {p.kind !== 'text' && (
                 <div className="page-thumb__tools">
                   <button className="icon-btn" title="Увеличить" onClick={() => setZoom(p.image)}>
                     🔍
@@ -228,6 +235,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
                     🗑
                   </button>
                 </div>
+                )}
               </li>
             ))}
           </ol>

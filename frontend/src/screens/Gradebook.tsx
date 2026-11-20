@@ -1,3 +1,4 @@
+import { useActions } from '../actions'
 import { useState } from 'react'
 import { ErrorPanel } from '../components/ErrorPanel'
 import {
@@ -19,6 +20,7 @@ import { AssignmentHeader, ClassTabs, NotFound, useAssignment } from './common'
 /** Экран 8. Ведомость класса: ученики × номера, предварительная сумма, итог учителя, утверждение. */
 export function Gradebook({ id, classId }: { id: string; classId?: string }) {
   const { state, update, toast } = useStore()
+  const { publishRemote } = useActions()
   const { a, classes } = useAssignment(id)
   const [panel, setPanel] = useState<{ sid: string; tid: string } | null>(null)
   const [criterion, setCriterion] = useState<SourceTask | null>(null)
@@ -53,6 +55,8 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                 submissions: st.submissions.map((s) => (ready.some((r) => r.id === s.id) ? { ...s, approved: true } : s)),
               }))
               toast(`Утверждено: ${ready.length}`)
+              // результаты из кабинета — публикуем там же
+              ready.filter((r) => r.remote?.resultRev && r.remote.publishedRev !== r.remote.resultRev).forEach((r) => void publishRemote(r.id))
             }}
             title="Утвердить все проверенные работы с окончательным баллом"
           >
@@ -172,6 +176,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                           if (total.preliminary && s.teacherTotal == null && !confirm('Есть задания на ручной проверке. Утвердить предварительный балл?'))
                             return
                           setSub(s.id, (x) => ({ ...x, approved: true }))
+                          if (s.remote?.resultRev && s.remote.publishedRev !== s.remote.resultRev) void publishRemote(s.id)
                         }}
                       >
                         Утвердить

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useActions } from '../actions'
+import { DisputeCard } from './DisputeCard'
+import type { ReviewChange } from '../api/cabinet'
 import {
   CATEGORIES,
   CATEGORY_LABEL,
@@ -14,6 +16,10 @@ import {
 import { patch, useStore } from '../store'
 import { Badge, Drawer, JobStatus, Photo } from '../ui'
 
+const ANSWER_V = { correct: 'верный', incorrect: 'неверный', skipped: 'нет ответа', unreadable: 'неразборчиво' }
+const REASONING_V = { valid: 'верный', invalid: 'с ошибками', not_shown: 'не показан', unknown: 'не определён' }
+const METHOD_V = { met: 'применён', unmet: 'не применён', unconfirmed: 'не подтверждён', optional: 'не требуется' }
+
 type Props = {
   submissionId: string
   taskId: string
@@ -27,7 +33,7 @@ type Props = {
 /** Экран 9. Панель ошибки: текст ИИ со ссылкой на строку, фото с фрагментом, расшифровка, категория, правило, правка. */
 export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }: Props) {
   const { state, update, jobs, toast } = useStore()
-  const { process } = useActions()
+  const { process, editRemote } = useActions()
   const s = state.submissions.find((x) => x.id === submissionId)
   const a = state.assignments.find((x) => x.id === s?.assignmentId)
   const task = a?.tasks.find((t) => t.id === taskId)
@@ -36,6 +42,10 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
   const [editLine, setEditLine] = useState<{ page: number; line: number; text: string } | null>(null)
   const [scoring, setScoring] = useState<{ score: string; comment: string } | null>(null)
   const [dirty, setDirty] = useState(false)
+  // правки результата кабинета: замечание и вердикты задания
+  const [issueEdit, setIssueEdit] = useState<{ comment: string; correction: string } | null>(null)
+  const [verdict, setVerdict] = useState<NonNullable<TaskResult['remote']> | null>(null)
+  const [saving, setSaving] = useState(false)
   if (!s || !a || !task) return null
 
   const student = state.classes.flatMap((c) => c.students).find((x) => x.id === s.studentId)
@@ -44,6 +54,16 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
   const page = s.pages[pageIdx]
   const lines = page?.lines ?? []
   const job = jobs[`check:${s.id}`]
+  // результат пришёл из кабинета — правки уходят на сервер (PATCH review), а не только в браузер
+  const fromCabinet = !!res?.remote && !!s.remote?.resultRev
+  // нерассмотренные спорные места этого задания — разбираются прямо здесь
+  const disputes = state.review.filter((r) => r.submissionId === s.id && r.taskId === taskId && !r.resolved)
+  const saveRemote = async (changes: ReviewChange[], done?: string) => {
+    setSaving(true)
+    const ok = await editRemote(s.id, changes, done)
+    setSaving(false)
+    return ok
+  }
 
   const setSub = (fn: (x: Submission) => Submission) => update((st) => ({ ...st, submissions: patch(st.submissions, s.id, fn) }))
   const setRes = (fn: (r: TaskResult) => TaskResult) =>
@@ -101,6 +121,10 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
         </div>
         {res?.scoreComment && <p className="muted small">Комментарий: {res.scoreComment}</p>}
 
+        {disputes.map((r) => (
+          <DisputeCard key={r.id} r={r} compact />
+        ))}
+
         {res && res.mistakes.length > 1 && (
           <div className="ep__tabs">
             {res.mistakes.map((x, i) => (
@@ -132,10 +156,13 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
                 </>
               )}
             </p>
-            <div className="solution solution--bad">
-              <span>Ответ ученика</span>
-              <code>{m.studentAnswer}</code>
-            </div>
+            {/* у замечаний кабинета нет «что написал ученик» — блок не показываем */}
+            {m.studentAnswer && m.studentAnswer !== '—' && (
+              <div className="solution solution--bad">
+                <span>Ответ ученика</span>
+                <code>{m.studentAnswer}</code>
+              </div>
+            )}
             <div className="solution solution--good">
               <span>Верное решение</span>
               <p>{m.correctSolution}</p>
@@ -160,16 +187,78 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
                 Правило: {m.rule ? <b>{m.rule}</b> : <span className="muted">общий критерий — по эталонному ответу</span>}
               </span>
             </div>
-            <button className="link-btn" onClick={() => setMistake(m.id, { dismissed: !m.dismissed })}>
-              {m.dismissed ? 'Восстановить ошибку' : 'Не считать ошибкой'}
-            </button>
+            {fromCabinet ? (
+              issueEdit ? (
+                <div className="ep__edit">
+                  <label className="field">
+                    <span>Комментарий</span>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      value={issueEdit.comment}
+                      onChange={(e) => setIssueEdit({ ...issueEdit, comment: e.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Исправление</span>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      value={issueEdit.correction}
+                      onChange={(e) => setIssueEdit({ ...issueEdit, correction: e.target.value })}
+                    />
+                  </label>
+                  <div className="row">
+                    <button className="btn" onClick={() => setIssueEdit(null)}>
+                      Отмена
+                    </button>
+                    <button
+                      className="btn btn--primary"
+                      disabled={saving || !issueEdit.comment.trim() || !issueEdit.correction.trim()}
+                      onClick={async () => {
+                        const ok = await saveRemote(
+                          [{ type: 'update_issue', issueId: m.id, comment: issueEdit.comment.trim(), correction: issueEdit.correction.trim() }],
+                          'Замечание изменено',
+                        )
+                        if (ok) setIssueEdit(null)
+                      }}
+                    >
+                      Сохранить замечание
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="row row--start">
+                  <button
+                    className="link-btn"
+                    onClick={() => setIssueEdit({ comment: m.explanation || m.title, correction: m.correctSolution === '—' ? '' : m.correctSolution })}
+                  >
+                    Изменить замечание
+                  </button>
+                  <button
+                    className="link-btn link-btn--danger"
+                    disabled={saving}
+                    onClick={() =>
+                      confirm('Убрать замечание из результата? На сервере его нельзя будет вернуть.') &&
+                      void saveRemote([{ type: 'remove_issue', issueId: m.id }], 'Замечание убрано')
+                    }
+                  >
+                    Не считать ошибкой
+                  </button>
+                </div>
+              )
+            ) : (
+              <button className="link-btn" onClick={() => setMistake(m.id, { dismissed: !m.dismissed })}>
+                {m.dismissed ? 'Восстановить ошибку' : 'Не считать ошибкой'}
+              </button>
+            )}
           </section>
         ) : (
           <p className="muted">{res?.status === 'ok' ? 'Ошибок нет: задание выполнено верно.' : 'Автоматическая проверка ошибок не выявила.'}</p>
         )}
 
         {/* на странице проверки работы (inline) фото и распознанный текст не показываются — фото уже рядом */}
-        {!inline && page && (
+        {!inline && page && page.kind !== 'text' && (
           <section>
             <h3>Фото{s.pages.length > 1 ? ` · страница ${pageIdx + 1}` : ''}</h3>
             <Photo
@@ -241,6 +330,90 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
                 )}
               </div>
             )}
+          </section>
+        )}
+
+        {fromCabinet && res?.remote && (
+          <section>
+            <h3>Оценка задания</h3>
+            {(() => {
+              const v = verdict ?? res.remote
+              const changed =
+                !!verdict &&
+                (verdict.answer !== res.remote.answer ||
+                  verdict.reasoning !== res.remote.reasoning ||
+                  verdict.method !== res.remote.method)
+              return (
+                <div className="ep__verdicts">
+                  <label>
+                    Ответ{' '}
+                    <select
+                      className="input input--sm"
+                      value={v.answer}
+                      onChange={(e) => setVerdict({ ...v, answer: e.target.value as typeof v.answer })}
+                    >
+                      {Object.entries(ANSWER_V).map(([k, l]) => (
+                        <option key={k} value={k}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Ход решения{' '}
+                    <select
+                      className="input input--sm"
+                      value={v.reasoning}
+                      onChange={(e) => setVerdict({ ...v, reasoning: e.target.value as typeof v.reasoning })}
+                    >
+                      {Object.entries(REASONING_V).map(([k, l]) => (
+                        <option key={k} value={k}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Метод{' '}
+                    <select
+                      className="input input--sm"
+                      value={v.method}
+                      onChange={(e) => setVerdict({ ...v, method: e.target.value as typeof v.method })}
+                    >
+                      {Object.entries(METHOD_V).map(([k, l]) => (
+                        <option key={k} value={k}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {changed && (
+                    <button
+                      className="btn btn--primary"
+                      disabled={saving}
+                      onClick={async () => {
+                        const r = res.remote!
+                        const ok = await saveRemote(
+                          [
+                            {
+                              type: 'update_verdict',
+                              taskId: r.taskId,
+                              ...(v.answer !== r.answer ? { answer: v.answer } : {}),
+                              ...(v.reasoning !== r.reasoning ? { reasoning: v.reasoning } : {}),
+                              ...(v.method !== r.method ? { method: v.method } : {}),
+                            },
+                          ],
+                          'Оценка задания изменена',
+                        )
+                        if (ok) setVerdict(null)
+                      }}
+                    >
+                      Сохранить оценку
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
           </section>
         )}
 

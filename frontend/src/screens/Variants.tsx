@@ -9,7 +9,7 @@ import { AssignmentHeader, NotFound, useAssignment } from './common'
 /** Экран 4. Варианты и печать: число вариантов, А и Б рядом с ключами, признаки равнозначности, утверждение. */
 export function Variants({ id }: { id: string }) {
   const { update, jobs, runJob, toast } = useStore()
-  const { genVariants } = useActions()
+  const { genVariants, publish } = useActions()
   const { a } = useAssignment(id)
   if (!a) return <NotFound />
 
@@ -86,6 +86,7 @@ export function Variants({ id }: { id: string }) {
             onClick={() => {
               if (missingKeys && !confirm(`Заданий без ответа: ${missingKeys}. Утвердить работу?`)) return
               setA((x) => ({ ...x, status: 'approved' }))
+              void publish(a.id) // режим кабинета: работа (новая ревизия) уходит на сервер
               toast(a.variants.length ? 'Работа утверждена. Доступны печать и сбор работ' : 'Работа утверждена: все ученики выполняют один общий вариант')
             }}
           >

@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { isCabinet } from './api/cabinet'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { pullClasses, withRemoteClasses } from './api/sync'
 import './App.css'
 import './mvp.css'
 import { href, useRoute } from './router'
@@ -13,7 +16,6 @@ import { Hub } from './screens/Hub'
 import { Practice } from './screens/Practice'
 import { PrintView } from './screens/Print'
 import { Queue } from './screens/Queue'
-import { QuickCheck } from './screens/QuickCheck'
 import { SourceReview } from './screens/SourceReview'
 import { StudentCard } from './screens/StudentCard'
 import { StudentReport } from './screens/StudentReport'
@@ -25,7 +27,6 @@ function Screen() {
   if (p0 === 'classes') return <Classes />
   if (p0 === 'new') return <AssignmentForm />
   if (p0 === 'queue') return <Queue />
-  if (p0 === 'quick') return <QuickCheck />
   if (p0 === 'a' && p1) {
     const c = query.get('c') ?? undefined
     if (!p2) return <Hub id={p1} />
@@ -55,9 +56,25 @@ function Screen() {
   return <Home />
 }
 
+/** Режим кабинета: при входе подтягиваем классы и учеников с сервера. */
+function useCabinetClasses() {
+  const { update, toast } = useStore()
+  useEffect(() => {
+    if (!isCabinet()) return
+    let alive = true
+    pullClasses()
+      .then((remote) => alive && update((s) => withRemoteClasses(s, remote)))
+      .catch((e) => alive && toast(e instanceof Error ? e.message : 'Не удалось загрузить классы', 'err'))
+    return () => {
+      alive = false
+    }
+  }, [update, toast])
+}
+
 export default function App() {
   const { path } = useRoute()
   const { state, user, logout } = useStore()
+  useCabinetClasses()
   if (path[0] === 'print') return <PrintView path={path.slice(1)} />
 
   const open = state.review.filter((r) => !r.resolved).length
@@ -88,13 +105,6 @@ export default function App() {
           {link('queue', 'Спорные места', open ? <span className="count">{open}</span> : null)}
         </nav>
         <div className="shell__user">
-          <a
-            href={href('quick')}
-            className={`shell__quiet${section === 'quick' ? ' is-active' : ''}`}
-            title="Проверка одной фотографии без привязки к классу и работе"
-          >
-            Быстрая проверка
-          </a>
           {user && (
             <span className="shell__teacher" title={`${user.name} · ${user.email}`}>
               {shortName(user)}
@@ -108,7 +118,10 @@ export default function App() {
         </div>
       </header>
       <main className="shell__main">
-        <Screen />
+        {/* ошибка в разделе — сообщение вместо белого экрана; при переходе в другой раздел сбрасывается */}
+        <ErrorBoundary key={path.join('/')}>
+          <Screen />
+        </ErrorBoundary>
       </main>
     </div>
   )

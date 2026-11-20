@@ -16,7 +16,7 @@ import type { Plugin } from 'vite'
  * Учётные записи — в .data/users.json (не коммитится). Пароль хранится только как scrypt-хэш с солью.
  * Сессия — подписанная HMAC cookie (httpOnly, SameSite=Lax, 30 дней); ключ подписи — CHECKER_AUTH_SECRET
  * или генерируется один раз в .data/auth-secret.
- * Остальные /api/* (OCR, GigaChat, Qwen) без входа отвечают 401 — чтобы ключи API не тратил кто угодно.
+ * Остальные /api/* (OCR, GigaChat) без входа отвечают 401 — чтобы ключи API не тратил кто угодно.
  */
 
 const scrypt = promisify(scryptCb) as (pwd: string, salt: Buffer, len: number) => Promise<Buffer>
@@ -122,7 +122,28 @@ function addFailure(ip: string) {
   failures.set(ip, [...(failures.get(ip) ?? []), Date.now()])
 }
 
+/**
+ * Режим кабинета (CHECKER_CABINET_URL): вход и сессия — у бэкенда (POST /v1/sessions, cookie __Host-cabinet),
+ * регистрации нет. Наши /api/* пускаем, если кабинет подтверждает сессию по cookie запроса.
+ */
+const cabinetSessions = new Map<string, number>() // cookie → до какого времени считаем сессию действующей
+async function cabinetSessionOk(cabinetUrl: string, cookie: string | undefined) {
+  if (!cookie) return false
+  const until = cabinetSessions.get(cookie)
+  if (until && until > Date.now()) return true
+  try {
+    const res = await fetch(`${cabinetUrl}/v1/sessions/current`, { headers: { cookie } })
+    if (!res.ok) return false
+    if (cabinetSessions.size > 1000) cabinetSessions.clear()
+    cabinetSessions.set(cookie, Date.now() + 60_000)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function authPlugin(env: Record<string, string>): Plugin {
+  const cabinetUrl = (env.CHECKER_CABINET_URL ?? '').replace(/\/$/, '')
   let secret = ''
   const sign = (payload: string) => createHmac('sha256', secret).update(payload).digest('base64url')
 
@@ -162,6 +183,14 @@ export function authPlugin(env: Record<string, string>): Plugin {
       res.statusCode = status
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
       res.end(JSON.stringify(data))
+    }
+
+    // режим работы для браузера: свой вход или кабинет из main
+    if (url === '/api/config' && req.method === 'GET') return send(200, { cabinet: !!cabinetUrl })
+
+    if (cabinetUrl) {
+      if (url.startsWith('/api/auth/')) return send(404, { message: 'Вход выполняется через кабинет' })
+      return (await cabinetSessionOk(cabinetUrl, req.headers.cookie)) ? next() : send(401, { message: 'Требуется вход в систему' })
     }
 
     if (!url.startsWith('/api/auth/')) {

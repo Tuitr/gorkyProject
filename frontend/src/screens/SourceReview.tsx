@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useActions } from '../actions'
 import { splitTasksAi } from '../api/generate'
 import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
@@ -10,6 +11,7 @@ import { AssignmentHeader, NotFound, useAssignment } from './common'
 /** Экран 3. Сверка исходника: оригинал рядом со списком номеров, правка, объединение, правила проверки. */
 export function SourceReview({ id }: { id: string }) {
   const { update, toast } = useStore()
+  const { publish } = useActions()
   const { a } = useAssignment(id)
   const { query } = useRoute()
   const wantAdd = query.get('add') === '1'
@@ -45,7 +47,10 @@ export function SourceReview({ id }: { id: string }) {
 
   // любая правка исходника возвращает работу в черновик
   const setA = (fn: (x: Assignment) => Assignment) =>
-    update((s) => ({ ...s, assignments: patch(s.assignments, id, (x) => ({ ...fn(x), status: 'draft' })) }))
+    update((s) => ({
+      ...s,
+      assignments: patch(s.assignments, id, (x) => ({ ...fn(x), status: 'draft', sourceEdited: true })),
+    }))
   const setTask = (tid: string, p: Partial<SourceTask>) =>
     setA((x) => ({ ...x, tasks: x.tasks.map((t) => (t.id === tid ? { ...t, ...p } : t)) }))
 
@@ -146,6 +151,7 @@ export function SourceReview({ id }: { id: string }) {
               onClick={() => {
                 // варианты необязательны: сохранённая работа сразу готова к сбору (все сдают одну общую работу)
                 update((s) => ({ ...s, assignments: patch(s.assignments, id, (x) => ({ ...x, status: 'approved' })) }))
+                void publish(id) // режим кабинета: работа уходит на сервер
                 go('a', a.id)
               }}
             >

@@ -21,6 +21,7 @@ export function AssignmentForm({ id }: { id?: string }) {
   // пришли из проверки распознавания новой работы — туда же и возвращаемся (с «Отмена»/«Сохранить»)
   const back = useRoute().query.get('new') === '1' ? { new: '1' } : {}
   const [title, setTitle] = useState(existing?.title ?? '')
+  const [date, setDate] = useState(existing?.date ?? new Date().toLocaleDateString('sv-SE'))
   const [type, setType] = useState<WorkType>(existing?.type ?? 'control')
   const [classIds, setClassIds] = useState<string[]>(existing?.classIds ?? (classes[0] ? [classes[0].id] : []))
   const [notes, setNotes] = useState(existing?.notes ?? '')
@@ -91,6 +92,7 @@ export function AssignmentForm({ id }: { id?: string }) {
         assignments: patch(s.assignments, existing.id, (a) => ({
           ...a,
           title: title.trim(),
+          date,
           type,
           classIds,
           notes,
@@ -107,6 +109,7 @@ export function AssignmentForm({ id }: { id?: string }) {
     const a: Assignment = {
       id: uid('a'),
       title: title.trim() || 'Новая работа',
+      date,
       type,
       createdAt: Date.now(),
       file: files[0],
@@ -140,6 +143,11 @@ export function AssignmentForm({ id }: { id?: string }) {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Например: Квадратные уравнения"
           />
+        </label>
+
+        <label className="field">
+          <span>Дата работы</span>
+          <input className="input input--date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
 
         {existing && (

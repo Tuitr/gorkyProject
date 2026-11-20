@@ -1,5 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import { useActions } from '../actions'
+import { isCabinet } from '../api/cabinet'
+import { CabinetUpload } from '../components/CabinetUpload'
+import { CHECK_STATE_LABEL, type CheckState } from '../api/cabinet'
+import { useCabinetChecks } from '../useCabinetChecks'
 import { SUBMISSION_STATUS_LABEL, uid, type Submission, type SubmissionStatus } from '../domain'
 import { href } from '../router'
 import { hashString, useStore } from '../store'
@@ -21,6 +25,13 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
   const { processAll, process } = useActions()
   const { a, classes } = useAssignment(id)
   const [q, setQ] = useState('')
+  const [cabinetOpen, setCabinetOpen] = useState(false)
+  // работы, загруженные через кабинет: состояние их проверки там
+  useCabinetChecks(
+    state.submissions
+      .filter((x) => x.assignmentId === id && x.classId === (classId ?? x.classId) && x.remote?.checkId)
+      .map((x) => x.id),
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const cls = classes.find((c) => c.id === classId) ?? classes[0]
 
@@ -125,6 +136,11 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
           <button className="btn" onClick={() => fileRef.current?.click()}>
             Загрузить несколько фото
           </button>
+          {isCabinet() && (
+            <button className="btn" onClick={() => setCabinetOpen(true)}>
+              Загрузить DOCX или ZIP
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -174,6 +190,14 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
                   <Badge tone={job?.status === 'running' ? 'info' : STATUS_TONE[status]}>
                     {job?.status === 'running' ? 'На проверке…' : SUBMISSION_STATUS_LABEL[status]}
                   </Badge>
+                  {s?.remote?.checkState && s.remote.checkState !== 'ready' && (
+                    <div className="muted small" title={s.remote.checkReason}>
+                      Кабинет:{' '}
+                      {s.remote.checkState === 'unavailable'
+                        ? 'сервис проверки недоступен'
+                        : CHECK_STATE_LABEL[s.remote.checkState as CheckState]}
+                    </div>
+                  )}
                   {s && attention.has(s.id) && status !== 'error' && (
                     <>
                       {' '}
@@ -213,6 +237,8 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
           )}
         </tbody>
       </table>
+
+      {cabinetOpen && <CabinetUpload a={a} cls={cls} onClose={() => setCabinetOpen(false)} />}
     </div>
   )
 }

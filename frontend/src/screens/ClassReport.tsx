@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { analyzeClass } from '../analytics'
+import { CabinetReport } from '../components/CabinetReport'
 import { CATEGORY_LABEL, submissionTotal } from '../domain'
 import { href } from '../router'
 import { useStore } from '../store'
@@ -36,6 +37,9 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
         }
       />
       <ClassTabs classes={classes} value={cls.id} a={a} step="class-report" />
+
+      {/* режим кабинета: сводка, которую считает сервис проверки кабинета */}
+      <CabinetReport a={a} classId={cls.id} />
 
       <div className="stats">
         <div className="stat">

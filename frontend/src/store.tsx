@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isCabinet } from './api/cabinet'
 import type { Job, JobKind, State } from './domain'
 
 /**
@@ -168,7 +169,8 @@ export function StoreProvider({
     try {
       raw = localStorage.getItem(key)
       // данные, накопленные в этом браузере до появления входа, достаются первому вошедшему учителю
-      if (!raw && user && !localStorage.getItem(LEGACY_OWNER_KEY)) {
+      // (в режиме кабинета — нет: классы и ученики приходят с сервера)
+      if (!raw && user && !isCabinet() && !localStorage.getItem(LEGACY_OWNER_KEY)) {
         const legacy = localStorage.getItem(LS_KEY)
         if (legacy) {
           localStorage.setItem(LEGACY_OWNER_KEY, user.id)

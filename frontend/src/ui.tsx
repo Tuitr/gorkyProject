@@ -185,3 +185,12 @@ export const plural = (n: number, one: string, few: string, many: string) => {
   const m100 = n % 100
   return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many
 }
+
+/** Работа, сданная документом (DOCX через кабинет): фото нет — показываем её текст. */
+export function TextPage({ lines, compact }: { lines?: { text: string }[]; compact?: boolean }) {
+  return (
+    <div className={`text-page${compact ? ' text-page--compact' : ''}`}>
+      {lines?.length ? lines.map((l, i) => <p key={i}>{l.text}</p>) : <p className="muted">Текст документа не извлечён</p>}
+    </div>
+  )
+}

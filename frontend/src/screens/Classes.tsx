@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { addStudent, createClass, isCabinet } from '../api/cabinet'
 import { uid, type ClassGroup } from '../domain'
 import { useRoute, go } from '../router'
 import { patch, useStore } from '../store'
@@ -19,19 +20,37 @@ export function Classes() {
   const current = classes.find((c) => c.id === query.get('c')) ?? classes[0]
   const [creating, setCreating] = useState(false)
   const [paste, setPaste] = useState('')
+  const [busy, setBusy] = useState(false)
+  // кабинет (бэкенд из main) умеет только создавать классы и учеников — удаление и переименование скрыты
+  const cabinet = isCabinet()
 
   const setClass = (id: string, fn: (c: ClassGroup) => ClassGroup) =>
     update((s) => ({ ...s, classes: patch(s.classes, id, fn) }))
 
-  const addStudents = () => {
+  const addStudents = async () => {
     if (!current) return
     const names = parseNames(paste)
     const existing = new Set(current.students.map((s) => s.name.toLowerCase()))
     const fresh = names.filter((n) => !existing.has(n.toLowerCase()))
-    setClass(current.id, (c) => ({ ...c, students: [...c.students, ...fresh.map((name) => ({ id: uid('st'), name }))] }))
+    let added = fresh.map((name) => ({ id: uid('st'), name }))
+    if (cabinet) {
+      setBusy(true)
+      added = []
+      try {
+        for (const name of fresh) {
+          const st = await addStudent(current.id, name)
+          added.push({ id: st.studentId, name: st.name })
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'Не удалось добавить учеников', 'err')
+      } finally {
+        setBusy(false)
+      }
+    }
+    setClass(current.id, (c) => ({ ...c, students: [...c.students, ...added] }))
     setPaste('')
     toast(
-      `Добавлено: ${fresh.length}` + (names.length > fresh.length ? ` (дубликаты пропущены: ${names.length - fresh.length})` : ''),
+      `Добавлено: ${added.length}` + (names.length > fresh.length ? ` (дубликаты пропущены: ${names.length - fresh.length})` : ''),
     )
   }
 
@@ -83,15 +102,17 @@ export function Classes() {
                     {current.name} — {current.students.length}{' '}
                     {plural(current.students.length, 'ученик', 'ученика', 'учеников')}
                   </h2>
-                  <button
-                    className="link-btn link-btn--danger"
-                    onClick={() =>
-                      confirm(`Удалить класс ${current.name}? Сданные работы останутся в базе.`) &&
-                      update((s) => ({ ...s, classes: s.classes.filter((c) => c.id !== current.id) }))
-                    }
-                  >
-                    Удалить класс
-                  </button>
+                  {!cabinet && (
+                    <button
+                      className="link-btn link-btn--danger"
+                      onClick={() =>
+                        confirm(`Удалить класс ${current.name}? Сданные работы останутся в базе.`) &&
+                        update((s) => ({ ...s, classes: s.classes.filter((c) => c.id !== current.id) }))
+                      }
+                    >
+                      Удалить класс
+                    </button>
+                  )}
                 </div>
                 {!current.students.length ? (
                   <p className="muted">Учеников нет</p>
@@ -102,6 +123,7 @@ export function Classes() {
                         <input
                           className="input input--plain"
                           value={st.name}
+                          readOnly={cabinet}
                           aria-label="Имя ученика"
                           onChange={(e) =>
                             setClass(current.id, (c) => ({
@@ -110,15 +132,17 @@ export function Classes() {
                             }))
                           }
                         />
-                        <button
-                          className="icon-btn"
-                          aria-label={`Удалить ${st.name}`}
-                          onClick={() =>
-                            setClass(current.id, (c) => ({ ...c, students: c.students.filter((x) => x.id !== st.id) }))
-                          }
-                        >
-                          ✕
-                        </button>
+                        {!cabinet && (
+                          <button
+                            className="icon-btn"
+                            aria-label={`Удалить ${st.name}`}
+                            onClick={() =>
+                              setClass(current.id, (c) => ({ ...c, students: c.students.filter((x) => x.id !== st.id) }))
+                            }
+                          >
+                            ✕
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ol>
@@ -136,7 +160,7 @@ export function Classes() {
                 />
                 <div className="row">
                   <span className="muted small">Строк: {parseNames(paste).length}</span>
-                  <button className="btn btn--primary" disabled={!parseNames(paste).length} onClick={addStudents}>
+                  <button className="btn btn--primary" disabled={!parseNames(paste).length || busy} onClick={() => void addStudents()}>
                     Добавить
                   </button>
                 </div>
@@ -152,23 +176,34 @@ export function Classes() {
 }
 
 function CreateClass({ onClose }: { onClose: () => void }) {
-  const { state, update } = useStore()
+  const { state, update, toast } = useStore()
   const [name, setName] = useState('')
   const [list, setList] = useState('')
+  const [busy, setBusy] = useState(false)
   const exists = state.classes.some((c) => c.name.toLowerCase() === name.trim().toLowerCase())
-  const create = () => {
-    const id = uid('c')
+  const create = async () => {
+    let id = uid('c')
+    let students = parseNames(list).map((n) => ({ id: uid('st'), name: n }))
+    if (isCabinet()) {
+      // класс и ученики создаются на сервере, id — серверные
+      setBusy(true)
+      try {
+        const c = await createClass(name.trim())
+        id = c.classId
+        const created = []
+        for (const st of students) {
+          const r = await addStudent(id, st.name)
+          created.push({ id: r.studentId, name: r.name })
+        }
+        students = created
+      } catch (e) {
+        setBusy(false)
+        return toast(e instanceof Error ? e.message : 'Не удалось создать класс', 'err')
+      }
+    }
     update((s) => ({
       ...s,
-      classes: [
-        ...s.classes,
-        {
-          id,
-          name: name.trim(),
-          ownerId: s.teacher.id,
-          students: parseNames(list).map((n) => ({ id: uid('st'), name: n })),
-        },
-      ],
+      classes: [...s.classes, { id, name: name.trim(), ownerId: s.teacher.id, students }],
     }))
     onClose()
     go('classes', { c: id })
@@ -182,7 +217,7 @@ function CreateClass({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button className="btn btn--primary" disabled={!name.trim() || exists} onClick={create}>
+          <button className="btn btn--primary" disabled={!name.trim() || exists || busy} onClick={() => void create()}>
             Создать
           </button>
         </>

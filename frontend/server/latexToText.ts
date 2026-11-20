@@ -17,7 +17,15 @@ const SYMBOLS: Record<string, string> = {
   partial: '∂', sum: 'Σ', prod: '∏', int: '∫', nabla: '∇', vdots: '⋮', ddots: '⋱', prime: '′', backprime: '′',
   leftarrow: '←', Leftarrow: '⇐', mapsto: '↦', equiv: '≡', cong: '≅', propto: '∝', notin: '∉', subset: '⊂',
   forall: '∀', exists: '∃', neg: '¬', wedge: '∧', vee: '∨', top: '', bot: '⊥', colon: ':', mid: '|', vert: '|',
+  // встречались в выводе OCR по самостоятельной работе
+  Downarrow: '⇓', Uparrow: '⇑', downarrow: '↓', uparrow: '↑', leftrightarrow: '↔', implies: '⇒', iff: '⇔',
+  longrightarrow: '→', Longrightarrow: '⇒', longleftarrow: '←', Longleftarrow: '⇐', Longleftrightarrow: '⇔',
+  leqslant: '≤', geqslant: '≥', nleq: '≰', ngeq: '≱', rvert: '|', lvert: '|', rVert: '‖', lVert: '‖', Vert: '‖',
+  hline: '', cline: '', therefore: '∴', because: '∵', checkmark: '✓', square: '□', blacksquare: '■',
+  setminus: '∖', ast: '*', star: '⋆', bullet: '•', ell: 'ℓ',
 }
+/** Математические слова латиницей от 5 букв — не считаем их выдуманным мусором OCR. */
+const MATH_WORDS = new Set(['arcsin', 'arccos', 'arctg', 'arcctg', 'arctan', 'arccot', 'const'])
 const ROOTS: Record<string, string> = { '': '√', '2': '√', '3': '∛', '4': '∜' }
 
 const mapChars = (s: string, table: Record<string, string>) =>
@@ -31,7 +39,11 @@ export function latexToText(input: string): string {
   let s = input
     .replace(/\$\$?/g, '')
     .replace(/\\\\/g, '; ') // перенос строки в системах/массивах
+    // описание столбцов массива («{l}», «{rcl}») — не текст
+    .replace(/\\begin\s*\{(?:array|tabular)\}\s*\{[^{}]*\}/g, ' ')
     .replace(/\\(?:begin|end)\s*\{[^{}]*\}/g, ' ')
+    // «\right.» — невидимая скобка
+    .replace(/\\(?:left|right)\s*\.\s*/g, '')
     .replace(/&/g, ' ')
     // склеиваем пробелы, которые OCR ставит внутри LaTeX
     .replace(/(\\[a-zA-Z]+)\s+(?=[{[])/g, '$1')
@@ -47,13 +59,22 @@ export function latexToText(input: string): string {
       .replace(/\\(?:vec|overrightarrow)\{([^{}]*)\}/g, (_, a: string) => `${a.trim()}⃗`)
       .replace(/\\(?:overline|bar)\{([^{}]*)\}/g, (_, a: string) => a.trim())
       // оформление, не нужное в тексте (подчёркивания, рамки, шляпки), — оставляем содержимое
-      .replace(/\\(?:underline|underbrace|overbrace|boxed|hat|widehat|tilde|widetilde|cancel|dot|ddot)\{([^{}]*)\}/g, '$1')
+      // (а также зачёркивания, обводки, жирный — то, что OCR оставляет вокруг цифр и выражений)
+      .replace(
+        /\\(?:underline|underbrace|overbrace|boxed|hat|widehat|tilde|widetilde|cancel|bcancel|xcancel|sout|dot|ddot|textcircled|circled|bm|pmb|mbox|hbox|fbox|textit|emph|textrm|textsf|texttt|mathsf|mathtt)\{([^{}]*)\}/g,
+        '$1',
+      )
       .replace(/\\(?:overset|underset|stackrel)\{[^{}]*\}\{([^{}]*)\}/g, '$1')
       .replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, (_, a: string, b: string) => `${wrap(a)}/${wrap(b)}`)
       .replace(/\\sqrt(?:\[(\d*)\])?\{([^{}]*)\}/g, (_, n = '', a: string) => `${ROOTS[n] ?? `${n}√`}${wrap(a)}`)
       .replace(/\\(?:text|textbf|mathrm|mathbf|mathit|mathcal|mathfrak|mathbb|operatorname|boldsymbol)\{([^{}]*)\}/g, '$1')
       .replace(/\^\{([^{}]*)\}/g, (_, a: string) => mapChars(a.trim(), SUP) ?? `^${wrap(a)}`)
       .replace(/_\{([^{}]*)\}/g, (_, a: string) => mapChars(a.trim(), SUB) ?? `_${a.trim()}`)
+      // лишние группирующие скобки «{(p + 2)}^{2}», «{{x}^{2} - 9}» раскрываем
+      // (не трогаем аргументы команд: перед ними буква, «}», «]», «^» или «_»; перед степенью — в круглые скобки)
+      .replace(/(^|[^\\\w}\]^_])\{([^{}]*)\}(?=([\^_]?))/g, (_, pre: string, a: string, next: string) =>
+        `${pre}${next ? wrap(a) : a}`,
+      )
     if (s === prev) break
   }
 
@@ -63,13 +84,21 @@ export function latexToText(input: string): string {
     .replace(/\\sqrt\s*(\w+)/g, '√$1')
     .replace(/\^([\w+-])/g, (m, a: string) => SUP[a] ?? m)
     .replace(/_(\w)/g, (m, a: string) => SUB[a] ?? m)
-    .replace(/\\([{}])/g, '$1')
+    .replace(/\\([{}%#&$])/g, '$1')
     .replace(/\\([a-zA-Z]+)/g, (m, name: string) => SYMBOLS[name] ?? m.slice(1))
     .replace(/\\[,;:! ]/g, ' ')
     // типографика: «( - 2» → «(-2», «= - 1» → «= -1», «x _ 1» уже склеено выше
     .replace(/([([{])\s+/g, '$1')
     .replace(/\s+([)\]};,.])/g, '$1')
     .replace(/(^|[([{=≠<>≤≥,;·×:±]\s*)-\s+(?=[\w√(])/g, '$1-')
+    // номер задания: OCR пишет «No7», «N4», «Nº 5» — приводим к «№7», иначе номер не узнаётся
+    .replace(/(^|[\s(;,.:])(?:No|N[oо0º°]?)\.?\s*(?=\d)/g, '$1№')
+    // мусор, который OCR «дописывает» из чужих решебников: теги [tex], «Respuesta: … Explicación»
+    .replace(/\[\s*\/?\s*tex\s*\]/gi, ' ')
+    .replace(/(^|[^A-Za-z])(?:Respuesta|Explicaci[oó]n|Answer|Explanation|Solution)\s*:?/gi, '$1 ')
+    // выдуманные слова латиницей (от 5 букв, не математические) и английские служебные слова
+    .replace(/[A-Za-zÀ-ÿ]{5,}/g, (w) => (MATH_WORDS.has(w.toLowerCase()) ? w : ' '))
+    .replace(/(^|\s)(?:the|for|and|with|from|this|that|of)(?=\s|$)/gi, '$1')
     .replace(/[ \t]{2,}/g, ' ')
   return s.trim()
 }

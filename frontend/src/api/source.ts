@@ -20,7 +20,9 @@ export async function readSource(file: File): Promise<{ source: SourceFile; text
     const mammoth = await import('mammoth')
     const buf = (await readAs(file, 'buffer')) as ArrayBuffer
     const { value: html } = await mammoth.convertToHtml({ arrayBuffer: buf })
-    return { source: { name, kind: 'docx', html }, text: await docxText(html) }
+    // оригинал храним: если задания не правили, в кабинет уходит именно он (с формулами и картинками)
+    const dataUrl = (await readAs(file, 'dataUrl')) as string
+    return { source: { name, kind: 'docx', html, dataUrl }, text: await docxText(html) }
   }
   const dataUrl = (await readAs(file, 'dataUrl')) as string
   if (/\.pdf$/i.test(name) || file.type === 'application/pdf') {

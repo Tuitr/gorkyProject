@@ -51,7 +51,15 @@ export type Assignment = {
   variants: Variant[] // [0] — вариант А (исходник)
   features: Record<Id, EquivFeature[]> // по taskId
   status: 'draft' | 'approved'
+  /** дата работы ГГГГ-ММ-ДД (уходит в кабинет; по умолчанию — день создания) */
+  date?: string
+  /** задания правили после распознавания — исходный DOCX учителя уже не совпадает с ними */
+  sourceEdited?: boolean
+  /** работа в кабинете (бэкенд из main): по классу — id работы, ревизия и отпечаток отправленного содержимого */
+  remote?: Record<Id, RemoteAssignment>
 }
+
+export type RemoteAssignment = { assignmentId: string; rev: number; hash: string }
 
 /** Распознанная строка фото (уже обычным текстом). */
 export type PageLine = { text: string; box: Box; fixed?: boolean }
@@ -61,6 +69,8 @@ export type Page = {
   image: string // URL или data:URL (в localStorage заменяется на idb:<id>)
   hash: string // защита от повторной загрузки
   lines?: PageLine[]
+  /** 'text' — работа сдана документом (DOCX через кабинет): фото нет, только строки текста */
+  kind?: 'text'
 }
 
 export type MistakeCategory = 'вычислительная' | 'знак' | 'правило' | 'логика' | 'запись' | 'неполное решение' | 'другое'
@@ -119,6 +129,13 @@ export type TaskResult = {
   scoreComment?: string
   mistakes: StepMistake[]
   autoReading?: string // «прочтение выбрано автоматически»
+  /** результат пришёл из кабинета: номер задания там и вердикты (для правок учителя) */
+  remote?: {
+    taskId: string
+    answer: 'correct' | 'incorrect' | 'skipped' | 'unreadable'
+    reasoning: 'valid' | 'invalid' | 'not_shown' | 'unknown'
+    method: 'met' | 'unmet' | 'unconfirmed' | 'optional'
+  }
 }
 
 export type SubmissionStatus = 'none' | 'submitted' | 'processing' | 'processed' | 'error'
@@ -143,6 +160,22 @@ export type Submission = {
   teacherTotal?: number // итог учителя
   approved: boolean
   summary?: string
+  /** работа загружена через кабинет (бэкенд из main) */
+  remote?: {
+    uploadId: string
+    fileId: string
+    fileName: string
+    attemptId?: string
+    checkId?: string
+    /** ревизия работы, к которой сдано */
+    assignmentRev?: number
+    /** состояние проверки в кабинете и причина, если не готово */
+    checkState?: string
+    checkReason?: string
+    /** версия результата кабинета и опубликованная версия */
+    resultRev?: number
+    publishedRev?: number
+  }
 }
 
 export type ReviewKind = 'student' | 'sign' | 'method' | 'reshoot'
@@ -181,7 +214,7 @@ export type Practice = {
 }
 
 /** Фоновая задача: генерация, OCR, проверка. */
-export type JobKind = 'generate' | 'ocr' | 'check' | 'practice'
+export type JobKind = 'generate' | 'ocr' | 'check' | 'practice' | 'sync'
 export type Job = {
   id: Id // ключ по объекту — повторный запуск того же не создаёт дубль
   kind: JobKind
@@ -201,6 +234,20 @@ export type State = {
   submissions: Submission[]
   review: ReviewItem[]
   practices: Practice[]
+  /** загрузки работ учеников в кабинет — чтобы вернуться к ним и досмотреть привязки */
+  uploads?: CabinetUploadRecord[]
+}
+
+export type CabinetUploadRecord = {
+  uploadId: string
+  assignmentId: Id
+  classId: Id
+  name: string
+  createdAt: number
+  /** ревизия работы в кабинете, к которой сдано */
+  rev: number
+  /** текст DOCX по имени файла — для нашей проверки, пока в кабинете её нет */
+  texts: Record<string, string>
 }
 
 /* ---------- расчёты ---------- */

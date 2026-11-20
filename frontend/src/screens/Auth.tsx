@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { login, logout, me, register } from '../api/auth'
+import { isCabinet, SESSION_EXPIRED_EVENT } from '../api/cabinet'
 import type { AuthUser } from '../store'
 
 /** Пускает в приложение только после входа; children получает учителя и выход. */
@@ -9,8 +10,12 @@ export function AuthGate({ children }: { children: (user: AuthUser, onLogout: ()
   useEffect(() => {
     let alive = true
     void me().then((u) => alive && setUser(u))
+    // кабинет: сессия (8 часов) закончилась посреди работы — экран входа
+    const expired = () => setUser(null)
+    window.addEventListener(SESSION_EXPIRED_EVENT, expired)
     return () => {
       alive = false
+      window.removeEventListener(SESSION_EXPIRED_EVENT, expired)
     }
   }, [])
 
@@ -44,7 +49,9 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
   const [password2, setPassword2] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const isReg = mode === 'register'
+  // в кабинете (бэкенд из main) регистрации нет, вход — по логину
+  const cabinet = isCabinet()
+  const isReg = mode === 'register' && !cabinet
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -75,6 +82,9 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
       </div>
 
       <form className="auth__card" onSubmit={submit} noValidate>
+        {cabinet ? (
+          <h2 className="auth__title">Вход</h2>
+        ) : (
         <div className="segmented auth__tabs" role="tablist" aria-label="Вход или регистрация">
           <button type="button" role="tab" aria-selected={!isReg} onClick={() => switchTo('login')}>
             Вход
@@ -83,6 +93,7 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
             Регистрация
           </button>
         </div>
+        )}
 
         {isReg && (
           <>
@@ -119,13 +130,13 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
           </>
         )}
         <label className="field">
-          <span>Электронная почта</span>
+          <span>{cabinet ? 'Логин' : 'Электронная почта'}</span>
           <input
             className="input"
-            type="email"
+            type={cabinet ? 'text' : 'email'}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
+            autoComplete={cabinet ? 'username' : 'email'}
             required
           />
         </label>

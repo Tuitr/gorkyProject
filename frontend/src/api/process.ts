@@ -24,8 +24,15 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String
 const nums = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter((n) => Number.isInteger(n)) : [])
 const arr = (v: unknown): Raw[] => (Array.isArray(v) ? (v as Raw[]) : [])
 
-/** «№2», «N 2», «2)» → «2» */
-export const normNum = (label: string) => label.replace(/^[^\dа-яa-z]*/i, '').replace(/[).\s]+$/, '').trim().toLowerCase()
+/** «№2», «No2», «N 2», «Nº 2», «задание 2», «2)» → «2» (OCR и модель пишут номер по-разному) */
+export const normNum = (label: string) =>
+  label
+    .trim()
+    .replace(/^(?:№|N[oо0º°]?\.?|задани[еяю]|номер|упр\.?|пример)\s*(?=[\dа-яa-z])/i, '')
+    .replace(/^[^\dа-яa-z]*/i, '')
+    .replace(/[).\s]+$/, '')
+    .trim()
+    .toLowerCase()
 
 export function unionBox(boxes: Box[]): Box | null {
   const bs = boxes.filter((b) => b.w > 0)
