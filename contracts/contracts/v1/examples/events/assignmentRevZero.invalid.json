@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "eventId": "e1",
+  "type": "assignment.published",
+  "traceId": "t1",
+  "occurredAt": "2026-11-20T09:30:00Z",
+  "payload": {
+    "assignmentId": "w1",
+    "assignmentRev": 0,
+    "docRef": {
+      "bucket": "sources",
+      "key": "assignments/w1/1.docx",
+      "sha256": "b2b0ef010f43bb523542a1ed201779f873caac4095d99d833aa5463098fff363"
+    },
+    "requirements": [
+      {
+        "text": "Решить через формулу длины вектора",
+        "taskNumber": "2"
+      }
+    ]
+  }
+}
