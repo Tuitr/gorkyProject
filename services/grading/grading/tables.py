@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKeyConstraint, Text, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +38,7 @@ class AssignmentJob(JobProgress, Base):
 class CheckJob(JobProgress, Base):
     __tablename__ = "check_jobs"
     __table_args__ = (
+        Index("check_jobs_assignment_revision", "assignment_id", "assignment_rev"),
         CheckConstraint("assignment_rev >= 1", name="check_jobs_positive_rev"),
         CheckConstraint(
             "state IN ('queued', 'waiting_reference', 'running', 'ready', 'needs_review', 'failed')",
@@ -65,12 +66,30 @@ class CheckResultRevision(Base):
     calculationId: Mapped[str] = mapped_column("calculation_id", Text)
     outcome: Mapped[dict[str, object]] = mapped_column(JSONB)
     markdownRef: Mapped[dict[str, object] | None] = mapped_column("markdown_ref", JSONB(none_as_null=True))
+    acceptedAt: Mapped[datetime | None] = mapped_column("accepted_at", DateTime(timezone=True))
+
+
+class AssignmentReportSnapshot(Base):
+    __tablename__ = "assignment_report_snapshots"
+    __table_args__ = (
+        CheckConstraint("rev >= 1", name="assignment_report_snapshots_positive_rev"),
+        ForeignKeyConstraint(
+            ["assignment_id", "assignment_rev"], [f"{DB_SCHEMA}.assignment_jobs.assignment_id",
+                                                   f"{DB_SCHEMA}.assignment_jobs.assignment_rev"],
+        ),
+    )
+
+    assignmentId: Mapped[str] = mapped_column("assignment_id", Text, primary_key=True)
+    rev: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    assignmentRev: Mapped[int] = mapped_column("assignment_rev", BigInteger)
+    report: Mapped[dict[str, object]] = mapped_column(JSONB)
 
 
 class InboxEntry(Base):
     __tablename__ = "inbox"
     # An event claims its ID before creating its job. The links are checked at commit.
     __table_args__ = (
+        Index("inbox_check_time", "check_id", "occurred_at"),
         ForeignKeyConstraint(
             ["check_id"], [f"{DB_SCHEMA}.check_jobs.check_id"],
             name="inbox_check_job", deferrable=True, initially="DEFERRED",

@@ -88,6 +88,17 @@ class ResultStore:
             job.nextAttemptAt = None
             return result
 
+    def recordAcceptance(self, checkId: str, resultRev: int) -> None:
+        """Record a teacher's choice once. Automatic Markdown publication does not accept an attempt."""
+        with Session(self.engine) as session, session.begin():
+            row = session.get_one(CheckResultRevision, (checkId, resultRev), with_for_update=True)
+            if row.markdownRef is None:
+                raise ResultConflict("the result must be published before it can be accepted")
+            if row.acceptedAt is None:
+                row.acceptedAt = self.clock() if self.clock is not None else session.execute(
+                    select(func.clock_timestamp())
+                ).scalar_one()
+
     def read(self, checkId: str, resultRev: int | None,
              requireArtifact: Callable[[MarkdownRef], None]) -> CheckStatus | PublishedCheck | None:
         with Session(self.engine) as session:

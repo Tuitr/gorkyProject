@@ -5,8 +5,10 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Query
 from sqlalchemy import Engine, create_engine
 
+from contracts.v1.grading.assignmentreport import AssignmentReport
 from contracts.v1.grading.checkresult import CheckStatus, PublishedCheck
 from grading.markdownStorage import MarkdownStorage
+from grading.reports import ReportStore
 from grading.results import ArtifactUnavailable, ResultStore
 from grading.settings import Settings
 from shared.httperrors import ApiProblem, installErrorHandlers
@@ -16,7 +18,9 @@ from shared.servicetokens import ServiceIdentity, ServiceTokenRegistry, requireR
 def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
               storage: MarkdownStorage | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings.fromEnv()
-    store = ResultStore(engine if engine is not None else create_engine(settings.databaseUrl, hide_parameters=True))
+    database = engine if engine is not None else create_engine(settings.databaseUrl, hide_parameters=True)
+    store = ResultStore(database)
+    reports = ReportStore(database)
     markdown = storage if storage is not None else MarkdownStorage.fromEnv()
     app = FastAPI(title="Grading Results API", version="1.0.0")
     installErrorHandlers(app)
@@ -32,5 +36,13 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
         if result is None:
             raise ApiProblem("not_found", "Check or result revision not found")
         return result
+
+    @app.get("/internal/v1/assignments/{id}/report")
+    def getReport(id: str, caller: Annotated[ServiceIdentity, Depends(requireRight("reports.read"))],
+                  rev: Annotated[int | None, Query(ge=1)] = None) -> AssignmentReport:
+        report = reports.read(id, rev)
+        if report is None:
+            raise ApiProblem("not_found", "Assignment or report snapshot not found")
+        return report
 
     return app
