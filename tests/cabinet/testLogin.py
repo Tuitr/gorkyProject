@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet import documents, uploads
 from cabinet.assignments import AssignmentRecord
+from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
 from cabinet.database import allMetadata
@@ -65,7 +66,10 @@ def cabinetEngine(adminEngine: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def cabinetSessions(cabinetEngine: Engine) -> sessionmaker[Session]:
     with cabinetEngine.begin() as connection:
-        tables = ("teachers", "sessions", "login_throttle", "classes", "students", "assignments", "uploads", "upload_files")
+        tables = (
+            "teachers", "sessions", "login_throttle", "classes", "students", "assignments",
+            "uploads", "upload_files", "attempts", "attempt_checks",
+        )
         qualified = ", ".join(f'"{DB_SCHEMA}".{table}' for table in tables)
         connection.execute(text(f"TRUNCATE {qualified}"))
     return sessionmaker(cabinetEngine, expire_on_commit=False)
@@ -567,19 +571,19 @@ def testOnlyOwnerCanReadMixedUploadProgress(
             and "attemptId" not in file and "checkId" not in file
             for file in unmatched.json()["files"]
         )
-        attemptId, checkId = str(uuid.uuid4()), str(uuid.uuid4())
         with cabinetSessions.begin() as db:
             records = {file.originalName: file for file in db.scalars(select(UploadFileRecord))}
-            records["bound.docx"].status = "bound"
-            records["bound.docx"].reason = None
-            records["bound.docx"].studentId = student["studentId"]
-            records["bound.docx"].attemptId = attemptId
-            records["bound.docx"].checkId = checkId
             records["unclear.docx"].status = "needs_confirmation"
             records["unclear.docx"].reason = None
             records["unclear.docx"].candidateStudentIds = [student["studentId"], foreign["studentId"]]
             records["rejected.docx"].status = "rejected"
             records["rejected.docx"].reason = "Документ не читается"
+        confirmed = client.post(
+            f"{path}/bindings",
+            json={"fileId": records["bound.docx"].fileId, "studentId": student["studentId"]},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        attemptId, checkId = confirmed.json()["attemptId"], confirmed.json()["checkId"]
 
         response = client.get(path)
         assert response.status_code == 200, response.text
@@ -589,7 +593,7 @@ def testOnlyOwnerCanReadMixedUploadProgress(
         assert len(files) == 3
         assert files["bound.docx"] == {
             "fileId": records["bound.docx"].fileId, "originalName": "bound.docx", "status": "bound",
-            "candidates": [], "studentId": student["studentId"], "attemptId": attemptId, "checkId": checkId,
+            "candidates": [student], "studentId": student["studentId"], "attemptId": attemptId, "checkId": checkId,
         }
         assert files["unclear.docx"] == {
             "fileId": records["unclear.docx"].fileId, "originalName": "unclear.docx",
@@ -615,7 +619,7 @@ def testOnlyOwnerCanReadMixedUploadProgress(
             s3.delete_object(Bucket=variant.bucket, Key=variant.objectKey)
 
 
-def testUploadMatchesStudentsWithoutStartingAttempts(
+def testUploadCreatesAttemptsOnlyForUnambiguousMatches(
     cabinetSessions: sessionmaker[Session], clock: ManualClock,
 ) -> None:
     addTeacher(cabinetSessions, "teacher.owner")
@@ -662,10 +666,10 @@ def testUploadMatchesStudentsWithoutStartingAttempts(
         assert progress.status_code == 200, progress.text
         files = {file["originalName"]: file for file in progress.json()["files"]}
         assert len(files) == 7
-        assert all("attemptId" not in file and "checkId" not in file for file in files.values())
         for filename, matchId in (("ivanov-ivan.docx", ivan), ("Пётр Иванов.docx", petr)):
             assert files[filename]["studentId"] == matchId
-            assert files[filename]["status"] == "matched"
+            assert files[filename]["status"] == "bound"
+            assert files[filename]["attemptId"] and files[filename]["checkId"]
         for filename, candidates in (
             ("Иванов Иван.docx", {ivan, petr}), ("Иванов.docx", {ivan, petr}),
             ("Ким Анна.docx", {anna, secondAnna}), ("Кузнецова Мария.docx", set()), ("multiple.docx", {ivan, petr}),
@@ -674,6 +678,7 @@ def testUploadMatchesStudentsWithoutStartingAttempts(
             assert file["status"] == "needs_confirmation", file
             assert {candidate["studentId"] for candidate in file["candidates"]} == candidates
             assert "studentId" not in file and file["reason"]
+            assert "attemptId" not in file and "checkId" not in file
 
         # A file persisted by A3.4 gets the same match when its owner first reads progress.
         with cabinetSessions.begin() as db:
@@ -681,6 +686,7 @@ def testUploadMatchesStudentsWithoutStartingAttempts(
             assert old is not None
             old.status = "pending_binding"
             old.studentId = None
+            old.attemptId = old.checkId = None
             old.candidateStudentIds = []
 
         saved = client.get(path)
@@ -740,7 +746,9 @@ def testTeacherConfirmsStudentBindingOnce(
 
         selected = client.post(bindPath, json=chosenBody)
         assert selected.status_code == 200, selected.text
-        assert selected.json() == {**chosenBody, "status": "matched"}
+        assert selected.json() == {
+            **chosenBody, "status": "bound", "attemptId": selected.json()["attemptId"], "checkId": selected.json()["checkId"],
+        }
         assert client.post(bindPath, json=chosenBody).json() == selected.json()
 
         ready = Barrier(2)
@@ -771,9 +779,97 @@ def testTeacherConfirmsStudentBindingOnce(
         progress = {file["fileId"]: file for file in client.get(progressPath).json()["files"]}
         assert progress[fileIds["create.docx"]]["studentId"] == createdId
         assert progress[fileIds["choose.docx"]]["studentId"] == chosen["studentId"]
-        assert all(file["status"] == "matched" and "attemptId" not in file for file in progress.values())
+        assert all(file["status"] == "bound" and file["attemptId"] and file["checkId"] for file in progress.values())
 
     with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        for file in db.scalars(select(UploadFileRecord)):
+            s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
+        for record in db.scalars(select(AssignmentRecord)):
+            s3.delete_object(Bucket=record.bucket, Key=record.objectKey)
+
+
+def testDuplicateAttemptsAreSharedAcrossConcurrentConfirmations(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    firstDocx = assignmentDocx("Первая сдача")
+    revisedDocx = assignmentDocx("Исправленная сдача")
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        classPath = f"/v1/classes/{classId}"
+        studentId = client.post(f"{classPath}/students", json={"name": "Иванов Иван"}).json()["studentId"]
+        assignment = client.post(
+            f"{classPath}/assignments", data={"requirements": "[]"}, files={"file": ("assignment.docx", firstDocx)},
+        )
+        assert assignment.status_code == 201, assignment.text
+        assignmentId = assignment.json()["assignmentId"]
+
+        def submit(filename: str, content: bytes, revision: int = 1) -> tuple[str, str]:
+            uploaded = client.post(
+                f"/v1/assignments/{assignmentId}/uploads", data={"assignmentRev": str(revision)},
+                files={"file": (filename, content)},
+            )
+            assert uploaded.status_code == 202, uploaded.text
+            path = f"/v1/uploads/{uploaded.json()['uploadId']}"
+            file = client.get(path).json()["files"][0]
+            assert file["status"] == "needs_confirmation"
+            return path, file["fileId"]
+
+        first = submit("first.docx", firstDocx)
+        duplicate = submit("copy.docx", firstDocx)
+        submittedAt = clock.now()
+        clock.advance(60)
+        ready = Barrier(2)
+
+        def bindConcurrently(upload: tuple[str, str]) -> Response:
+            path, fileId = upload
+            with TestClient(app, base_url="https://testserver", cookies=client.cookies) as contender:
+                ready.wait(timeout=5)
+                response: Response = contender.post(f"{path}/bindings", json={"fileId": fileId, "studentId": studentId})
+                return response
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            firstRequest, duplicateRequest = workers.submit(bindConcurrently, first), workers.submit(bindConcurrently, duplicate)
+            bound, repeated = firstRequest.result(timeout=10), duplicateRequest.result(timeout=10)
+        assert bound.status_code == repeated.status_code == 200
+        initial = bound.json()
+        assert repeated.json() == {**initial, "fileId": duplicate[1]}
+
+        def confirm(upload: tuple[str, str]) -> dict[str, str]:
+            path, fileId = upload
+            response = client.post(f"{path}/bindings", json={"fileId": fileId, "studentId": studentId})
+            assert response.status_code == 200, response.text
+            payload: dict[str, str] = response.json()
+            return payload
+
+        assert confirm(first) == initial
+        revision = client.post(
+            f"{classPath}/assignments",
+            data={"assignmentId": assignmentId, "requirements": json.dumps([{"text": "Другие требования"}])},
+            files={"file": ("assignment.docx", firstDocx)},
+        )
+        assert revision.status_code == 201 and revision.json()["assignmentRev"] == 2
+        changed = confirm(submit("first.docx", revisedDocx))
+        underNewRequirements = confirm(submit("copy.docx", firstDocx, revision=2))
+        assert changed["attemptId"] != initial["attemptId"]
+        assert underNewRequirements["attemptId"] == initial["attemptId"]
+        assert len({initial["checkId"], changed["checkId"], underNewRequirements["checkId"]}) == 3
+        assert confirm(first) == initial
+        assert client.get(first[0]).json()["files"][0]["checkId"] == initial["checkId"]
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        attempts = list(db.scalars(select(AttemptRecord)))
+        assert len(attempts) == 2
+        original = next(attempt for attempt in attempts if attempt.attemptId == initial["attemptId"])
+        assert original.submittedAt == submittedAt
+        assert original.sha256 == hashlib.sha256(firstDocx).hexdigest()
+        assert {check.checkId: check.assignmentRev for check in db.scalars(select(CheckRecord))} == {
+            initial["checkId"]: 1, changed["checkId"]: 1, underNewRequirements["checkId"]: 2,
+        }
         for file in db.scalars(select(UploadFileRecord)):
             s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
         for record in db.scalars(select(AssignmentRecord)):

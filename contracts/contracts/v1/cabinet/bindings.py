@@ -30,4 +30,6 @@ class BindingConfirmed(BaseModel):
 
     fileId: NonEmptyStr
     studentId: NonEmptyStr
-    status: Literal["matched", "bound"]
+    status: Literal["bound"]
+    attemptId: NonEmptyStr
+    checkId: NonEmptyStr

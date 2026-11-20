@@ -1,12 +1,13 @@
 """Confirm a teacher's choice for exactly one uploaded document."""
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cabinet.classes import StudentRecord
-from cabinet.uploads import UploadFileRecord, requireOwnedUploadClass
+from cabinet.uploads import UploadFileRecord, finishFileBinding, requireOwnedUpload
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest, SelectStudentBinding
 from shared.httperrors import ApiProblem
 
@@ -21,8 +22,10 @@ def requireStudentInClass(db: Session, studentId: str, classId: str) -> StudentR
     raise ApiProblem("not_found", "Student not found in the class")
 
 
-def confirmBinding(db: Session, uploadId: str, teacherId: str, request: BindingRequest) -> BindingConfirmed:
-    classId = requireOwnedUploadClass(db, uploadId, teacherId)
+def confirmBinding(
+    db: Session, uploadId: str, teacherId: str, request: BindingRequest, now: datetime,
+) -> BindingConfirmed:
+    upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     if len(request.fileId) != 36 or "\x00" in request.fileId:
         raise ApiProblem("not_found", "Upload file not found")
     file = db.scalar(
@@ -62,8 +65,11 @@ def confirmBinding(db: Session, uploadId: str, teacherId: str, request: BindingR
         file.reason = None
         file.candidateStudentIds = [student.studentId]
 
+    attemptId, checkId = finishFileBinding(db, upload, file, now)
     return BindingConfirmed(
         fileId=file.fileId,
         studentId=student.studentId,
-        status="bound" if file.status == "bound" else "matched",
+        status="bound",
+        attemptId=attemptId,
+        checkId=checkId,
     )

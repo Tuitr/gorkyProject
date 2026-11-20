@@ -5,17 +5,19 @@ import uuid
 from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime
 from os import SEEK_END
 from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile, ZipInfo
 from zlib import error as ZlibError
 
 from fastapi import UploadFile
 
-from sqlalchemy import CheckConstraint, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, select
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.assignments import AssignmentRecord
+from cabinet.attempts import ensureAttempt, ensureCheck
 from cabinet.bindings import matchStudent, signatureNames
 from cabinet.classes import ClassRecord, StudentRecord
 from cabinet.database import Base
@@ -52,6 +54,7 @@ class UploadRecord(Base):
     uploadId: Mapped[str] = mapped_column("upload_id", String(36), primary_key=True)
     assignmentId: Mapped[str] = mapped_column("assignment_id", String(36))
     assignmentRev: Mapped[int] = mapped_column("assignment_rev")
+    uploadedAt: Mapped[datetime | None] = mapped_column("uploaded_at", DateTime(timezone=True))
 
 
 class UploadFileRecord(Base):
@@ -86,8 +89,12 @@ class UploadFileRecord(Base):
     candidateStudentIds: Mapped[list[str]] = mapped_column("candidate_student_ids", ARRAY(String(36)), server_default="{}")
     reason: Mapped[str | None] = mapped_column(String(255))
     studentId: Mapped[str | None] = mapped_column("student_id", ForeignKey("cabinet.students.student_id"))
-    attemptId: Mapped[str | None] = mapped_column("attempt_id", String(36))
-    checkId: Mapped[str | None] = mapped_column("check_id", String(36))
+    attemptId: Mapped[str | None] = mapped_column(
+        "attempt_id", ForeignKey("cabinet.attempts.attempt_id", name="fk_upload_files_attempt")
+    )
+    checkId: Mapped[str | None] = mapped_column(
+        "check_id", ForeignKey("cabinet.attempt_checks.check_id", name="fk_upload_files_check")
+    )
     bindingMode: Mapped[str | None] = mapped_column("binding_mode", String(16))
 
 
@@ -165,6 +172,7 @@ def storeUpload(
     assignmentRev: int,
     classId: str,
     documents: list[SubmissionDocument],
+    uploadedAt: datetime,
 ) -> UploadAccepted:
     uploadId = str(uuid.uuid4())
     records = []
@@ -179,8 +187,12 @@ def storeUpload(
             )
             applyMatch(file, document.signatures, roster)
             records.append(file)
-    db.add(UploadRecord(uploadId=uploadId, assignmentId=assignmentId, assignmentRev=assignmentRev))
+    upload = UploadRecord(
+        uploadId=uploadId, assignmentId=assignmentId, assignmentRev=assignmentRev, uploadedAt=uploadedAt,
+    )
+    db.add(upload)
     db.flush()
+    finishMatchedFiles(db, upload, records, uploadedAt)
     db.add_all(records)
     return UploadAccepted(uploadId=uploadId)
 
@@ -191,6 +203,35 @@ def applyMatch(file: UploadFileRecord, signatures: tuple[str, ...], roster: Sequ
     file.studentId = match.studentId
     file.candidateStudentIds = match.candidateIds
     file.reason = match.reason
+
+
+def finishFileBinding(
+    db: Session, upload: UploadRecord, file: UploadFileRecord, now: datetime,
+) -> tuple[str, str]:
+    if file.status == "bound":
+        assert file.attemptId is not None and file.checkId is not None
+        return file.attemptId, file.checkId
+
+    assert file.status == "matched" and file.studentId is not None
+    ref = DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256)
+    attemptId = ensureAttempt(db, upload.assignmentId, file.studentId, ref, upload.uploadedAt or now)
+    checkId = ensureCheck(db, attemptId, upload.assignmentId, upload.assignmentRev)
+    file.attemptId = attemptId
+    file.checkId = checkId
+    file.status = "bound"
+    return attemptId, checkId
+
+
+def finishMatchedFiles(
+    db: Session, upload: UploadRecord, files: Sequence[UploadFileRecord], now: datetime,
+) -> None:
+    # Concurrent archives may contain the same works in different orders.
+    matched = sorted(
+        (file for file in files if file.status == "matched"),
+        key=lambda file: (file.studentId or "", file.sha256),
+    )
+    for file in matched:
+        finishFileBinding(db, upload, file, now)
 
 
 def matchPendingFiles(
@@ -215,12 +256,11 @@ def matchPendingFiles(
                 applyMatch(file, signatures, roster)
 
 
-def requireOwnedUploadClass(db: Session, uploadId: str, teacherId: str) -> str:
+def requireOwnedUpload(db: Session, uploadId: str, teacherId: str) -> tuple[UploadRecord, str]:
     if len(uploadId) != 36 or "\x00" in uploadId:
         raise ApiProblem("not_found", "Upload not found")
-    classId = db.scalar(
-        select(AssignmentRecord.classId)
-        .select_from(UploadRecord)
+    owned = db.execute(
+        select(UploadRecord, AssignmentRecord.classId)
         .join(
             AssignmentRecord,
             (AssignmentRecord.assignmentId == UploadRecord.assignmentId)
@@ -228,24 +268,29 @@ def requireOwnedUploadClass(db: Session, uploadId: str, teacherId: str) -> str:
         )
         .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
         .where(UploadRecord.uploadId == uploadId, ClassRecord.teacherId == teacherId)
-    )
-    if classId is None:
+    ).one_or_none()
+    if owned is None:
         raise ApiProblem("not_found", "Upload not found")
-    return classId
+    upload, classId = owned
+    return upload, classId
 
 
-def getUploadProgress(db: Session, settings: Settings, uploadId: str, teacherId: str) -> UploadProgress:
-    classId = requireOwnedUploadClass(db, uploadId, teacherId)
+def getUploadProgress(
+    db: Session, settings: Settings, uploadId: str, teacherId: str, now: datetime,
+) -> UploadProgress:
+    upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     fileQuery = (
         select(UploadFileRecord)
         .where(UploadFileRecord.uploadId == uploadId)
         .order_by(UploadFileRecord.originalName, UploadFileRecord.fileId)
     )
     files = db.scalars(fileQuery).all()
-    if any(file.status == "pending_binding" for file in files):
-        # Older uploads may not have been matched yet. Serialize the update for this upload.
+    if any(file.status in {"pending_binding", "matched"} for file in files):
+        # Complete older uploads on first read, with the same file locks as manual confirmation.
         files = db.scalars(fileQuery.with_for_update().execution_options(populate_existing=True)).all()
-        matchPendingFiles(db, settings, classId, files)
+        if any(file.status == "pending_binding" for file in files):
+            matchPendingFiles(db, settings, classId, files)
+        finishMatchedFiles(db, upload, files, now)
 
     candidateIds = {studentId for file in files for studentId in file.candidateStudentIds}
     candidates = {}

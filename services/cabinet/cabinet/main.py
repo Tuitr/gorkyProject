@@ -231,7 +231,9 @@ def createApp(
     ) -> UploadAccepted:
         with sessionFactory.begin() as db:
             classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
-            return storeUpload(db, settings, assignmentId, assignmentRev, classId, readSubmission(file))
+            return storeUpload(
+                db, settings, assignmentId, assignmentRev, classId, readSubmission(file), sessionClock.now(),
+            )
 
     @v1.get(
         "/uploads/{uploadId}",
@@ -240,7 +242,7 @@ def createApp(
     )
     def readUpload(uploadId: str, teacher: TeacherSession = Depends(currentTeacher)) -> UploadProgress:
         with sessionFactory.begin() as db:
-            return getUploadProgress(db, settings, uploadId, teacher.teacherId)
+            return getUploadProgress(db, settings, uploadId, teacher.teacherId, sessionClock.now())
 
     @v1.post(
         "/uploads/{uploadId}/bindings",
@@ -253,7 +255,7 @@ def createApp(
         uploadId: str, body: BindingRequest, teacher: TeacherSession = Depends(currentTeacher),
     ) -> BindingConfirmed:
         with sessionFactory.begin() as db:
-            return confirmBinding(db, uploadId, teacher.teacherId, body)
+            return confirmBinding(db, uploadId, teacher.teacherId, body, sessionClock.now())
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:
