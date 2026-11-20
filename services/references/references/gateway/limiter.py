@@ -81,6 +81,10 @@ class ProviderLimiter:
         )
         with self.sessionFactory() as session, session.begin():
             slots = list(session.scalars(query))
+            if not slots:
+                # The rows were removed after this process created them (a reset stand): create them again.
+                self.slotsReady = False
+                return Wait(0, "busy")
             notBefore = max((slot.notBefore for slot in slots if slot.notBefore is not None), default=None)
             if notBefore is not None and notBefore > now:
                 return Wait((notBefore - now).total_seconds(), "backoff")

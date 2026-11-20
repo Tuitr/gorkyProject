@@ -269,3 +269,16 @@ def testSettingsComputeTheReviewLease() -> None:
 def testBadLimitsDoNotStart(name: str, value: str) -> None:
     with pytest.raises(ConfigError, match=name):
         GatewaySettings.fromEnv({"GATEWAY_TRANSPORT": "fixture", name: value})
+
+
+def testSlotsComeBackAfterTheTableIsCleared(sessionFactory: sessionmaker[Session]) -> None:
+    limiter = buildLimiter(sessionFactory, ManualClock())
+    first = limiter.tryAcquire("q1")
+    assert isinstance(first, Slot)
+    limiter.release(first)
+    with sessionFactory() as session, session.begin():
+        session.query(ProviderSlotRecord).delete()
+
+    assert limiter.tryAcquire("q2") == Wait(0, "busy"), "no slot row: ask again instead of failing"
+    again = limiter.tryAcquire("q2")
+    assert isinstance(again, Slot) and heldSlots(sessionFactory) == ["q2"]
