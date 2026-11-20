@@ -54,23 +54,6 @@ export function Home() {
                   <span>Вариантов: {a.variants.length || a.variantCount}</span>
                   {q > 0 && <Badge tone="warn">требует проверки учителем: {q}</Badge>}
                 </div>
-                <div className="card__classes">
-                  {a.classIds.map((cid) => {
-                    const c = classes.find((x) => x.id === cid)
-                    if (!c) return null
-                    const cs = subs.filter((s) => s.classId === cid)
-                    const done = cs.filter((s) => s.status === 'processed').length
-                    const got = cs.filter((s) => s.status !== 'none' && s.pages.length).length
-                    return (
-                      <a key={cid} className="class-pill" href={href('a', a.id, 'collect', { c: cid })}>
-                        <b>{c.name}</b>
-                        <span className="muted small">
-                          сдано {got}/{c.students.length} · проверено {done}
-                        </span>
-                      </a>
-                    )
-                  })}
-                </div>
                 <div className="card__foot">
                   <a className="card__open" href={main}>
                     Открыть →

@@ -22,8 +22,6 @@ export function AssignmentForm({ id }: { id?: string }) {
   const [type, setType] = useState<WorkType>(existing?.type ?? 'control')
   const [classIds, setClassIds] = useState<string[]>(existing?.classIds ?? (classes[0] ? [classes[0].id] : []))
   const [notes, setNotes] = useState(existing?.notes ?? '')
-  const [classNotes, setClassNotes] = useState<Record<string, string>>(existing?.classNotes ?? {})
-  const [openNotes, setOpenNotes] = useState<string[]>(Object.keys(existing?.classNotes ?? {}))
   // Файлы с заданиями по порядку; text = null — файл сохранён раньше, его текст заново не читаем
   const [items, setItems] = useState<{ source: SourceFile; text: string | null }[]>(() =>
     existing ? sourceFiles(existing).map((source) => ({ source, text: null })) : [],
@@ -85,9 +83,6 @@ export function AssignmentForm({ id }: { id?: string }) {
   const canSave = classIds.length && (existing ? title.trim() : tasksToSave?.length)
 
   const save = () => {
-    const cleanClassNotes = Object.fromEntries(
-      Object.entries(classNotes).filter(([k, v]) => classIds.includes(k) && v.trim()),
-    )
     if (existing) {
       update((s) => ({
         ...s,
@@ -97,7 +92,6 @@ export function AssignmentForm({ id }: { id?: string }) {
           type,
           classIds,
           notes,
-          classNotes: cleanClassNotes,
           ...(items.some((i) => i.text !== null) || files.length !== sourceFiles(a).length
             ? { file: files[0], files }
             : {}),
@@ -117,7 +111,7 @@ export function AssignmentForm({ id }: { id?: string }) {
       files,
       classIds,
       notes,
-      classNotes: cleanClassNotes,
+      classNotes: {},
       tasks: tasksToSave ?? [],
       variantCount: type === 'control' ? 2 : 1,
       variants: [],
@@ -253,19 +247,54 @@ export function AssignmentForm({ id }: { id?: string }) {
               Нет классов — <a href="#/classes">создайте класс</a>.
             </span>
           ) : (
-            <div className="checks">
-              {classes.map((c) => (
-                <label key={c.id} className="check">
-                  <input
-                    type="checkbox"
-                    checked={classIds.includes(c.id)}
+            <div className="class-selects">
+              {/* по выпадающему списку на класс: в каждом — этот класс и ещё не выбранные */}
+              {(classIds.length ? classIds : ['']).map((id, i) => (
+                <div key={i} className="class-select">
+                  <select
+                    className="input"
+                    aria-label={`Класс ${i + 1}`}
+                    value={id}
                     onChange={(e) =>
-                      setClassIds((ids) => (e.target.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id)))
+                      setClassIds((ids) => {
+                        const next = ids.length ? [...ids] : ['']
+                        next[i] = e.target.value
+                        return next.filter(Boolean)
+                      })
                     }
-                  />
-                  {c.name}
-                </label>
+                  >
+                    {!id && <option value="">Выберите класс</option>}
+                    {classes
+                      .filter((c) => c.id === id || !classIds.includes(c.id))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                  {classIds.length > 1 && (
+                    <button
+                      className="icon-btn icon-btn--danger"
+                      aria-label="Убрать класс"
+                      title="Убрать класс"
+                      onClick={() => setClassIds((ids) => ids.filter((_, j) => j !== i))}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               ))}
+              {classIds.length > 0 && classIds.length < classes.length && (
+                <button
+                  className="link-btn"
+                  onClick={() => {
+                    const free = classes.find((c) => !classIds.includes(c.id))
+                    if (free) setClassIds((ids) => [...ids, free.id])
+                  }}
+                >
+                  + Добавить ещё класс
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -283,32 +312,6 @@ export function AssignmentForm({ id }: { id?: string }) {
             Указания составляются в свободной форме. На странице проверки распознавания будет показано, какие правила учтены, а какие требуют ручной проверки.
           </span>
         </label>
-
-        {classIds.length > 0 && (
-          <div className="field">
-            <span>Указания для отдельного класса</span>
-            {classes
-              .filter((c) => classIds.includes(c.id))
-              .map((c) =>
-                openNotes.includes(c.id) ? (
-                  <label key={c.id} className="class-note">
-                    <b>{c.name}</b>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      value={classNotes[c.id] ?? ''}
-                      onChange={(e) => setClassNotes((n) => ({ ...n, [c.id]: e.target.value }))}
-                      placeholder="Например: в этом классе задание №6 оценивается без учёта оформления"
-                    />
-                  </label>
-                ) : (
-                  <button key={c.id} className="link-btn" onClick={() => setOpenNotes((o) => [...o, c.id])}>
-                    + указание для класса {c.name}
-                  </button>
-                ),
-              )}
-          </div>
-        )}
 
         <div className="form__foot">
           <a className="btn" href={existing ? href('a', existing.id, 'source') : '#/'}>

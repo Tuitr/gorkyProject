@@ -59,6 +59,7 @@ export function Classes() {
         </div>
       ) : (
         <>
+          <div className="class-strip">
           {parallels.map((p) => {
             const list = classes.filter((c) => (c.name.match(/^\d+/)?.[0] ?? 'Другие') === p)
             return (
@@ -66,13 +67,14 @@ export function Classes() {
                 <span className="muted small">{p === 'Другие' ? p : `${p} классы`}</span>
                 <Tabs
                   label={`Параллель ${p}`}
-                  items={list.map((c) => ({ id: c.id, label: `${c.name} · ${c.students.length}` }))}
+                  items={list.map((c) => ({ id: c.id, label: c.name }))}
                   value={current?.id ?? ''}
                   onChange={(c) => go('classes', { c })}
                 />
               </div>
             )
           })}
+          </div>
 
           {current && (
             <div className="two-col class-cols">

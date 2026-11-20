@@ -25,7 +25,14 @@ const STAGES: { label: string; steps: Step[] }[] = [
 /** Только свои классы: фото и отчёты доступны лишь владельцу класса. */
 export function useOwnClasses() {
   const { state } = useStore()
-  return state.classes.filter((c) => c.ownerId === state.teacher.id)
+  return state.classes.filter((c) => c.ownerId === state.teacher.id).sort(byClassName)
+}
+
+/** От младших к старшим: номер параллели — как число (5А < 10А), затем буква. Без номера — в конце. */
+export function byClassName(a: { name: string }, b: { name: string }) {
+  const na = Number(a.name.match(/^\d+/)?.[0] ?? Infinity)
+  const nb = Number(b.name.match(/^\d+/)?.[0] ?? Infinity)
+  return na - nb || a.name.localeCompare(b.name, 'ru')
 }
 
 export function useAssignment(id: string) {
