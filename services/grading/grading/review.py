@@ -12,10 +12,12 @@ from urllib.parse import urlsplit
 from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse, ReviewReference, ReviewStep
 from contracts.v1.references.reference import ReferenceReady, ReferenceResult
-from grading.assignment import AssignmentTask
+from grading.assignment import AssignmentTask, subjectOf
 from grading.submission import SubmissionReading, TaskReading
 
 PROMPT_VERSION = "review.v2"
+SUBJECT_PROMPT_VERSIONS = {"physics": "review.v3"}
+"""A subject with its own review prompt; math uses the promptVersion the caller passes (review.v2 by default)."""
 DOCUMENT_LABEL = re.compile(
     r"\b(?:фио|имя ученика|ученик|ученица|выполнил[аи]?|подпись|автор|имя файла|файл)\s*:",
     re.IGNORECASE,
@@ -111,7 +113,8 @@ def reviewTasks(checkId: str, tasks: tuple[AssignmentTask, ...], reading: Submis
             results.append(localResult(task.taskId, skipped=item.status == "skipped", required=bool(task.requirements)))
             continue
         try:
-            request = buildReviewRequest(checkId, task, steps[task.taskId], reference, promptVersion)
+            taskPrompt = SUBJECT_PROMPT_VERSIONS.get(subjectOf(task), promptVersion)
+            request = buildReviewRequest(checkId, task, steps[task.taskId], reference, taskPrompt)
         except DocumentMetadataInReview:
             results.append(localResult(task.taskId, skipped=False, required=bool(task.requirements)))
             continue
