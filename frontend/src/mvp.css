@@ -311,33 +311,42 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .crop img { position: absolute; max-width: none; }
 .crop--full { width: 100%; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); }
 
-/* ---------- главная: карточки работ как AssignmentCard в Spirit Code ---------- */
-.cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(460px, 100%), 1fr)); gap: 24px; }
-.card {
+/* ---------- главная: список работ — одна форма, каждая работа на своей строке ---------- */
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: 260px;
-  padding: 24px;
   background: var(--surface);
   border: 1px solid var(--line-soft);
   border-radius: 20px;
   box-shadow: var(--shadow);
-  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  overflow: hidden;
 }
-.card:hover { transform: translateY(-2px); border-color: var(--accent-line); box-shadow: 0 12px 32px rgba(31, 35, 40, 0.11); }
-.card.is-draft { border-color: var(--accent); }
-.card__head { display: flex; justify-content: space-between; gap: 8px; align-items: center; min-height: 24px; }
-.card__subject { min-width: 0; overflow: hidden; color: var(--amber); font-family: var(--font-mono); font-size: 15px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
-.card__title { margin: 0; font-size: 28px; line-height: 1.3; word-break: break-word; }
+.card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 16px 24px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.card + .card { border-top: 1px solid var(--line-soft); }
+.card:hover { background: var(--surface-2); }
+.card.is-draft { border-left-color: var(--accent); }
+.card__subject { min-width: 0; overflow: hidden; color: var(--amber); font-family: var(--font-mono); font-size: 14px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.card__title { margin: 0; min-width: 0; overflow: hidden; font-size: 18px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
 .card__title a { color: var(--text); }
 .card__title a:hover { color: var(--accent-text); text-decoration: none; }
-.card__meta { display: flex; gap: 8px 16px; color: var(--muted); font-size: 15px; flex-wrap: wrap; align-items: center; }
-.card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; margin-top: auto; font-size: 17px; }
+.card__meta { display: flex; gap: 6px 16px; color: var(--muted); font-size: 14px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+.card__status { display: flex; justify-content: flex-end; }
 .card__open { color: var(--accent-text); font-weight: 600; white-space: nowrap; }
-/* вся карточка кликабельна: ссылка «Открыть» растянута на карточку */
-.card { position: relative; cursor: pointer; }
-.card__open::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+/* вся строка кликабельна: ссылка «Открыть» растянута на строку */
+.card__open::after { content: ''; position: absolute; inset: 0; }
 
 /* ---------- классы ---------- */
 .parallel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -573,7 +582,7 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .cell--warn { border-color: var(--warn-line); background: var(--amber-soft); color: var(--amber); }
 .cell--muted { border-color: var(--line); background: var(--surface-2); }
 .cell:hover { border-color: var(--text); }
-.qcard, .variants__group, .card, .mode { border-radius: 20px; }
+.qcard, .variants__group, .mode { border-radius: 20px; }
 .qcard { padding: 20px; border-color: var(--line-soft); }
 .reading { border-radius: 8px; border-width: 2px; background: var(--inset); }
 .reading.is-on { border-color: var(--accent); background: var(--accent-soft); }
@@ -640,8 +649,11 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
   .page > .table { display: block; overflow-x: auto; }
   .page { padding: 24px 16px 64px; }
   .page-head h1 { font-size: 22px; line-height: 28px; }
-  .card__title { font-size: 22px; }
-  .cards { grid-template-columns: minmax(0, 1fr); }
+  .card { grid-template-columns: minmax(0, 1fr) auto; padding: 14px 16px; }
+  .card__subject { grid-column: 1 / -1; }
+  .card__title { grid-column: 1 / -1; white-space: normal; }
+  .card__meta { justify-content: flex-start; }
+  .card__status { justify-content: flex-start; }
   .variants__row { grid-template-columns: minmax(0, 1fr); }
   .variants__row--head { display: none; }
   .qcard__body { grid-template-columns: minmax(0, 1fr); }
@@ -783,3 +795,4 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .src-task__answer { margin: 6px 2px 0; font-size: 13px; color: var(--muted); }
 .src-task__answer b { color: var(--success); font-family: var(--font-mono); font-weight: 600; }
 .home-head__export { margin-left: auto; }
+.camera-btn { align-self: flex-start; }

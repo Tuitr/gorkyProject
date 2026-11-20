@@ -146,12 +146,15 @@
 .camera__frame {
   position: relative;
   aspect-ratio: 4 / 3;
+  max-height: calc(100dvh - 240px);
+  width: 100%;
   background: #000;
   display: grid;
   place-items: center;
 }
+.camera__frame { overflow: hidden; }
 .camera__frame video,
-.camera__frame img { width: 100%; height: 100%; object-fit: contain; }
+.camera__frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .camera__guide {
   position: absolute;
   inset: 6% 18%;
@@ -169,7 +172,15 @@
   padding: 12px 16px;
   min-height: 76px;
 }
-.camera__actions:has(.btn) { justify-content: flex-end; }
+.camera__actions:has(.shutter) { display: grid; grid-template-columns: 1fr auto 1fr; }
+.camera__actions:has(.shutter) > :last-child { justify-self: end; }
+.camera__shots { display: flex; gap: 8px; margin: 0; padding: 10px 16px 0; list-style: none; overflow-x: auto; }
+.camera__shots li { position: relative; flex: 0 0 auto; }
+.camera__shots img { display: block; height: 72px; border-radius: 6px; border: 1px solid var(--border); }
+.camera__shot-del {
+  position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 0;
+  border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 12px; cursor: pointer;
+}
 .shutter {
   width: 56px;
   height: 56px;

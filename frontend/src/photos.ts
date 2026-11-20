@@ -40,3 +40,20 @@ export async function compressImage(src: File | string) {
 export async function rotateImage(src: string, deg: 90 | -90 | 180) {
   return draw(await load(src), (deg + 360) % 360)
 }
+
+/** Снимок камеры (data:URL) → File, чтобы пройти тем же путём, что и выбранный файл. */
+export function dataUrlToFile(url: string, name: string): File {
+  const [head, body] = url.split(',', 2)
+  const type = /data:([^;]+)/.exec(head)?.[1] ?? 'image/jpeg'
+  const bin = atob(body)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new File([bytes], name, { type })
+}
+
+/** Имена снимков: «Снимок 2026-11-21 14-05 (1).jpg». */
+export function shotNames(n: number): string[] {
+  const d = new Date()
+  const stamp = `${d.toLocaleDateString('sv-SE')} ${String(d.getHours()).padStart(2, '0')}-${String(d.getMinutes()).padStart(2, '0')}`
+  return Array.from({ length: n }, (_, i) => `Снимок ${stamp}${n > 1 ? ` (${i + 1})` : ''}.jpg`)
+}

@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useActions } from '../actions'
 import { isCabinet } from '../api/cabinet'
 import { CabinetUpload } from '../components/CabinetUpload'
+import { CameraCapture } from '../components/CameraCapture'
 import { CHECK_STATE_LABEL, type CheckState } from '../api/cabinet'
 import { useCabinetChecks } from '../useCabinetChecks'
 import { SUBMISSION_STATUS_LABEL, uid, type Submission, type SubmissionStatus } from '../domain'
@@ -26,6 +27,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
   const { a, classes } = useAssignment(id)
   const [q, setQ] = useState('')
   const [cabinetOpen, setCabinetOpen] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const cls = classes.find((c) => c.id === classId) ?? classes[0]
   // работы класса, загруженные через кабинет: состояние их проверки там
@@ -69,11 +71,11 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
   ].filter(({ st }) => !q.trim() || (st?.name ?? 'не определён').toLowerCase().includes(q.trim().toLowerCase()))
 
   /** Пачка фото без учеников — каждое фото отдельной сдачей, ученика укажете в очереди. */
-  const uploadBatch = async (files: FileList) => {
+  const uploadBatch = async (files: FileList | string[]) => {
     const known = new Set(state.submissions.filter((s) => s.assignmentId === id).flatMap((s) => s.pages.map((p) => p.hash)))
     const fresh: Submission[] = []
     let dup = 0
-    for (const f of Array.from(files)) {
+    for (const f of Array.from<File | string>(files)) {
       const image = await compressImage(f)
       const hash = hashString(image)
       if (known.has(hash)) {
@@ -132,6 +134,9 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
             title={!pending ? 'Нет новых сданных работ' : undefined}
           >
             {running ? 'Выполняется проверка…' : `Запустить проверку${pending ? ` (${pending})` : ''}`}
+          </button>
+          <button className="btn" onClick={() => setCameraOpen(true)} title="Каждый снимок — отдельная работа; ученика укажете при проверке">
+            📷 Сфотографировать работы
           </button>
           <button className="btn" onClick={() => fileRef.current?.click()}>
             Загрузить несколько фото
@@ -217,7 +222,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
                     </a>
                   ) : status === 'none' ? (
                     <a className="link-btn link-btn--quiet" href={link}>
-                      Отправить фото
+                      📷 Сфотографировать
                     </a>
                   ) : (
                     <a className="link-btn" href={link}>
@@ -238,6 +243,17 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
         </tbody>
       </table>
 
+      {cameraOpen && (
+        <CameraCapture
+          multi
+          title="Работы учеников · каждый снимок — отдельная работа"
+          onCapture={(imgs) => {
+            setCameraOpen(false)
+            void uploadBatch(imgs)
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
       {cabinetOpen && <CabinetUpload a={a} cls={cls} onClose={() => setCabinetOpen(false)} />}
     </div>
   )

@@ -4,6 +4,8 @@ import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, WORK_TYPE_LABEL, type Assignment, type SourceFile, type SourceTask, type WorkType } from '../domain'
 import { go, href, useRoute } from '../router'
 import { patch, useStore } from '../store'
+import { CameraCapture } from '../components/CameraCapture'
+import { dataUrlToFile, shotNames } from '../photos'
 import { Badge, PageHead } from '../ui'
 import { NotFound, useOwnClasses } from './common'
 
@@ -33,6 +35,7 @@ export function AssignmentForm({ id }: { id?: string }) {
   const [pasted, setPasted] = useState('')
   const [lastFiles, setLastFiles] = useState<File[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const files = items.map((i) => i.source)
   const [draftKey] = useState(() => uid('parse'))
   const job = jobs[draftKey]
@@ -211,6 +214,21 @@ export function AssignmentForm({ id }: { id?: string }) {
               {files.length ? '+ Добавить ещё файлы' : 'Нажмите, чтобы выбрать файлы, или перетащите их сюда'}
             </span>
           </label>
+          <button type="button" className="btn camera-btn" onClick={() => setCameraOpen(true)}>
+            📷 Сфотографировать задания
+          </button>
+          {cameraOpen && (
+            <CameraCapture
+              multi
+              title="Снимите листы с заданиями"
+              onCapture={(imgs) => {
+                setCameraOpen(false)
+                const names = shotNames(imgs.length)
+                addFiles(imgs.map((img, i) => dataUrlToFile(img, names[i])))
+              }}
+              onClose={() => setCameraOpen(false)}
+            />
+          )}
           {job?.status === 'running' && (
             <span className="job">
               <span className="spinner spinner--sm" /> {job.title}…

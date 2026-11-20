@@ -62,25 +62,23 @@ export function Home() {
             const main = href('a', a.id)
             return (
               <li key={a.id} className={`card${a.status === 'draft' ? ' is-draft' : ''}`}>
-                <div className="card__head">
-                  <span className="card__subject">
-                    {WORK_TYPE_LABEL[a.type]}
-                  </span>
-                  {a.status === 'draft' ? <Badge tone="info">Черновик</Badge> : <Badge tone="ok">Утверждена</Badge>}
-                </div>
+                <span className="card__subject">{WORK_TYPE_LABEL[a.type]}</span>
                 <h3 className="card__title">
-                  <a href={main}>{a.title}</a>
+                  <a href={main} title={a.title}>
+                    {a.title}
+                  </a>
                 </h3>
-                <div className="card__meta">
+                <span className="card__meta">
                   <span>Заданий: {a.tasks.length}</span>
                   <span>Вариантов: {a.variants.length || a.variantCount}</span>
                   {q > 0 && <Badge tone="warn">требует проверки учителем: {q}</Badge>}
-                </div>
-                <div className="card__foot">
-                  <a className="card__open" href={main}>
-                    Открыть →
-                  </a>
-                </div>
+                </span>
+                <span className="card__status">
+                  {a.status === 'draft' ? <Badge tone="info">Черновик</Badge> : <Badge tone="ok">Утверждена</Badge>}
+                </span>
+                <a className="card__open" href={main}>
+                  Открыть →
+                </a>
               </li>
             )
           })}

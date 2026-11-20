@@ -6,6 +6,8 @@ import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
 import { go, href, useRoute } from '../router'
 import { patch, useStore } from '../store'
+import { CameraCapture } from '../components/CameraCapture'
+import { dataUrlToFile, shotNames } from '../photos'
 import { Badge } from '../ui'
 import { AssignmentHeader, NotFound, useAssignment } from './common'
 
@@ -23,6 +25,7 @@ export function SourceReview({ id }: { id: string }) {
   const photoInput = useRef<HTMLInputElement>(null)
   const photoTarget = useRef<string>('new')
   const [photoBusy, setPhotoBusy] = useState<string | null>(null)
+  const [cameraFor, setCameraFor] = useState<string | null>(null)
 
   // «Добавить номер» со страницы работы: один пустой номер в конец, курсор — в его условие
   useEffect(() => {
@@ -84,6 +87,11 @@ export function SourceReview({ id }: { id: string }) {
   const pickPhoto = (target: string) => {
     photoTarget.current = target
     photoInput.current?.click()
+  }
+
+  const shootPhoto = (target: string) => {
+    photoTarget.current = target
+    setCameraFor(target)
   }
 
   /** Фото условия → OCR → текст в номер (или новые номера); фото добавляется к оригиналу. */
@@ -227,6 +235,14 @@ export function SourceReview({ id }: { id: string }) {
                   >
                     {photoBusy === t.id ? 'распознавание…' : 'Распознать с фото'}
                   </button>
+                  <button
+                    className="link-btn src-task__tool"
+                    onClick={() => shootPhoto(t.id)}
+                    disabled={!!photoBusy}
+                    title="Сфотографировать условие и добавить в это задание"
+                  >
+                    📷 Сфотографировать
+                  </button>
                   {i > 0 && (
                     <button className="link-btn src-task__tool" onClick={() => merge(i)} title="Объединить с предыдущим заданием">
                       Объединить с предыдущим
@@ -280,7 +296,22 @@ export function SourceReview({ id }: { id: string }) {
                 'Добавить задания по фото'
               )}
             </button>
+            <button className="btn" onClick={() => shootPhoto('new')} disabled={!!photoBusy}>
+              📷 Сфотографировать задания
+            </button>
           </div>
+          {cameraFor && (
+            <CameraCapture
+              multi
+              title={cameraFor === 'new' ? 'Снимите листы с заданиями' : 'Снимите условие задания'}
+              onCapture={(imgs) => {
+                setCameraFor(null)
+                const names = shotNames(imgs.length)
+                void onPhotos(imgs.map((img, i) => dataUrlToFile(img, names[i])))
+              }}
+              onClose={() => setCameraFor(null)}
+            />
+          )}
           <input
             ref={photoInput}
             type="file"

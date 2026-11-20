@@ -173,7 +173,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
         </div>
         <div className="shoot">
           <button className="btn btn--primary btn--big" onClick={() => setCamera({ mode: 'add' })}>
-            {pages.length ? 'Добавить фото страницы' : 'Отправить фото'}
+            📷 {pages.length ? 'Сфотографировать ещё страницы' : 'Сфотографировать работу'}
           </button>
           <button className="btn btn--big" onClick={() => fileRef.current?.click()}>
             Выбрать фото из файлов
@@ -213,7 +213,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
                   <button className="icon-btn" title="Повернуть" onClick={() => void rotate(p)}>
                     ⟳
                   </button>
-                  <button className="icon-btn" title="Заменить фото" onClick={() => setCamera({ mode: 'replace', pageId: p.id })}>
+                  <button className="icon-btn" title="Переснять страницу" onClick={() => setCamera({ mode: 'replace', pageId: p.id })}>
                     📷
                   </button>
                   <button className="icon-btn" title="Переместить на одну позицию выше" disabled={i === 0} onClick={() => swap(i, i - 1)}>
@@ -258,9 +258,11 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
 
       {camera && (
         <CameraCapture
-          onCapture={(img) => {
-            if (camera.mode === 'add') void addImages([img])
-            else void replacePage(camera.pageId, img)
+          multi={camera.mode === 'add'}
+          title={camera.mode === 'add' ? `Страницы работы · ${student.name}` : 'Переснимите страницу'}
+          onCapture={(imgs) => {
+            if (camera.mode === 'add') void addImages(imgs)
+            else void replacePage(camera.pageId, imgs[0])
             setCamera(null)
           }}
           onClose={() => setCamera(null)}
