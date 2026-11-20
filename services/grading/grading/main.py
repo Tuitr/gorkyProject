@@ -35,7 +35,7 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
     installErrorHandlers(app)
     app.state.serviceTokens = ServiceTokenRegistry.fromJson(settings.serviceTokensJson)
 
-    @app.get("/internal/v1/checks/{checkId}")
+    @app.get("/internal/v1/checks/{checkId}", response_model_exclude_unset=True)
     def getCheck(checkId: str, caller: Annotated[ServiceIdentity, Depends(requireRight("checks.read"))],
                  resultRev: Annotated[int | None, Query(ge=1)] = None) -> PublishedCheck | CheckStatus:
         try:

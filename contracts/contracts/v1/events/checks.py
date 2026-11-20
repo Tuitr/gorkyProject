@@ -45,7 +45,7 @@ UtcTimestamp = Annotated[AwareDatetime, BeforeValidator(rejectNumericTime), Afte
 
 
 class DocRef(BaseModel):
-    """Immutable DOCX in S3. A new upload gets a new key; sha256 lets the reader verify the bytes."""
+    """Immutable source in S3. The key extension identifies the format; sha256 verifies the bytes."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

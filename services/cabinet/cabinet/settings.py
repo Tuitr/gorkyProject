@@ -29,6 +29,7 @@ class Settings:
     redisUrl: str = "redis://127.0.0.1:16379/0"
     gradingBaseUrl: str = "http://grading:8000"
     gradingServiceToken: str = field(default="", repr=False)
+    ocrUrl: str = ""
 
     @classmethod
     def fromEnv(cls) -> "Settings":
@@ -44,4 +45,5 @@ class Settings:
             redisUrl=os.environ.get("REDIS_URL", cls.redisUrl),
             gradingBaseUrl=os.environ.get("CABINET_GRADING_BASE_URL", cls.gradingBaseUrl),
             gradingServiceToken=os.environ.get("CABINET_GRADING_SERVICE_TOKEN", ""),
+            ocrUrl=os.environ.get("OCR_URL", ""),
         )

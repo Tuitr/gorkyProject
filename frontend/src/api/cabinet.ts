@@ -4,7 +4,7 @@ import type { AuthUser } from '../store'
  * Бэкенд «кабинет» (services/cabinet, публичный API /v1) — единственный сервер фронтенда.
  * Сервер Vite пробрасывает /v1 в кабинет (CHECKER_CABINET_URL, по умолчанию http://127.0.0.1:18080).
  * Через кабинет идут вход, классы и ученики, работы (DOCX + требования), загрузка работ учеников
- * (DOCX или ZIP), результаты проверки grading, эталоны реестра, правки учителя, отчёт и Markdown.
+ * (фото, DOCX или ZIP с DOCX), результаты проверки, правки учителя, отчёт и Markdown.
  */
 
 /** Ошибка кабинета: { code, message, retryable, traceId } — сообщение переводим для учителя. */
@@ -36,6 +36,7 @@ const MESSAGES: Record<string, string> = {
   invalid_input: 'Сервер не принял данные.',
   payload_too_large: 'Файл слишком большой.',
   unavailable: 'Сервер временно недоступен.',
+  file_too_large: 'Файл слишком большой.',
   timeout: 'Сервер не ответил вовремя.',
 }
 
@@ -155,6 +156,7 @@ export type UploadFile = {
   studentId?: string
   attemptId?: string
   checkId?: string
+  isPhoto?: true
 }
 
 export function uploadWork(assignmentId: string, assignmentRev: number, file: File) {
@@ -165,6 +167,9 @@ export function uploadWork(assignmentId: string, assignmentRev: number, file: Fi
 }
 export const readUpload = (uploadId: string) =>
   call<{ uploadId: string; files: UploadFile[] }>('GET', `/uploads/${uploadId}`)
+export const readOcrRecipient = () => call<{ hostname: string | null }>('GET', '/ocr/recipient')
+export const uploadPhotoUrl = (uploadId: string, fileId: string) =>
+  `/v1/uploads/${encodeURIComponent(uploadId)}/files/${encodeURIComponent(fileId)}/photo`
 type Bound = { fileId: string; studentId: string; attemptId: string; checkId: string; status: 'bound' }
 export const bindFile = (uploadId: string, fileId: string, studentId: string) =>
   call<Bound>('POST', `/uploads/${uploadId}/bindings`, { fileId, studentId })
@@ -189,6 +194,7 @@ export type RemoteCheckPending = {
   attemptId: string
   state: 'queued' | 'waiting_reference' | 'running' | 'needs_review' | 'failed'
   reason: string
+  transcriptMarkdown?: string
 }
 /** Результат есть; needs_review — у части заданий стоит needsReview, их решает учитель. */
 export type RemoteCheckResult = {
@@ -200,6 +206,7 @@ export type RemoteCheckResult = {
   publishedResultRev?: number | null
   taskResults: RemoteTaskResult[]
   overallReview: string
+  transcriptMarkdown?: string
 }
 export type RemoteCheck = RemoteCheckPending | RemoteCheckResult
 export const hasResult = (c: RemoteCheck): c is RemoteCheckResult => 'taskResults' in c
@@ -219,6 +226,12 @@ const REASON_LABEL: Record<string, string> = {
   grading_in_progress: 'Работа проверяется.',
   awaiting_artifact: 'Готовится отзыв.',
   grading_failed: 'Проверка не удалась после нескольких попыток.',
+  ocr_not_configured: 'Распознавание фото не настроено на сервере.',
+  ocr_invalid_url: 'На сервере указан некорректный адрес сервиса распознавания.',
+  ocr_invalid_photo: 'Не удалось прочитать файл фотографии. Загрузите JPEG, PNG или WebP до 36 Мп.',
+  ocr_incomplete: 'Не удалось прочитать всю фотографию. Попробуйте более чёткий снимок.',
+  ocr_provider_error: 'Сервис распознавания отклонил запрос. Проверьте настройки распознавания.',
+  ocr_unavailable: 'Сервис распознавания фото не ответил после нескольких попыток.',
   assignment_failed: 'Не удалось разобрать вариант: задания не найдены. Проверьте нумерацию «1.», «2.» в DOCX.',
   manual_review: 'Работу нужно проверить вручную.',
   reference_unavailable: 'Для задания нет эталонного ответа: его проверяет учитель.',

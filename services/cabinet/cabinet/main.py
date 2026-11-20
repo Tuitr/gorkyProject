@@ -35,7 +35,7 @@ from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.reports import combineReport, deletedReportCheckIds, readReportRoster
 from cabinet.reviews import gradingChanges, readMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
-from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
+from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, readUploadPhoto, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
@@ -52,6 +52,7 @@ from contracts.v1.grading.checks import CheckReady, CheckStatus
 from shared.clock import Clock, SystemClock
 from shared.dotenv import loadDotEnv
 from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
+from shared.ocrconfig import parseOcrUrl
 
 COOKIE = "__Host-cabinet"
 SESSION_SECONDS = 8 * 3600
@@ -336,6 +337,23 @@ def createApp(
         with sessionFactory.begin() as db:
             return getUploadProgress(db, settings, uploadId, teacher.teacherId, event)
 
+    @v1.get("/ocr/recipient", dependencies=[Depends(currentTeacher)])
+    def getOcrRecipient(response: Response) -> dict[str, str | None]:
+        try:
+            hostname = parseOcrUrl(settings.ocrUrl).hostname
+        except ValueError:
+            hostname = None
+        response.headers["Cache-Control"] = "no-store"
+        return {"hostname": hostname}
+
+    @v1.get("/uploads/{uploadId}/files/{fileId}/photo", response_class=Response)
+    def getUploadPhoto(uploadId: str, fileId: str, teacher: TeacherSession = Depends(currentTeacher)) -> Response:
+        with sessionFactory.begin() as db:
+            original, media = readUploadPhoto(db, settings, uploadId, fileId, teacher.teacherId)
+        return Response(original, media_type=media, headers={
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        })
+
     @v1.post(
         "/uploads/{uploadId}/bindings",
         responses={
@@ -358,9 +376,12 @@ def createApp(
             503: {"model": ApiError}, 504: {"model": ApiError},
         },
     )
-    def readCheck(checkId: str, request: Request, teacher: TeacherSession = Depends(currentTeacher)) -> CheckStatus:
+    def readCheck(
+        checkId: str, request: Request, response: Response, teacher: TeacherSession = Depends(currentTeacher),
+    ) -> CheckStatus:
         with sessionFactory() as db:
             attemptId = requireOwnedCheck(db, checkId, teacher.teacherId)
+        response.headers["Cache-Control"] = "no-store"
         return readGradingCheck(settings, checkId, attemptId, getTraceId(request), gradingTransport)
 
     @v1.get(

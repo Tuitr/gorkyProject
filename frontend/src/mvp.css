@@ -783,3 +783,6 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .src-task__answer { margin: 6px 2px 0; font-size: 13px; color: var(--muted); }
 .src-task__answer b { color: var(--success); font-family: var(--font-mono); font-weight: 600; }
 .home-head__export { margin-left: auto; }
+.photo-transcript { margin-top: 1rem; }
+.photo-transcript summary { cursor: pointer; font-weight: 600; }
+.photo-transcript pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

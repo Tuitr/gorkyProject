@@ -30,6 +30,7 @@ class PublishedCheck(CheckOutcome):
     state: Literal["ready", "needs_review"]
     markdownRef: MarkdownRef
     publishedResultRev: Annotated[int, Field(ge=1)] | None = None
+    transcriptMarkdown: str | None = None
     """The latest revision the teacher published (accepted), if any. Filled only by the read API."""
 
 
@@ -40,3 +41,4 @@ class CheckStatus(BaseModel):
     attemptId: str
     state: Literal["queued", "running", "waiting_reference", "needs_review", "failed"]
     reason: str
+    transcriptMarkdown: str | None = None

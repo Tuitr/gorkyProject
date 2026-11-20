@@ -1,4 +1,4 @@
-"""Read printed student solution lines and locate them again in the immutable DOCX."""
+"""Read student solution lines and anchor them in the original or the OCR transcript."""
 
 import hashlib
 import re
@@ -10,10 +10,15 @@ from xml.etree.ElementTree import Element
 from grading.assignment import AssignmentTask
 from grading.formulas import M, MathParagraph, ReadStatus
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
+from grading.photoOcr import UNREADABLE, TranscribedLine
 from grading.word import W, WordReadError, documentBody, paragraphText
 
 TASK_START = re.compile(r"^\s*Задание\b", re.IGNORECASE)
 TASK_HEADING = re.compile(r"^\s*Задание\s+(?:№\s*)?(\d+)(?:[.):](?=\s|$)|(?=\s*$))\s*", re.IGNORECASE)
+PHOTO_TASK_HEADING = re.compile(
+    r"^(?:(?:Задание\s+(?:№\s*)?|№\s*)(\d+)(?:[):]|\.(?!\d)|(?=\s|$))|(\d+)(?:[):]|\.(?!\d)))\s*",
+    re.IGNORECASE,
+)
 TEXT_LINE = re.compile(r"[^\r\n]+")
 ANSWER_LABEL = re.compile(r"^ответ\s*:\s*", re.IGNORECASE)
 SCALAR = r"[+-]?(?:\d+(?:[.,]\d+)?(?:/\d+)?|\\sqrt\{\d+\})"
@@ -42,7 +47,7 @@ class SourceAnchor:
     paragraphIndex: int
     start: int
     end: int
-    projection: Literal["text", "mathObjects", "wordObjects"] = "text"
+    projection: Literal["text", "mathObjects", "wordObjects", "ocr"] = "text"
 
 
 @dataclass(frozen=True)
@@ -72,6 +77,7 @@ class SubmissionReading:
     steps: tuple[SolutionStep, ...]
     taskReadings: tuple[TaskReading, ...]
     unassignedFragments: tuple[UnassignedFragment, ...]
+    transcriptMarkdown: str | None = None
 
 
 def verifiedBody(document: bytes, ref: IncomingDocRef) -> Element:
@@ -132,7 +138,17 @@ def anchoredParagraph(document: bytes, anchor: SourceAnchor) -> Element:
     return childAt(container, "p", anchor.paragraphIndex)
 
 
-def resolveAnchor(document: bytes, anchor: SourceAnchor) -> str:
+def resolveAnchor(document: bytes, anchor: SourceAnchor, *, transcriptMarkdown: str | None = None) -> str:
+    if anchor.projection == "ocr":
+        if transcriptMarkdown is None or hashlib.sha256(document).hexdigest() != anchor.docRef.sha256:
+            raise WordReadError("an OCR anchor requires the original photo and its Markdown transcript")
+        lines = transcriptMarkdown.splitlines()
+        if not 0 <= anchor.paragraphIndex < len(lines):
+            raise WordReadError("source anchor points outside the transcript")
+        line = lines[anchor.paragraphIndex]
+        if not 0 <= anchor.start < anchor.end <= len(line):
+            raise WordReadError("source anchor points outside the transcript line")
+        return line[anchor.start:anchor.end]
     paragraph = anchoredParagraph(document, anchor)
     raw = (paragraphText(paragraph) if anchor.projection == "text"
            else MathParagraph.fromWord(paragraph, includeEmbedded=anchor.projection == "wordObjects").source)
@@ -143,7 +159,7 @@ def resolveAnchor(document: bytes, anchor: SourceAnchor) -> str:
 
 def resolveObjects(document: bytes, anchor: SourceAnchor) -> tuple[Element, ...]:
     """Return original inline objects, including drawings and unsupported equations."""
-    if anchor.projection == "text":
+    if anchor.projection in ("text", "ocr"):
         return ()
     paragraph = MathParagraph.fromWord(anchoredParagraph(document, anchor), includeEmbedded=anchor.projection == "wordObjects")
     if not 0 <= anchor.start < anchor.end <= len(paragraph.source):
@@ -251,3 +267,52 @@ def readSubmission(
     submitted: AttemptSubmittedInput, document: bytes, tasks: Sequence[AssignmentTask]
 ) -> tuple[SolutionStep, ...]:
     return readSubmissionDetails(submitted, document, tasks).steps
+
+
+def readPhotoSubmission(
+    submitted: AttemptSubmittedInput, lines: Sequence[TranscribedLine], tasks: Sequence[AssignmentTask],
+) -> SubmissionReading:
+    byNumber = {task.taskNumber: task.taskId for task in tasks}
+    byTask: dict[str, list[SolutionStep]] = {}
+    unassigned: list[UnassignedFragment] = []
+    ordered: list[SolutionStep] = []
+    transcript: list[str] = []
+    current = None
+    reason = "Распознавания разошлись или запись нельзя прочитать. Сверьте с фотографией."
+
+    for index, line in enumerate(lines):
+        text = line.text
+        transcript.append(f"~~{text}~~" if line.kind == "cancelled" else text)
+        if line.kind == "cancelled":
+            continue
+        anchor = SourceAnchor(submitted.docRef, (), index, 0, len(text), "ocr")
+        ambiguous = line.kind == "uncertain" or UNREADABLE in text or "~~" in text
+        if line.kind == "heading":
+            heading = PHOTO_TASK_HEADING.match(text)
+            current = byNumber.get(heading.group(1) or heading.group(2)) if heading and not ambiguous else None
+            if current is None:
+                unassigned.append(UnassignedFragment("Номер задания на фото нужно сверить.", anchor))
+                continue
+            assert heading is not None
+            byTask.setdefault(current, [])
+            anchor = replace(anchor, start=heading.end())
+            text = text[heading.end():]
+        if not text or ANSWER_LABEL.fullmatch(text):
+            continue
+        if current is None:
+            unassigned.append(UnassignedFragment("Не удалось определить номер задания для строки на фото.", anchor))
+        else:
+            steps = byTask[current]
+            step = SolutionStep(current, f"s{len(steps) + 1}", text, anchor, "ambiguous" if ambiguous else "read")
+            steps.append(step)
+            ordered.append(step)
+        if line.uncertainHeading:
+            current = None
+
+    readings = []
+    for task in tasks:
+        reading = taskReading(task, byTask.get(task.taskId), bool(unassigned))
+        if reading.status in ("skipped", "needsReview"):
+            reading = TaskReading(task.taskId, "needsReview", reason)
+        readings.append(reading)
+    return SubmissionReading(tuple(ordered), tuple(readings), tuple(unassigned), "\n".join(transcript) or UNREADABLE)

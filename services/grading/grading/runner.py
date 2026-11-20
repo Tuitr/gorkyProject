@@ -29,6 +29,7 @@ from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewR
 from grading.intake import IncomingDocRef
 from grading.jobs import JobKey, JobLease
 from grading.markdownStorage import MarkdownStorage
+from grading.photoOcr import OcrRejected, OcrUnavailable
 from grading.results import ResultConflict
 from grading.review import sendReview
 from grading.settings import Settings
@@ -102,7 +103,14 @@ class GradingRunner:
         attempt = self.attempts[lease.key]
         if isPermanent(error) or attempt >= self.maxAttempts:
             self.attempts.pop(lease.key, None)
-            self.worker.jobs.finish(lease, "failed", "grading_failed", {"error": kind, "attempts": attempt})
+            reason = str(error) if isinstance(error, OcrRejected) else (
+                "ocr_unavailable" if isinstance(error, OcrUnavailable) else "grading_failed"
+            )
+            data: dict[str, object] = {"error": kind, "attempts": attempt}
+            checkpoint = lease.stageData or {}
+            if isinstance(transcript := checkpoint.get("transcriptMarkdown"), str):
+                data["transcriptMarkdown"] = transcript
+            self.worker.jobs.finish(lease, "failed", reason, data)
             logger.error("job %s failed for good (traceId %s) after %d attempts: %s", lease.key, lease.traceId, attempt, kind)
             return
         nextAt = datetime.now(UTC) + self.retryDelay * attempt

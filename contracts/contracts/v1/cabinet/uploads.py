@@ -28,6 +28,7 @@ class UploadFileProgress(BaseModel):
     studentId: NonEmptyStr | None = None
     attemptId: NonEmptyStr | None = None
     checkId: NonEmptyStr | None = None
+    isPhoto: Literal[True] | None = None
 
 
 class UploadProgress(UploadAccepted):

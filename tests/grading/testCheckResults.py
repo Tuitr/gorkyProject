@@ -162,7 +162,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert resume() == first
     with pytest.raises(ArtifactUnavailable, match="bytes differ"):
         storage.save(checkId, 1, "Этот текст нельзя положить по ключу опубликованного отчёта.")
-    assert api.get(url, headers=headers).json() == first.model_dump(mode="json")
+    assert api.get(url, headers=headers).json() == first.model_dump(mode="json", exclude_unset=True)
     with pytest.raises(ResultConflict):
         recovered.results.saveDraft(checkId, "initial", (result,), "Другой отзыв.")
 
@@ -182,7 +182,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 404
     assert api.get(downloadUrl, params={"rev": 1}, headers=headers).content == report.encode("utf-8")
     assert api.get(reportUrl, headers=headers).json() == before.model_dump(mode="json")
-    assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json")
+    assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json", exclude_unset=True)
     receipt = api.patch(url + "/review", headers=headers, json=edit)
     assert receipt.status_code == 200 and receipt.json()["resultRev"] == 2
     second = PublishedCheck.model_validate(api.get(url, headers=headers).json())
@@ -227,7 +227,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     storage.client.put_object(Bucket="results", Key=secondRef.key, Body=b"different bytes")
     assert api.get(url, params={"resultRev": 2}, headers=headers).status_code == 503
     assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 503
-    assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json") | {
+    assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json", exclude_unset=True) | {
         "publishedResultRev": 2,
     }, "publishedResultRev is the latest revision the teacher published, whichever revision is read"
 

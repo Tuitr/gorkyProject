@@ -16,6 +16,7 @@ from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, lockUploadStorage
 from shared.buckets import SOURCES_BUCKET
 from shared.dotenv import loadDotEnv
+from shared.submissionmedia import photoMediaType
 
 LOGGER = logging.getLogger(__name__)
 UUID_KEY = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
@@ -43,7 +44,8 @@ def cleanUpload(sessions: sessionmaker[Session], settings: Settings, uploadId: s
             for page in pages:
                 for item in page.get("Contents", []):
                     key = item.get("Key", "")
-                    if key not in referenced and re.fullmatch(f"{prefix}{UUID_KEY}\\.docx", key):
+                    if (key not in referenced and re.fullmatch(rf"{prefix}{UUID_KEY}\.[a-z]+", key)
+                            and (key.endswith(".docx") or photoMediaType(key))):
                         client.delete_object(Bucket=SOURCES_BUCKET, Key=key)
                         removed += 1
     return removed
@@ -69,7 +71,7 @@ def main() -> None:
         parser.error(str(error))
     finally:
         engine.dispose()
-    print(f"Removed {removed} unreferenced DOCX objects for {args.uploadId}")
+    print(f"Removed {removed} unreferenced source objects for {args.uploadId}")
 
 
 if __name__ == "__main__":

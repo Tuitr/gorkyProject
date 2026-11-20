@@ -1,4 +1,4 @@
-"""Read the immutable source DOCX that an event points to, from the sources bucket."""
+"""Read immutable originals that an event points to, from the sources bucket."""
 
 import hashlib
 import os
@@ -12,12 +12,10 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from grading.intake import IncomingDocRef
 from shared.buckets import SOURCES_BUCKET
+from shared.submissionmedia import MAX_SOURCE_BYTES
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
-
-MAX_SOURCE_BYTES = 20 * 1024 * 1024
-
 
 class SourceChanged(ValueError):
     """The stored object differs from the sha256 in the event: never grade other bytes."""

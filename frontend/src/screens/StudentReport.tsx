@@ -74,7 +74,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   }
   const allMarks = s.results.flatMap((r) =>
     activeMistakes(r)
-      .filter((m) => m.page === pageIdx)
+      .filter((m) => m.page === pageIdx && m.box.w > 0 && m.box.h > 0)
       .map((m) => ({
         id: `${r.taskId}|${m.id}`,
         box: m.box,
@@ -159,7 +159,9 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
       </div>
 
       {s.status !== 'processed' && (
-        <div className="notice notice--warn">Работа ещё не проверена. Отчёт будет доступен после проверки.</div>
+        <div className="notice notice--warn">
+          {s.remote?.checkReason ?? 'Работа ещё не проверена. Отчёт будет доступен после проверки.'}
+        </div>
       )}
 
       <div className="report-split">
@@ -182,6 +184,12 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                 const [tid, mid] = key.split('|')
                 choose({ tid, mid })
               }} /> : <p className="muted">Страницы не загружены</p>}
+          {page?.kind !== 'text' && page?.lines && page.lines.length > 0 && (
+            <details className="photo-transcript">
+              <summary>Расшифровка фото</summary>
+              <pre>{page.lines.map((line) => line.text).join('\n')}</pre>
+            </details>
+          )}
         </section>
         </div>
 

@@ -7,6 +7,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from os import SEEK_END
+from pathlib import PurePosixPath
 from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile, ZipInfo
 from zlib import error as ZlibError
 
@@ -21,13 +22,14 @@ from cabinet.attempts import AttemptRecord, ensureAttempt, ensureCheck
 from cabinet.bindings import matchStudent, signatureNames
 from cabinet.classes import ClassRecord, StudentRecord, activeStudents
 from cabinet.database import Base
-from cabinet.documents import MAX_DOCX_BYTES, buildS3Client, loadDocx, readDocxBytes, storeDocx, validateDocx
+from cabinet.documents import DOCX_MEDIA_TYPE, MAX_DOCX_BYTES, buildS3Client, loadOriginal, readDocxBytes, storeOriginal, validateDocx
 from cabinet.outbox import EventContext
 from cabinet.settings import Settings
 from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
 from contracts.v1.events.checks import DocRef
 from shared.httperrors import ApiProblem
+from shared.submissionmedia import MAX_SOURCE_BYTES, imageMediaType, photoMediaType
 
 
 MAX_ZIP_BYTES = 50 * 1024 * 1024
@@ -41,6 +43,11 @@ class SubmissionDocument:
     originalName: str
     content: bytes
     signatures: tuple[str, ...]
+    mediaType: str = DOCX_MEDIA_TYPE
+
+    @property
+    def extension(self) -> str:
+        return ".docx" if self.mediaType == DOCX_MEDIA_TYPE else PurePosixPath(self.originalName).suffix.lower()
 
 
 class UploadRecord(Base):
@@ -109,6 +116,13 @@ def readSubmission(upload: UploadFile) -> list[SubmissionDocument]:
     filename = (upload.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     if filename.lower().endswith(".zip"):
         return readSubmissionZip(upload)
+    if (media := photoMediaType(filename)) is not None:
+        original = upload.file.read(MAX_SOURCE_BYTES + 1)
+        if len(original) > MAX_SOURCE_BYTES:
+            raise ApiProblem("file_too_large", "Фото превышает 20 МБ", status=413)
+        if imageMediaType(original) != media:
+            raise ApiProblem("invalid_input", "Ожидалось фото в формате JPEG, PNG или WebP")
+        return [SubmissionDocument(submissionName(filename), original, (), media)]
     original = readDocxBytes(upload)
     return [SubmissionDocument(submissionName(filename), original, signatureNames(validateDocx(original)))]
 
@@ -189,7 +203,7 @@ def storeUpload(
     with closing(buildS3Client(settings)) as client:
         for document in documents:
             fileId = str(uuid.uuid4())
-            docRef = storeDocx(client, f"uploads/{uploadId}/{fileId}.docx", document.content)
+            docRef = storeOriginal(client, f"uploads/{uploadId}/{fileId}{document.extension}", document.content, document.mediaType)
             file = UploadFileRecord(
                 fileId=fileId, uploadId=uploadId, originalName=document.originalName,
                 bucket=docRef.bucket, objectKey=docRef.key, sha256=docRef.sha256,
@@ -268,12 +282,12 @@ def matchPendingFiles(
             if file.status != "pending_binding":
                 continue
             try:
-                original = loadDocx(client, DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256))
+                original = loadOriginal(client, DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256))
             except ApiProblem:
                 # Leave the file pending so the next poll can retry a storage failure.
                 return
             try:
-                signatures = signatureNames(validateDocx(original))
+                signatures = () if photoMediaType(file.objectKey) else signatureNames(validateDocx(original))
             except ApiProblem:
                 file.status = "rejected"
                 file.reason = "Не удалось прочитать документ."
@@ -309,6 +323,18 @@ def visibleUploadFiles(uploadId: str) -> Select[UploadFileRecord]:
         AttemptRecord.attemptId == UploadFileRecord.attemptId, AttemptRecord.deletedAt.is_not(None),
     ).exists()
     return select(UploadFileRecord).where(UploadFileRecord.uploadId == uploadId, ~archived)
+
+
+def readUploadPhoto(db: Session, settings: Settings, uploadId: str, fileId: str, teacherId: str) -> tuple[bytes, str]:
+    requireOwnedUpload(db, uploadId, teacherId)
+    if len(fileId) != 36 or "\x00" in fileId:
+        raise ApiProblem("not_found", "Photo not found")
+    file = db.scalar(visibleUploadFiles(uploadId).where(UploadFileRecord.fileId == fileId))
+    if file is None or (media := photoMediaType(file.objectKey)) is None:
+        raise ApiProblem("not_found", "Photo not found")
+    with closing(buildS3Client(settings)) as client:
+        original = loadOriginal(client, DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256))
+    return original, media
 
 
 def getUploadProgress(
@@ -347,6 +373,7 @@ def getUploadProgress(
                 studentId=file.studentId if file.status in {"matched", "bound"} else None,
                 attemptId=file.attemptId,
                 checkId=file.checkId,
+                isPhoto=True if photoMediaType(file.objectKey) else None,
             )
             for file in files
         ],

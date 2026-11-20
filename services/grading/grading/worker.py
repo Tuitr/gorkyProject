@@ -18,14 +18,16 @@ from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
 from grading.markdownStorage import MarkdownStorage
+from grading.photoOcr import TranscribedLine, transcribePhoto
 from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
 from grading.resultArtifacts import parsedTasksAdapter, publishResultArtifact, submissionReadingAdapter
 from grading.resultArtifacts import referencesAdapter as referencesAdapter
 from grading.results import ResultStore
 from grading.review import PROMPT_VERSION, reviewTasks, sendReview
 from grading.stream import StreamConsumer, StreamDelivery
-from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
+from grading.submission import SolutionStep, SubmissionReading, readPhotoSubmission, readSubmissionDetails
 from grading.tables import AssignmentJob
+from shared.submissionmedia import photoMediaType
 
 deadlinesAdapter: TypeAdapter[dict[str, datetime]] = TypeAdapter(dict[str, datetime])
 referenceAttemptsAdapter: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, int])
@@ -47,6 +49,7 @@ class GradingWorker:
     def __init__(
         self, consumer: StreamConsumer, engine: Engine, *, pendingIdleMs: int = 60_000,
         clock: Callable[[], datetime] | None = None,
+        ocr: Callable[[bytes, str], tuple[TranscribedLine, ...]] = transcribePhoto,
     ) -> None:
         self.consumer = consumer
         self.engine = engine
@@ -54,6 +57,7 @@ class GradingWorker:
         self.jobs = JobQueue(engine, clock=clock)
         self.now = clock or (lambda: datetime.now(UTC))
         self.results = ResultStore(engine, clock)
+        self.ocr = ocr
 
     def runBatch(self, *, count: int = 10, blockMs: int | None = None) -> list[SavedJob]:
         """Persist pending and fresh deliveries. A zero block uses a one-second poll."""
@@ -299,7 +303,12 @@ class GradingWorker:
             if assignment is None or assignment.stageData is None or "tasks" not in assignment.stageData:
                 raise ValueError("parsed tasks are unavailable for the submitted assignment revision")
             tasks = parsedTasksAdapter.validate_python(assignment.stageData["tasks"])
-        reading = readSubmissionDetails(submitted, loadDocument(submitted.docRef), tasks)
+        document = loadDocument(submitted.docRef)
+        media = photoMediaType(submitted.docRef.key)
+        if media is None:
+            reading = readSubmissionDetails(submitted, document, tasks)
+        else:
+            reading = readPhotoSubmission(submitted, self.ocr(document, media), tasks)
         data = {"parserVersion": SUBMISSION_PARSE_VERSION, **submissionReadingAdapter.dump_python(reading, mode="json")}
         if not self.jobs.checkpoint(lease, "submission_parsed", data):
             raise RuntimeError("check lease expired before the submission parse could be saved")

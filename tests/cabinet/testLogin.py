@@ -26,6 +26,7 @@ from argon2 import PasswordHasher, Type
 from docx import Document
 from fastapi.testclient import TestClient
 from httpx import MockTransport, Request, Response
+from PIL import Image
 from sqlalchemy import Engine, create_engine, event as sqlEvent, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -636,6 +637,64 @@ def testIndividualSubmissionUpload(
             s3.delete_object(Bucket=stored.bucket, Key=stored.objectKey)
             for assignment in db.scalars(select(AssignmentRecord)):
                 s3.delete_object(Bucket=assignment.bucket, Key=assignment.objectKey)
+
+
+def testPhotoUploadKeepsOriginalAndStartsCheckAfterBinding(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    addTeacher(cabinetSessions, "owner.photo@example.org")
+    addTeacher(cabinetSessions, "other.photo@example.org")
+    settings = replace(Settings.fromEnv(), ocrUrl="https://ocr.example.org:9443/api/read")
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    with BytesIO() as output:
+        Image.new("RGB", (30, 40), "white").save(output, "PNG")
+        photo = output.getvalue()
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert client.get("/v1/ocr/recipient").status_code == 401
+        assert login(client, "owner.photo@example.org", PASSWORD)[0] == 200
+        recipient = client.get("/v1/ocr/recipient")
+        assert recipient.status_code == 200 and recipient.json() == {"hostname": "ocr.example.org"}
+        classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        studentId = client.post(f"/v1/classes/{classId}/students", json={"name": "Иванов Иван"}).json()["studentId"]
+        assignment = client.post(
+            f"/v1/classes/{classId}/assignments", data={"requirements": "[]"},
+            files={"file": ("variant.docx", assignmentDocx("1. Найдите x."))},
+        )
+        assert assignment.status_code == 201, assignment.text
+        assignmentId = assignment.json()["assignmentId"]
+        response = client.post(
+            f"/v1/assignments/{assignmentId}/uploads", data={"assignmentRev": "1"},
+            files={"file": ("photo.PNG", photo, "image/png")},
+        )
+        assert response.status_code == 202, response.text
+        uploadId = response.json()["uploadId"]
+        uploadPath = f"/v1/uploads/{uploadId}"
+        progress = client.get(uploadPath).json()["files"][0]
+        assert progress["isPhoto"] and progress["status"] == "needs_confirmation"
+        fileId = progress["fileId"]
+        path = f"{uploadPath}/files/{fileId}/photo"
+        preview = client.get(path)
+        assert preview.content == photo and preview.headers["Content-Type"] == "image/png"
+        assert preview.headers["Cache-Control"] == "private, no-store"
+
+        bound = client.post(f"{uploadPath}/bindings", json={"fileId": fileId, "studentId": studentId})
+        assert bound.status_code == 200, bound.text
+        assert login(client, "other.photo@example.org", PASSWORD)[0] == 200
+        assert client.get(path).status_code == 404
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        stored = db.get_one(UploadFileRecord, fileId)
+        try:
+            events = [checksEventAdapter.validate_python(row.data) for row in db.scalars(select(OutboxRecord))]
+            submitted = next(event for event in events if isinstance(event, AttemptSubmittedEvent))
+            assert submitted.payload.docRef.key == f"uploads/{uploadId}/{fileId}.png"
+            assert submitted.payload.docRef.sha256 == hashlib.sha256(photo).hexdigest()
+            assert submitted.payload.studentId == studentId
+        finally:
+            s3.delete_object(Bucket=stored.bucket, Key=stored.objectKey)
+            for row in db.scalars(select(AssignmentRecord)):
+                s3.delete_object(Bucket=row.bucket, Key=row.objectKey)
 
 
 def submissionZip(*entries: tuple[str | ZipInfo, bytes]) -> bytes:

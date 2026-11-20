@@ -18,12 +18,13 @@ from cabinet.settings import Settings
 from contracts.v1.events.checks import DocRef
 from shared.buckets import SOURCES_BUCKET
 from shared.httperrors import ApiProblem
+from shared.submissionmedia import MAX_SOURCE_BYTES
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
 
 
-MAX_DOCX_BYTES = 20 * 1024 * 1024
+MAX_DOCX_BYTES = MAX_SOURCE_BYTES
 MAX_XML_BYTES = 8 * 1024 * 1024
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MAIN_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
@@ -89,6 +90,10 @@ def buildS3Client(settings: Settings) -> "S3Client":
 
 
 def storeDocx(client: "S3Client", key: str, original: bytes) -> DocRef:
+    return storeOriginal(client, key, original, DOCX_MEDIA_TYPE)
+
+
+def storeOriginal(client: "S3Client", key: str, original: bytes, mediaType: str) -> DocRef:
     digest = hashlib.sha256(original).hexdigest()
     checksum = base64.b64encode(bytes.fromhex(digest)).decode("ascii")
     try:
@@ -96,7 +101,7 @@ def storeDocx(client: "S3Client", key: str, original: bytes) -> DocRef:
             Bucket=SOURCES_BUCKET,
             Key=key,
             Body=original,
-            ContentType=DOCX_MEDIA_TYPE,
+            ContentType=mediaType,
             IfNoneMatch="*",
             ChecksumSHA256=checksum,
         )
@@ -105,12 +110,12 @@ def storeDocx(client: "S3Client", key: str, original: bytes) -> DocRef:
     return DocRef(bucket=SOURCES_BUCKET, key=key, sha256=digest)
 
 
-def loadDocx(client: "S3Client", ref: DocRef) -> bytes:
+def loadOriginal(client: "S3Client", ref: DocRef) -> bytes:
     try:
         with closing(client.get_object(Bucket=ref.bucket, Key=ref.key)["Body"]) as body:
-            original = body.read(MAX_DOCX_BYTES + 1)
+            original = body.read(MAX_SOURCE_BYTES + 1)
     except (ClientError, BotoCoreError) as error:
         raise ApiProblem("unavailable", "Document storage is unavailable") from error
-    if len(original) > MAX_DOCX_BYTES or hashlib.sha256(original).hexdigest() != ref.sha256:
+    if len(original) > MAX_SOURCE_BYTES or hashlib.sha256(original).hexdigest() != ref.sha256:
         raise ApiProblem("unavailable", "Stored document does not match its reference")
     return original

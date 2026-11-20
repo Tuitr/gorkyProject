@@ -175,7 +175,7 @@
     },
     "DocRef": {
       "additionalProperties": false,
-      "description": "Immutable DOCX in S3. A new upload gets a new key; sha256 lets the reader verify the bytes.",
+      "description": "Immutable source in S3. The key extension identifies the format; sha256 verifies the bytes.",
       "properties": {
         "bucket": {
           "minLength": 1,

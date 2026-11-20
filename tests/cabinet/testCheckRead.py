@@ -20,7 +20,16 @@ def testKnownCheckCanBeQueuedBeforeTheWorkerReadsIt(contractExample: Callable[[s
 
     result = readGradingCheck(SETTINGS, "check-1", "attempt-1", "test", httpx.MockTransport(missing))
 
-    assert result.model_dump(mode="json") == contractExample("grading/checkQueued.json")
+    assert result.model_dump(mode="json", exclude_none=True) == contractExample("grading/checkQueued.json")
+
+
+def testPhotoMarkdownSurvivesTheCabinet(contractExample: Callable[[str], dict[str, object]]) -> None:
+    markdown = "№1\n$x = -4$\n[неразборчиво]"
+    reply = {**contractExample("grading/checkQueued.json"), "transcriptMarkdown": markdown}
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=reply))
+
+    result = readGradingCheck(SETTINGS, "check-1", "attempt-1", "test", transport)
+    assert result.transcriptMarkdown == markdown
 
 
 @pytest.mark.parametrize(

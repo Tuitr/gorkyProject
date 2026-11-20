@@ -59,6 +59,18 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "transcriptMarkdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcriptmarkdown"
           }
         },
         "required": [
@@ -120,6 +132,18 @@
             },
             "title": "Taskresults",
             "type": "array"
+          },
+          "transcriptMarkdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcriptmarkdown"
           }
         },
         "required": [

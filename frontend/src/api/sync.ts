@@ -95,16 +95,21 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
   const checkId = sub?.remote?.checkId
   if (!sub || !a || !checkId) return null
   type Remote = NonNullable<Submission['remote']>
-  const setRemote = (s: State, fn: (r: Remote) => Remote): State => ({
+  const matches = (x: Submission) => x.id === submissionId && x.remote?.checkId === checkId
+  const setRemote = (s: State, fn: (r: Remote) => Remote, lines?: Submission['pages'][number]['lines']): State => ({
     ...s,
-    submissions: s.submissions.map((x) => (x.id === submissionId && x.remote ? { ...x, remote: fn(x.remote) } : x)),
+    submissions: s.submissions.map((x) => matches(x) && x.remote
+      ? { ...x, remote: fn(x.remote), pages: lines ? x.pages.map((page, i) => i === 0 ? { ...page, lines } : page) : x.pages }
+      : x),
   })
   try {
     const c = await readCheck(checkId)
+    const lines = c.transcriptMarkdown?.split('\n').map((text) => ({ text, box: { x: 0, y: 0, w: 0, h: 0 } }))
     if (!hasResult(c)) {
       const note = reasonText(c.reason)
       return (s) => {
-        let next = setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: note }))
+        if (!s.submissions.some(matches)) return s
+        let next = setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: note }), lines)
         const has = next.review.some((r) => r.submissionId === submissionId && !r.resolved && r.note === note)
         if (c.state === 'needs_review' && !has)
           next = {
@@ -128,12 +133,12 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
     }
     // та же версия и результаты кабинета на месте — обновляем только отметку публикации
     if (c.resultRev === sub.remote?.resultRev && sub.results.some((r) => r.remote))
-      return (s) => setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: undefined, publishedRev: c.publishedResultRev ?? undefined }))
+      return (s) => setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: undefined, publishedRev: c.publishedResultRev ?? undefined }), lines)
     const out = fromRemoteCheck(a, submissionId, c)
-    return (s) => ({
+    return (s) => !s.submissions.some(matches) ? s : ({
       ...s,
       submissions: s.submissions.map((x) =>
-        x.id !== submissionId
+        !matches(x)
           ? x
           : {
               ...x,
@@ -141,6 +146,7 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
               summary: out.summary,
               status: 'processed',
               approved: false,
+              pages: lines ? x.pages.map((page, i) => i === 0 ? { ...page, lines } : page) : x.pages,
               remote: x.remote && {
                 ...x.remote,
                 checkState: c.state,

@@ -108,7 +108,7 @@ assert ApiError.model_validate_json(wire) == error
 Compose по умолчанию использует `http://grading:8000`. Тесты кабинета проверяют стык на HTTP-заглушке.
 Код развёрнутого `grading` должен реализовать [внутренний контракт чтения](contracts/contracts/v1/openapi/grading.json).
 
-При сбое загрузки кабинет очищает DOCX в префиксе `sources/uploads/<uploadId>/` после проверки PostgreSQL.
+При сбое загрузки кабинет очищает исходники в префиксе `sources/uploads/<uploadId>/` после проверки PostgreSQL.
 Загрузка и очистка используют одну блокировку для данного `uploadId`. Она защищает исходники при обрыве
 соединения во время COMMIT. Если процесс прервался или хранилище было недоступно, повторите очистку конкретной
 загрузки командой `uv run python -m cabinet.cleanupuploads <uploadId>`. Ссылки из загрузок и попыток сохраняются.

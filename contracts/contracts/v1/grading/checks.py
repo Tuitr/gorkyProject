@@ -16,6 +16,7 @@ class CheckIdentity(BaseModel):
 
     checkId: NonEmptyStr
     attemptId: NonEmptyStr
+    transcriptMarkdown: str | None = None
 
 
 class CheckPending(CheckIdentity):

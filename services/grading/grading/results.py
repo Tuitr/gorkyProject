@@ -113,6 +113,8 @@ class ResultStore:
             job = session.get(CheckJob, checkId)
             if job is None:
                 return None
+            transcript = (job.stageData or {}).get("transcriptMarkdown")
+            ocr = {"transcriptMarkdown": transcript} if isinstance(transcript, str) else {}
             if resultRev is None:
                 row = latestRevision(session, checkId)
             else:
@@ -120,16 +122,16 @@ class ResultStore:
                 if row is None:
                     return None
             if row is None:
-                return pendingStatus(job)
+                return pendingStatus(job).model_copy(update=ocr)
             if row.markdownRef is None:
                 return CheckStatus(checkId=checkId, attemptId=CheckOutcome.model_validate(row.outcome).attemptId,
-                                   state="running", reason="awaiting_artifact")
+                                   state="running", reason="awaiting_artifact").model_copy(update=ocr)
             ref = MarkdownRef.model_validate(row.markdownRef)
             accepted = session.scalar(
                 select(func.max(CheckResultRevision.resultRev))
                 .where(CheckResultRevision.checkId == checkId, CheckResultRevision.acceptedAt.is_not(None))
             )
-            result = publishedResult(row.outcome, ref).model_copy(update={"publishedResultRev": accepted})
+            result = publishedResult(row.outcome, ref).model_copy(update={"publishedResultRev": accepted, **ocr})
         requireArtifact(ref)
         return result
 
@@ -155,6 +157,7 @@ def pendingStatus(job: CheckJob) -> CheckStatus:
             return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="needs_review",
                                reason=job.completedStage or "manual_review")
         case "failed":
-            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="failed", reason="grading_failed")
+            reason = job.completedStage if job.completedStage and job.completedStage.startswith("ocr_") else "grading_failed"
+            return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="failed", reason=reason)
         case _:
             return CheckStatus(checkId=job.checkId, attemptId=attemptId, state="running", reason="grading_in_progress")

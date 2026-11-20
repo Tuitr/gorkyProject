@@ -31,6 +31,7 @@ services:
       CABINET_DATABASE_URL: &cabinet-db postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
       CABINET_GRADING_BASE_URL: http://grading:8000
       CABINET_GRADING_SERVICE_TOKEN: stand-cabinet-token
+      OCR_URL: ${OCR_URL:-}
     ports:
       - "127.0.0.1:${CABINET_PORT:-18080}:8000"
     healthcheck:
@@ -85,6 +86,9 @@ services:
       GRADING_REFERENCE_TOKEN: stand-grading-token
       GRADING_GATEWAY_URL: http://gateway:8000
       GRADING_GATEWAY_TOKEN: stand-grading-token
+      OCR_URL: ${OCR_URL:-}
+      OCR_API_KEY: ${OCR_API_KEY:-}
+      OCR_MODEL: ${OCR_MODEL:-}
     command: ["python", "-m", "grading.runner"]
     restart: on-failure
 

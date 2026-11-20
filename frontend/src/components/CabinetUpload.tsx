@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useActions } from '../actions'
-import { bindFile, bindNewStudent, readUpload, uploadWork, type UploadFile } from '../api/cabinet'
+import { bindFile, bindNewStudent, readOcrRecipient, readUpload, uploadPhotoUrl, uploadWork, type UploadFile } from '../api/cabinet'
 import { pullClasses, withRemoteClasses } from '../api/sync'
 import { uid, type Assignment, type CabinetUploadRecord, type ClassGroup, type Submission } from '../domain'
 import { unzip } from '../lib/zip'
@@ -8,10 +8,10 @@ import { patch, useStore } from '../store'
 import { Badge, Modal, type Tone } from '../ui'
 
 /**
- * Загрузка работ учеников в кабинет (бэкенд из main): DOCX или ZIP с DOCX.
+ * Загрузка работ учеников в кабинет: фото, DOCX или ZIP с DOCX.
  * Кабинет сам подбирает ученика по подписи и имени файла; где не уверен — учитель выбирает здесь
  * (или создаёт нового ученика). Загрузки запоминаются: окно показывает их снова, и неподтверждённые
- * привязки можно доделать позже. Привязанная работа появляется в сборе работ (текстом из DOCX),
+ * привязки можно доделать позже. Привязанная работа появляется в сборе работ,
  * а её проверку ведёт кабинет: результат приходит оттуда.
  */
 
@@ -55,6 +55,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
   const { publish, pull } = useActions()
   const [items, setItems] = useState<Item[]>([])
   const [busy, setBusy] = useState(false)
+  const [ocrRecipient, setOcrRecipient] = useState<string | null>(null)
   const [choice, setChoice] = useState<Record<string, string>>({})
   const [newName, setNewName] = useState<Record<string, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -81,7 +82,13 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
       classId: cls.id,
       studentId: f.studentId,
       variantId: prev?.variantId ?? null,
-      pages: [{ id: uid('p'), image: '', hash: `cabinet:${f.fileId}`, kind: 'text', lines }],
+      pages: [{
+        id: uid('p'),
+        image: f.isPhoto ? uploadPhotoUrl(record.uploadId, f.fileId) : '',
+        hash: `cabinet:${f.fileId}`,
+        kind: f.isPhoto ? undefined : 'text',
+        lines,
+      }],
       status: 'submitted',
       results: [],
       approved: false,
@@ -114,6 +121,10 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
     }
   }
 
+  useEffect(() => {
+    void readOcrRecipient().then(({ hostname }) => setOcrRecipient(hostname)).catch(() => undefined)
+  }, [])
+
   // прошлые загрузки этой работы и класса — показать и досмотреть
   useEffect(() => {
     const records = (state.uploads ?? []).filter((r) => r.assignmentId === a.id && r.classId === cls.id)
@@ -134,16 +145,15 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
       for (const file of picked) {
         try {
           const texts: Record<string, string> = {}
-          const buf = await file.arrayBuffer()
           if (/\.zip$/i.test(file.name)) {
-            for (const e of await unzip(buf))
+            for (const e of await unzip(await file.arrayBuffer()))
               if (/\.docx$/i.test(e.name)) {
                 const t = toStored(await docxText(e.data.slice().buffer as ArrayBuffer))
                 // имя так, как его прочитаем мы и как прочитает кабинет (архивы Windows без UTF-8)
                 texts[baseName(e.name)] = t
                 if (e.altName) texts[baseName(e.altName)] = t
               }
-          } else texts[file.name] = toStored(await docxText(buf))
+          } else if (/\.docx$/i.test(file.name)) texts[file.name] = toStored(await docxText(await file.arrayBuffer()))
           const { uploadId } = await uploadWork(remote.assignmentId, remote.rev, file)
           const record: CabinetUploadRecord = {
             uploadId,
@@ -211,7 +221,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
             Закрыть
           </button>
           <button className="btn btn--primary" disabled={busy} onClick={() => fileRef.current?.click()}>
-            {busy ? 'Загрузка…' : 'Выбрать DOCX или ZIP'}
+            {busy ? 'Загрузка…' : 'Выбрать файлы'}
           </button>
         </>
       }
@@ -219,7 +229,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
       <input
         ref={fileRef}
         type="file"
-        accept=".docx,.zip,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept=".jpg,.jpeg,.png,.webp,.docx,.zip"
         multiple
         hidden
         onChange={(e) => {
@@ -227,6 +237,10 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
           e.target.value = ''
         }}
       />
+      <p className="muted">
+        Одно фото на работу. JPEG, PNG или WebP до 20 МБ. Для распознавания фото отправляется{' '}
+        {ocrRecipient ? <>на <strong>{ocrRecipient}</strong></> : 'во внешний сервис'}.
+      </p>
       {!items.length ? (
         <p className="muted">DOCX до 20 МБ или ZIP до 50 МБ (до 100 работ).</p>
       ) : (

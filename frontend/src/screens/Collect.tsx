@@ -17,7 +17,7 @@ export const STATUS_TONE: Record<SubmissionStatus, Tone> = {
   error: 'err',
 }
 
-/** Экран 5. Сбор работ: DOCX или ZIP учеников уходят в кабинет, он проверяет их и присылает результат. */
+/** Экран 5. Сбор работ: кабинет принимает фото и документы и возвращает результат проверки. */
 export function Collect({ id, classId }: { id: string; classId?: string }) {
   const { state } = useStore()
   const { pull } = useActions()
@@ -92,7 +92,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
         </a>
         <div className="stats__actions">
           <button className="btn btn--primary" onClick={() => setCabinetOpen(true)}>
-            Загрузить работы (DOCX или ZIP)
+            Загрузить работы
           </button>
         </div>
       </div>
