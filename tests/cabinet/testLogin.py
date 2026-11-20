@@ -18,6 +18,7 @@ from typing import Literal
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from argon2 import PasswordHasher, Type
@@ -28,16 +29,18 @@ from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet import documents, uploads
-from cabinet.assignments import AssignmentRecord
+from cabinet.assignments import AssignmentRecord, storeAssignment
 from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
-from cabinet.database import allMetadata
+from cabinet.database import allMetadata, buildAlembicConfig
 from cabinet.documents import buildS3Client
 from cabinet.main import buildAccounts, createApp
+from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.settings import DB_SCHEMA, Settings
-from cabinet.uploads import UploadFileRecord, UploadRecord
+from cabinet.uploads import SubmissionDocument, UploadFileRecord, UploadRecord, storeUpload
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE
+from contracts.v1.events.checks import AssignmentPublishedEvent, AttemptSubmittedEvent, TeacherRequirement, checksEventAdapter
 from shared.clock import ManualClock
 
 PASSWORD = "correct horse battery staple"
@@ -68,7 +71,7 @@ def cabinetSessions(cabinetEngine: Engine) -> sessionmaker[Session]:
     with cabinetEngine.begin() as connection:
         tables = (
             "teachers", "sessions", "login_throttle", "classes", "students", "assignments",
-            "uploads", "upload_files", "attempts", "attempt_checks",
+            "uploads", "upload_files", "attempts", "attempt_checks", "outbox",
         )
         qualified = ", ".join(f'"{DB_SCHEMA}".{table}' for table in tables)
         connection.execute(text(f"TRUNCATE {qualified}"))
@@ -874,3 +877,91 @@ def testDuplicateAttemptsAreSharedAcrossConcurrentConfirmations(
             s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
         for record in db.scalars(select(AssignmentRecord)):
             s3.delete_object(Bucket=record.bucket, Key=record.objectKey)
+
+
+def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    class AbortUpload(Exception):
+        pass
+
+    addTeacher(cabinetSessions, "teacher.owner")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    docx = assignmentDocx("Задание и работа")
+    requirements = [TeacherRequirement(text="Покажите ход решения", taskNumber="1")]
+    refs: set[tuple[str, str]] = set()
+
+    with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(settings)) as s3:
+        try:
+            assert login(client, "teacher.owner", PASSWORD)[0] == 200
+            classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+            classPath = f"/v1/classes/{classId}"
+            studentId = client.post(f"{classPath}/students", json={"name": "Иванов Иван"}).json()["studentId"]
+
+            with pytest.raises(AbortUpload), cabinetSessions.begin() as db:
+                event = EventContext("rollback-test", clock.now())
+                created = storeAssignment(db, settings, classId, None, clock.now().date(), requirements, docx, event)
+                db.flush()
+                storeUpload(db, settings, created.assignmentId, created.assignmentRev, classId, [
+                    SubmissionDocument("Иванов Иван.docx", docx, ()),
+                ], event)
+                db.flush()
+                refs.update((row.bucket, row.objectKey) for row in db.scalars(select(AssignmentRecord)))
+                refs.update((row.bucket, row.objectKey) for row in db.scalars(select(UploadFileRecord)))
+                staged = list(db.scalars(select(OutboxRecord).order_by(OutboxRecord.sequence)))
+                assert [row.data["type"] for row in staged] == ["assignment.published", "attempt.submitted"]
+                assert all(row.data["traceId"] == "rollback-test" for row in staged)
+                raise AbortUpload()
+
+            with cabinetSessions() as db:
+                assert db.scalars(select(AssignmentRecord)).all() == []
+                assert db.scalars(select(CheckRecord)).all() == []
+                assert db.scalars(select(AttemptRecord)).all() == []
+                assert db.scalars(select(OutboxRecord)).all() == []
+
+            variant = client.post(
+                f"{classPath}/assignments",
+                data={"requirements": json.dumps([item.model_dump() for item in requirements])},
+                files={"file": ("variant.docx", docx)}, headers={"X-Trace-Id": "variant-request"},
+            )
+            assert variant.status_code == 201, variant.text
+            assignmentId = variant.json()["assignmentId"]
+            url = f"/v1/assignments/{assignmentId}/uploads"
+            for filename, traceId in (("Иванов Иван.docx", "upload-request"), ("Иванов_Иван.docx", "replay-request")):
+                response = client.post(
+                    url, data={"assignmentRev": "1"}, files={"file": (filename, docx)}, headers={"X-Trace-Id": traceId},
+                )
+                assert response.status_code == 202, response.text
+
+            with cabinetSessions() as db:
+                refs.update((row.bucket, row.objectKey) for row in db.scalars(select(AssignmentRecord)))
+                refs.update((row.bucket, row.objectKey) for row in db.scalars(select(UploadFileRecord)))
+                records = list(db.scalars(select(OutboxRecord).order_by(OutboxRecord.sequence)))
+                assert len(records) == 2
+                assert all(row.publishedAt is None for row in records)
+                events = [checksEventAdapter.validate_json(json.dumps(row.data)) for row in records]
+                published, submitted = events
+                assert isinstance(published, AssignmentPublishedEvent)
+                assert isinstance(submitted, AttemptSubmittedEvent)
+                assert published.traceId == "variant-request"
+                assert submitted.traceId == "upload-request"
+                assert published.payload.requirements == requirements
+                assert submitted.payload.studentId == studentId
+                assert submitted.payload.checkId == db.scalars(select(CheckRecord.checkId)).one()
+                assert submitted.payload.attemptId == db.scalars(select(AttemptRecord.attemptId)).one()
+                assert all(row.eventId == eventData.eventId for row, eventData in zip(records, events, strict=True))
+
+            alembicConfig = buildAlembicConfig(settings.databaseUrl)
+            command.downgrade(alembicConfig, "0011")
+            command.upgrade(alembicConfig, "0012")
+            with cabinetSessions() as db:
+                backfilled = [
+                    checksEventAdapter.validate_python(row.data)
+                    for row in db.scalars(select(OutboxRecord).order_by(OutboxRecord.sequence))
+                ]
+                assert [eventData.type for eventData in backfilled] == ["assignment.published", "attempt.submitted"]
+                assert [eventData.payload for eventData in backfilled] == [published.payload, submitted.payload]
+        finally:
+            for bucket, key in refs:
+                s3.delete_object(Bucket=bucket, Key=key)

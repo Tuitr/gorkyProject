@@ -1,12 +1,12 @@
 """Confirm a teacher's choice for exactly one uploaded document."""
 
 import uuid
-from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cabinet.classes import StudentRecord
+from cabinet.outbox import EventContext
 from cabinet.uploads import UploadFileRecord, finishFileBinding, requireOwnedUpload
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest, SelectStudentBinding
 from shared.httperrors import ApiProblem
@@ -23,7 +23,7 @@ def requireStudentInClass(db: Session, studentId: str, classId: str) -> StudentR
 
 
 def confirmBinding(
-    db: Session, uploadId: str, teacherId: str, request: BindingRequest, now: datetime,
+    db: Session, uploadId: str, teacherId: str, request: BindingRequest, eventContext: EventContext,
 ) -> BindingConfirmed:
     upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     if len(request.fileId) != 36 or "\x00" in request.fileId:
@@ -65,7 +65,7 @@ def confirmBinding(
         file.reason = None
         file.candidateStudentIds = [student.studentId]
 
-    attemptId, checkId = finishFileBinding(db, upload, file, now)
+    attemptId, checkId = finishFileBinding(db, upload, file, eventContext)
     return BindingConfirmed(
         fileId=file.fileId,
         studentId=student.studentId,

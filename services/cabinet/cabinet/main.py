@@ -24,6 +24,7 @@ from cabinet.auth.throttle import LoginThrottle
 from cabinet.bindingconfirmation import confirmBinding
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.documents import readDocx
+from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentVersion
@@ -34,7 +35,7 @@ from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import TeacherRequirement
 from shared.clock import Clock, SystemClock
-from shared.httperrors import ApiProblem, installErrorHandlers
+from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
 
 COOKIE = "__Host-cabinet"
 SESSION_SECONDS = 8 * 3600
@@ -97,6 +98,9 @@ def createApp(
     app.state.teacherAccounts = accounts
     v1 = APIRouter(prefix="/v1", dependencies=[Depends(checkOrigin)])
 
+    def eventContext(request: Request) -> EventContext:
+        return EventContext(traceId=getTraceId(request), occurredAt=sessionClock.now())
+
     @app.get("/ready", include_in_schema=False)
     def readiness() -> dict[str, str]:
         try:
@@ -109,6 +113,7 @@ def createApp(
                 session.execute(select(AssignmentRecord).limit(0))
                 session.execute(select(UploadRecord).limit(0))
                 session.execute(select(UploadFileRecord).limit(0))
+                session.execute(select(OutboxRecord).limit(0))
         except SQLAlchemyError as error:
             raise ApiProblem("unavailable", "Cabinet database is unavailable") from error
         return {"status": "ready"}
@@ -206,12 +211,13 @@ def createApp(
         assignmentDate: Annotated[date | None, Form()] = None,
         assignmentId: Annotated[str | None, Form(min_length=36, max_length=36, pattern=r"^[0-9a-f-]+$")] = None,
         teacher: TeacherSession = Depends(currentTeacher),
+        event: EventContext = Depends(eventContext),
     ) -> AssignmentVersion:
         with sessionFactory.begin() as db:
             requireOwnedClass(db, classId, teacher.teacherId)
             return storeAssignment(
-                db, settings, classId, assignmentId, assignmentDate or sessionClock.now().date(),
-                requirements, readDocx(file),
+                db, settings, classId, assignmentId, assignmentDate or event.occurredAt.date(),
+                requirements, readDocx(file), event,
             )
 
     @v1.post(
@@ -228,11 +234,12 @@ def createApp(
         file: Annotated[UploadFile, File()],
         assignmentRev: Annotated[int, Form(ge=1, le=2_147_483_647)],
         teacher: TeacherSession = Depends(currentTeacher),
+        event: EventContext = Depends(eventContext),
     ) -> UploadAccepted:
         with sessionFactory.begin() as db:
             classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
             return storeUpload(
-                db, settings, assignmentId, assignmentRev, classId, readSubmission(file), sessionClock.now(),
+                db, settings, assignmentId, assignmentRev, classId, readSubmission(file), event,
             )
 
     @v1.get(
@@ -240,9 +247,11 @@ def createApp(
         response_model_exclude_none=True,
         responses={401: {"model": ApiError}, 404: {"model": ApiError}},
     )
-    def readUpload(uploadId: str, teacher: TeacherSession = Depends(currentTeacher)) -> UploadProgress:
+    def readUpload(
+        uploadId: str, teacher: TeacherSession = Depends(currentTeacher), event: EventContext = Depends(eventContext),
+    ) -> UploadProgress:
         with sessionFactory.begin() as db:
-            return getUploadProgress(db, settings, uploadId, teacher.teacherId, sessionClock.now())
+            return getUploadProgress(db, settings, uploadId, teacher.teacherId, event)
 
     @v1.post(
         "/uploads/{uploadId}/bindings",
@@ -253,9 +262,10 @@ def createApp(
     )
     def bindUploadFile(
         uploadId: str, body: BindingRequest, teacher: TeacherSession = Depends(currentTeacher),
+        event: EventContext = Depends(eventContext),
     ) -> BindingConfirmed:
         with sessionFactory.begin() as db:
-            return confirmBinding(db, uploadId, teacher.teacherId, body, sessionClock.now())
+            return confirmBinding(db, uploadId, teacher.teacherId, body, event)
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

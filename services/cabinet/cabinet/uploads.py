@@ -22,6 +22,7 @@ from cabinet.bindings import matchStudent, signatureNames
 from cabinet.classes import ClassRecord, StudentRecord
 from cabinet.database import Base
 from cabinet.documents import MAX_DOCX_BYTES, buildS3Client, loadDocx, readDocxBytes, storeDocx, validateDocx
+from cabinet.outbox import EventContext
 from cabinet.settings import Settings
 from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
@@ -172,7 +173,7 @@ def storeUpload(
     assignmentRev: int,
     classId: str,
     documents: list[SubmissionDocument],
-    uploadedAt: datetime,
+    eventContext: EventContext,
 ) -> UploadAccepted:
     uploadId = str(uuid.uuid4())
     records = []
@@ -188,11 +189,11 @@ def storeUpload(
             applyMatch(file, document.signatures, roster)
             records.append(file)
     upload = UploadRecord(
-        uploadId=uploadId, assignmentId=assignmentId, assignmentRev=assignmentRev, uploadedAt=uploadedAt,
+        uploadId=uploadId, assignmentId=assignmentId, assignmentRev=assignmentRev, uploadedAt=eventContext.occurredAt,
     )
     db.add(upload)
     db.flush()
-    finishMatchedFiles(db, upload, records, uploadedAt)
+    finishMatchedFiles(db, upload, records, eventContext)
     db.add_all(records)
     return UploadAccepted(uploadId=uploadId)
 
@@ -206,7 +207,7 @@ def applyMatch(file: UploadFileRecord, signatures: tuple[str, ...], roster: Sequ
 
 
 def finishFileBinding(
-    db: Session, upload: UploadRecord, file: UploadFileRecord, now: datetime,
+    db: Session, upload: UploadRecord, file: UploadFileRecord, eventContext: EventContext,
 ) -> tuple[str, str]:
     if file.status == "bound":
         assert file.attemptId is not None and file.checkId is not None
@@ -214,8 +215,10 @@ def finishFileBinding(
 
     assert file.status == "matched" and file.studentId is not None
     ref = DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256)
-    attemptId = ensureAttempt(db, upload.assignmentId, file.studentId, ref, upload.uploadedAt or now)
-    checkId = ensureCheck(db, attemptId, upload.assignmentId, upload.assignmentRev)
+    attemptId = ensureAttempt(db, upload.assignmentId, file.studentId, ref, upload.uploadedAt or eventContext.occurredAt)
+    checkId = ensureCheck(
+        db, attemptId, upload.assignmentId, upload.assignmentRev, file.studentId, ref, eventContext,
+    )
     file.attemptId = attemptId
     file.checkId = checkId
     file.status = "bound"
@@ -223,7 +226,7 @@ def finishFileBinding(
 
 
 def finishMatchedFiles(
-    db: Session, upload: UploadRecord, files: Sequence[UploadFileRecord], now: datetime,
+    db: Session, upload: UploadRecord, files: Sequence[UploadFileRecord], eventContext: EventContext,
 ) -> None:
     # Concurrent archives may contain the same works in different orders.
     matched = sorted(
@@ -231,7 +234,7 @@ def finishMatchedFiles(
         key=lambda file: (file.studentId or "", file.sha256),
     )
     for file in matched:
-        finishFileBinding(db, upload, file, now)
+        finishFileBinding(db, upload, file, eventContext)
 
 
 def matchPendingFiles(
@@ -276,7 +279,7 @@ def requireOwnedUpload(db: Session, uploadId: str, teacherId: str) -> tuple[Uplo
 
 
 def getUploadProgress(
-    db: Session, settings: Settings, uploadId: str, teacherId: str, now: datetime,
+    db: Session, settings: Settings, uploadId: str, teacherId: str, eventContext: EventContext,
 ) -> UploadProgress:
     upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     fileQuery = (
@@ -290,7 +293,7 @@ def getUploadProgress(
         files = db.scalars(fileQuery.with_for_update().execution_options(populate_existing=True)).all()
         if any(file.status == "pending_binding" for file in files):
             matchPendingFiles(db, settings, classId, files)
-        finishMatchedFiles(db, upload, files, now)
+        finishMatchedFiles(db, upload, files, eventContext)
 
     candidateIds = {studentId for file in files for studentId in file.candidateStudentIds}
     candidates = {}

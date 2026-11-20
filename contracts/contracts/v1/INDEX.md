@@ -7,7 +7,7 @@
 |---|---|---|---|---|
 | Ошибка HTTP `{code, message, retryable, traceId}` | `common/errors.py` | № 1 | все | готово |
 | Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает DOCX или ZIP с работами; `GET /v1/uploads/{uploadId}` возвращает состояния файлов; `POST /v1/uploads/{uploadId}/bindings` подтверждает ученика |
-| События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | готово |
+| События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | запись в PostgreSQL outbox готова |
 | Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | готово; генератор `tools/dataset` (A6.2), выпуск версии — A6.3 |
 | Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | черновик от № 3, ждёт подтверждения № 2 |
@@ -84,3 +84,11 @@
 прежний `attemptId` и создаётся отдельный `checkId`. Изменение содержимого создаёт новую попытку.
 Для новой попытки сохраняется время загрузки. Если в старой записи время загрузки отсутствует, используется
 время создания попытки.
+
+
+### События кабинета
+
+Кабинет сохраняет `assignment.published` при создании ревизии и `attempt.submitted` при создании
+проверки в той же транзакции PostgreSQL, что и бизнес-запись. Повтор, который возвращает существующий
+`checkId`, сохраняет исходное событие. В outbox хранится полный конверт `checks.v1` с `eventId`,
+`traceId`, временем и ссылкой на DOCX.

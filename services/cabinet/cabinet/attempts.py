@@ -8,7 +8,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.database import Base
-from contracts.v1.events.checks import DocRef
+from cabinet.outbox import EventContext, enqueueEvent
+from contracts.v1.events.checks import AttemptSubmittedEvent, AttemptSubmittedPayload, DocRef
 
 
 class AttemptRecord(Base):
@@ -65,14 +66,26 @@ def ensureAttempt(
     return attemptId
 
 
-def ensureCheck(db: Session, attemptId: str, assignmentId: str, assignmentRev: int) -> str:
+def ensureCheck(
+    db: Session, attemptId: str, assignmentId: str, assignmentRev: int,
+    studentId: str, ref: DocRef, eventContext: EventContext,
+) -> str:
     checkId = db.scalar(
         insert(CheckRecord)
         .values(checkId=str(uuid.uuid4()), attemptId=attemptId, assignmentId=assignmentId, assignmentRev=assignmentRev)
         .on_conflict_do_nothing(constraint="uq_attempt_checks_revision")
         .returning(CheckRecord.checkId)
     )
-    if checkId is None:
+    if checkId is not None:
+        enqueueEvent(db, AttemptSubmittedEvent(
+            v=1, type="attempt.submitted", eventId=str(uuid.uuid4()),
+            traceId=eventContext.traceId, occurredAt=eventContext.occurredAt,
+            payload=AttemptSubmittedPayload(
+                assignmentId=assignmentId, assignmentRev=assignmentRev, docRef=ref,
+                studentId=studentId, attemptId=attemptId, checkId=checkId,
+            ),
+        ))
+    else:
         checkId = db.scalar(
             select(CheckRecord.checkId).where(
                 CheckRecord.attemptId == attemptId, CheckRecord.assignmentRev == assignmentRev,

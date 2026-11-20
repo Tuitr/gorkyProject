@@ -11,9 +11,10 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from cabinet.classes import ClassRecord
 from cabinet.database import Base
 from cabinet.documents import buildS3Client, storeDocx
+from cabinet.outbox import EventContext, enqueueEvent
 from cabinet.settings import Settings
 from contracts.v1.cabinet.assignments import AssignmentVersion
-from contracts.v1.events.checks import TeacherRequirement
+from contracts.v1.events.checks import AssignmentPublishedEvent, AssignmentPublishedPayload, TeacherRequirement
 from shared.httperrors import ApiProblem
 
 
@@ -41,6 +42,7 @@ def storeAssignment(
     assignmentDate: date,
     requirements: list[TeacherRequirement],
     original: bytes,
+    eventContext: EventContext,
 ) -> AssignmentVersion:
     if any("\x00" in item.text or "\x00" in (item.taskNumber or "") for item in requirements):
         raise ApiProblem("invalid_input", "Requirements must not contain null characters")
@@ -79,6 +81,13 @@ def storeAssignment(
         bucket=docRef.bucket,
         objectKey=docRef.key,
         sha256=docRef.sha256,
+    ))
+    enqueueEvent(db, AssignmentPublishedEvent(
+        v=1, type="assignment.published", eventId=str(uuid.uuid4()),
+        traceId=eventContext.traceId, occurredAt=eventContext.occurredAt,
+        payload=AssignmentPublishedPayload(
+            assignmentId=assignmentId, assignmentRev=revision, docRef=docRef, requirements=requirements,
+        ),
     ))
     return AssignmentVersion(assignmentId=assignmentId, assignmentRev=revision)
 
