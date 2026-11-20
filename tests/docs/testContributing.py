@@ -35,7 +35,7 @@ def testEveryMarkerInTheGuideIsRegistered() -> None:
 
 
 def testEveryTestPathInTheGuideExists() -> None:
-    paths = set(re.findall(r"uv run pytest (tests/[\w/]+)", GUIDE))
+    paths = set(re.findall(r"uv run pytest (tests/[\w/]+(?:\.py)?)", GUIDE))
 
     assert paths
     assert [path for path in sorted(paths) if not (ROOT / path).exists()] == []

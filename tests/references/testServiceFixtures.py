@@ -171,7 +171,8 @@ def testClosedSplitIsAbsentFromTransportFilesAndExamples(manifest: JsonObject) -
         step["markdown"] for case in closed for step in case["expectedSteps"] if "Ответ" not in step["markdown"]
     }
     texts = [(FIXTURES / name).read_text(encoding="utf-8") for name in TRANSPORT_FILES]
-    texts += [path.read_text(encoding="utf-8") for path in (*REFERENCE_EXCHANGES.glob("*"), *REVIEW_EXCHANGES.glob("*"))]
+    examples = (*REFERENCE_EXCHANGES.glob("*.json"), *REVIEW_EXCHANGES.glob("*.json"))
+    texts += [path.read_text(encoding="utf-8") for path in examples]
     encoded = [json.dumps(secret, ensure_ascii=False)[1:-1] for secret in secrets]
 
     assert secrets

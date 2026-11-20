@@ -153,6 +153,9 @@ uv run python -m dataset.generate --seed 20261120 --out <пустой катал
   совпадают с этими ключами и с ответами манифеста. Обмены для № 2 лежат в `contracts/v1/examples/references/exchanges/`
   и `contracts/v1/examples/gateway/exchanges/`: поставщик прогоняет их через свои маршруты
   (`tests/references/testServiceFixtures.py`), клиент № 2 читает те же файлы (`tests/grading/testServiceExamples.py`).
+- Приёмка стыка воркера № 2 с сервисами № 3 по HTTP: `uv run pytest tests/grading/testServiceHandoff.py`. Реестр и
+  шлюз поднимаются в uvicorn с фикстурами, воркер проверяет вариант demo1 мини-набора (готовый результат), ожидание
+  pending → ready и ручную проверку с reasonCode. Платный провайдер не вызывается.
 
 ### Мини-набор mini.v1 для разработки и сверки
 
