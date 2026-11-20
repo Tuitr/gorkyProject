@@ -229,5 +229,538 @@
       ],
       "needsReview": false
     }
+  },
+  {
+    "fixtureId": "heatIvanovaOlgaT1",
+    "taskId": "t1",
+    "statement": "Какое количество теплоты необходимо для нагревания 2 кг воды от 20 °C до 30 °C? Удельная теплоёмкость воды 4200 Дж/(кг·°C).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q = c\\cdot m\\cdot (t$₂ $- t$₁)"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$Q = 4200 \\cdot 2 \\cdot (30 - 20) = 84 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $84$ кДж"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatIvanovaOlgaT2",
+    "taskId": "t2",
+    "statement": "Какое количество теплоты необходимо, чтобы расплавить 3 кг льда, взятого при температуре плавления? Удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q =$ λ$\\cdot m$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$Q = 3,4\\cdot 10^5 \\cdot 3 = 10,2\\cdot 10^5$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $1,02$ МДж"
+      }
+    ],
+    "content": {
+      "taskId": "t2",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatIvanovaOlgaT3",
+    "taskId": "t3",
+    "statement": "Какое количество теплоты необходимо, чтобы 2 кг льда, взятого при температуре −10 °C, превратить в воду при 0 °C? Удельная теплоёмкость льда 2100 Дж/(кг·°C), удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Q₁ $= c\\cdot m\\cdot (0 - t$₁$) = 2100 \\cdot 2 \\cdot 10 = 42 000$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Q₂ = λ$\\cdot m = 3,4\\cdot 10^5 \\cdot 2 = 680 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "$Q = Q$₁ $+ Q$₂ $= 42 000 + 680 000 = 722 000$ Дж"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $722$ кДж"
+      }
+    ],
+    "content": {
+      "taskId": "t3",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatIvanovaOlgaT4",
+    "taskId": "t4",
+    "statement": "Смешали 2 кг воды при температуре 20 °C и 3 кг воды при температуре 70 °C. Какая температура установится в сосуде? Теплообменом с сосудом и окружающей средой пренебречь.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$c\\cdot m$₁$\\cdot (t - t$₁$) = c\\cdot m$₂$\\cdot (t$₂ $- t)$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$2 \\cdot (t - 20) = 3 \\cdot (70 - t)$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "$5t = 250, t = 50$ °C"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $50$ °C"
+      }
+    ],
+    "content": {
+      "taskId": "t4",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatIvanovaOlgaT5",
+    "taskId": "t5",
+    "statement": "На спиртовке нагрели 300 г воды от 20 °C до 80 °C, при этом сгорело 8 г спирта. Найдите КПД спиртовки. Удельная теплоёмкость воды 4200 Дж/(кг·°C), удельная теплота сгорания спирта 2,7·10⁷ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Qполезн $= c\\cdot m\\cdot (t$₂ $- t$₁$) = 4200 \\cdot 0,3 \\cdot 60 = 75 600$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Qзатр $= q\\cdot m = 2,7\\cdot 10^7 \\cdot 0,008 = 216 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "η $= 75 600 / 216 000 = 0,35$"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $35$ %"
+      }
+    ],
+    "content": {
+      "taskId": "t5",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatSmirnovDmitriyT1",
+    "taskId": "t1",
+    "statement": "Какое количество теплоты необходимо для нагревания 2 кг воды от 20 °C до 30 °C? Удельная теплоёмкость воды 4200 Дж/(кг·°C).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q = c\\cdot m\\cdot t$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$Q = 4200 \\cdot 2 \\cdot 30 = 252 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $252 000$ Дж"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s1",
+          "category": "formula",
+          "comment": "В формулу подставлена конечная температура вместо её изменения.",
+          "correction": "Q = c·m·(t₂ − t₁) = c·m·Δt"
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s2",
+          "category": "substitution",
+          "comment": "Δt = 30 − 20 = 10 °C, а не 30 °C.",
+          "correction": "Q = 4200 · 2 · 10 = 84 000 Дж",
+          "causedByIssueId": "i1"
+        },
+        {
+          "issueId": "i3",
+          "stepId": "s3",
+          "category": "other",
+          "comment": "Итог неверен из-за ошибки в формуле.",
+          "correction": "Ответ: 84 000 Дж",
+          "causedByIssueId": "i2"
+        }
+      ],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatSmirnovDmitriyT2",
+    "taskId": "t2",
+    "statement": "Какое количество теплоты необходимо, чтобы расплавить 3 кг льда, взятого при температуре плавления? Удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q =$ λ$\\cdot m = 3,4\\cdot 10^5 \\cdot 3 = 1 020 000$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Ответ: $1 020 000$ Дж"
+      }
+    ],
+    "content": {
+      "taskId": "t2",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatSmirnovDmitriyT3",
+    "taskId": "t3",
+    "statement": "Какое количество теплоты необходимо, чтобы 2 кг льда, взятого при температуре −10 °C, превратить в воду при 0 °C? Удельная теплоёмкость льда 2100 Дж/(кг·°C), удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q =$ λ$\\cdot m = 3,4\\cdot 10^5 \\cdot 2 = 680 000$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Ответ: $680 000$ Дж"
+      }
+    ],
+    "content": {
+      "taskId": "t3",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s1",
+          "category": "missing_stage",
+          "comment": "Лёд сначала нужно нагреть от −10 °C до 0 °C, этот шаг пропущен.",
+          "correction": "Q₁ = c·m·Δt = 2100 · 2 · 10 = 42 000 Дж; Q = Q₁ + λm = 722 000 Дж"
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s2",
+          "category": "other",
+          "comment": "Итог неполный из-за пропущенной стадии.",
+          "correction": "Ответ: 722 000 Дж",
+          "causedByIssueId": "i1"
+        }
+      ],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatSmirnovDmitriyT4",
+    "taskId": "t4",
+    "statement": "Смешали 2 кг воды при температуре 20 °C и 3 кг воды при температуре 70 °C. Какая температура установится в сосуде? Теплообменом с сосудом и окружающей средой пренебречь.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Q₁ $= Q$₂"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$2 \\cdot (t - 20) = 3 \\cdot (70 - t)$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "$t = 50$ °C"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $50$ °C"
+      }
+    ],
+    "content": {
+      "taskId": "t4",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatSmirnovDmitriyT5",
+    "taskId": "t5",
+    "statement": "На спиртовке нагрели 300 г воды от 20 °C до 80 °C, при этом сгорело 8 г спирта. Найдите КПД спиртовки. Удельная теплоёмкость воды 4200 Дж/(кг·°C), удельная теплота сгорания спирта 2,7·10⁷ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Qполезн $= 4200 \\cdot 0,3 \\cdot 60 = 75 600$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Qзатр $= 2,7\\cdot 10^7 \\cdot 8 = 216 000 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "η $= 75 600 / 216 000 000 = 0,00035$"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $0,035$ %"
+      }
+    ],
+    "content": {
+      "taskId": "t5",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s2",
+          "category": "units",
+          "comment": "Масса спирта не переведена в килограммы: 8 г = 0,008 кг.",
+          "correction": "Qзатр = 2,7·10⁷ · 0,008 = 216 000 Дж"
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s3",
+          "category": "other",
+          "comment": "КПД получился неверным из-за ошибки в Qзатр.",
+          "correction": "η = 75 600 / 216 000 = 0,35",
+          "causedByIssueId": "i1"
+        },
+        {
+          "issueId": "i3",
+          "stepId": "s4",
+          "category": "units",
+          "comment": "0,00035 — это 0,035 %; кроме того, итог неверен из-за предыдущей ошибки.",
+          "correction": "Ответ: 35 %",
+          "causedByIssueId": "i2"
+        }
+      ],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatKuznetsovaAnnaT1",
+    "taskId": "t1",
+    "statement": "Какое количество теплоты необходимо для нагревания 2 кг воды от 20 °C до 30 °C? Удельная теплоёмкость воды 4200 Дж/(кг·°C).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q = c\\cdot m\\cdot $Δt"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Δ$t = 30 - 20 = 10$ °C"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "$Q = 4200 \\cdot 2 \\cdot 10 = 8400$ Дж"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $8400$ Дж"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s3",
+          "category": "arithmetic",
+          "comment": "4200 · 2 · 10 = 84 000, а не 8400.",
+          "correction": "Q = 84 000 Дж"
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s4",
+          "category": "other",
+          "comment": "Итог неверен из-за ошибки в вычислении.",
+          "correction": "Ответ: 84 000 Дж",
+          "causedByIssueId": "i1"
+        }
+      ],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatKuznetsovaAnnaT2",
+    "taskId": "t2",
+    "statement": "Какое количество теплоты необходимо, чтобы расплавить 3 кг льда, взятого при температуре плавления? Удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$Q =$ λ$\\cdot m = 340 000 \\cdot 3 = 1 020 000$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Ответ: $1 020 000$"
+      }
+    ],
+    "content": {
+      "taskId": "t2",
+      "answer": "incorrect",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s2",
+          "category": "units",
+          "comment": "В ответе не указана единица измерения.",
+          "correction": "Ответ: 1 020 000 Дж"
+        }
+      ],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatKuznetsovaAnnaT3",
+    "taskId": "t3",
+    "statement": "Какое количество теплоты необходимо, чтобы 2 кг льда, взятого при температуре −10 °C, превратить в воду при 0 °C? Удельная теплоёмкость льда 2100 Дж/(кг·°C), удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Q₁ $= c\\cdot m\\cdot $Δ$t = 2100 \\cdot 2 \\cdot 10 = 42 000$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Q₂ = λ$\\cdot m = 340 000 \\cdot 2 = 680 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "$Q = 722 000$ Дж"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $722 000$ Дж"
+      }
+    ],
+    "content": {
+      "taskId": "t3",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatKuznetsovaAnnaT4",
+    "taskId": "t4",
+    "statement": "Смешали 2 кг воды при температуре 20 °C и 3 кг воды при температуре 70 °C. Какая температура установится в сосуде? Теплообменом с сосудом и окружающей средой пренебречь.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Qотд $= Q$пол"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$4200 \\cdot 3 \\cdot (70 - t) = 4200 \\cdot 2 \\cdot (t - 20)$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "t ≈ $50,0$ °C"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: ≈ $50$ °C"
+      }
+    ],
+    "content": {
+      "taskId": "t4",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "heatKuznetsovaAnnaT5",
+    "taskId": "t5",
+    "statement": "На спиртовке нагрели 300 г воды от 20 °C до 80 °C, при этом сгорело 8 г спирта. Найдите КПД спиртовки. Удельная теплоёмкость воды 4200 Дж/(кг·°C), удельная теплота сгорания спирта 2,7·10⁷ Дж/кг.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Qполезн $= 4200 \\cdot 0,3 \\cdot 60 = 75 600$ Дж"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "Qзатр $= 2,7\\cdot 10^7 \\cdot 0,008 = 216 000$ Дж"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "η $= 216 000 / 75 600$ ≈ $2,86$"
+      },
+      {
+        "stepId": "s4",
+        "markdown": "Ответ: $286$ %"
+      }
+    ],
+    "content": {
+      "taskId": "t5",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s3",
+          "category": "formula",
+          "comment": "КПД — отношение полезной теплоты к затраченной, а не наоборот; КПД не может быть больше 100 %.",
+          "correction": "η = Qполезн / Qзатр = 75 600 / 216 000 = 0,35"
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s4",
+          "category": "other",
+          "comment": "Итог неверен из-за ошибки в формуле.",
+          "correction": "Ответ: 35 %",
+          "causedByIssueId": "i1"
+        }
+      ],
+      "needsReview": false
+    }
   }
 ]

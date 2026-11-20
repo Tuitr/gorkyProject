@@ -3,3 +3,5 @@
 tools/dataset/releases/** -text
 *.docx binary
 *.zip binary
+# docs/samples is compared with its generator too (tests/grading/testHeatSamples.py).
+docs/samples/** -text

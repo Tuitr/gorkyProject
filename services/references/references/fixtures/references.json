@@ -93,5 +93,85 @@
         "exact": "13"
       }
     }
+  },
+  {
+    "fixtureId": "heatHeating",
+    "statement": "Какое количество теплоты необходимо для нагревания 2 кг воды от 20 °C до 30 °C? Удельная теплоёмкость воды 4200 Дж/(кг·°C).",
+    "constraints": {
+      "subject": "physics"
+    },
+    "outcome": {
+      "state": "ready",
+      "schemaId": "quantity.v1",
+      "value": {
+        "value": "84000",
+        "unit": "Дж",
+        "relTolerance": 0.02
+      }
+    }
+  },
+  {
+    "fixtureId": "heatMelting",
+    "statement": "Какое количество теплоты необходимо, чтобы расплавить 3 кг льда, взятого при температуре плавления? Удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "constraints": {
+      "subject": "physics"
+    },
+    "outcome": {
+      "state": "ready",
+      "schemaId": "quantity.v1",
+      "value": {
+        "value": "1020000",
+        "unit": "Дж",
+        "relTolerance": 0.02
+      }
+    }
+  },
+  {
+    "fixtureId": "heatIceToWater",
+    "statement": "Какое количество теплоты необходимо, чтобы 2 кг льда, взятого при температуре −10 °C, превратить в воду при 0 °C? Удельная теплоёмкость льда 2100 Дж/(кг·°C), удельная теплота плавления льда 3,4·10⁵ Дж/кг.",
+    "constraints": {
+      "subject": "physics"
+    },
+    "outcome": {
+      "state": "ready",
+      "schemaId": "quantity.v1",
+      "value": {
+        "value": "722000",
+        "unit": "Дж",
+        "relTolerance": 0.02
+      }
+    }
+  },
+  {
+    "fixtureId": "heatMixing",
+    "statement": "Смешали 2 кг воды при температуре 20 °C и 3 кг воды при температуре 70 °C. Какая температура установится в сосуде? Теплообменом с сосудом и окружающей средой пренебречь.",
+    "constraints": {
+      "subject": "physics"
+    },
+    "outcome": {
+      "state": "ready",
+      "schemaId": "quantity.v1",
+      "value": {
+        "value": "50",
+        "unit": "°C",
+        "relTolerance": 0.02
+      }
+    }
+  },
+  {
+    "fixtureId": "heatEfficiency",
+    "statement": "На спиртовке нагрели 300 г воды от 20 °C до 80 °C, при этом сгорело 8 г спирта. Найдите КПД спиртовки. Удельная теплоёмкость воды 4200 Дж/(кг·°C), удельная теплота сгорания спирта 2,7·10⁷ Дж/кг.",
+    "constraints": {
+      "subject": "physics"
+    },
+    "outcome": {
+      "state": "ready",
+      "schemaId": "quantity.v1",
+      "value": {
+        "value": "35",
+        "unit": "%",
+        "relTolerance": 0.02
+      }
+    }
   }
 ]
