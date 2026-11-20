@@ -22,7 +22,10 @@ export function AssignmentForm({ id }: { id?: string }) {
   const [title, setTitle] = useState(existing?.title ?? '')
   const [date, setDate] = useState(existing?.date ?? new Date().toLocaleDateString('sv-SE'))
   const [type, setType] = useState<WorkType>(existing?.type ?? 'control')
-  const [classIds, setClassIds] = useState<string[]>(existing?.classIds ?? (classes[0] ? [classes[0].id] : []))
+  // null — учитель ещё не выбирал: берём первый класс (классы приходят из кабинета уже после открытия формы)
+  const [picked, setPicked] = useState<string[] | null>(existing?.classIds ?? null)
+  const classIds = (picked ?? (classes[0] ? [classes[0].id] : [])).filter((cid) => classes.some((c) => c.id === cid))
+  const setClassIds = (fn: (ids: string[]) => string[]) => setPicked(fn(classIds))
   const [notes, setNotes] = useState(existing?.notes ?? '')
   // Файлы с заданиями по порядку; text = null — файл сохранён раньше, его текст заново не читаем
   const [items, setItems] = useState<{ source: SourceFile; text: string | null }[]>(() =>
@@ -76,6 +79,15 @@ export function AssignmentForm({ id }: { id?: string }) {
   const tasksToSave = parsed?.length ? parsed : pasted.trim() ? splitTasks(pasted) : null
   // новая работа: материалы, классы, заметки; название — по имени файла, тип — в «Параметрах»
   const canSave = classIds.length && (existing ? title.trim() : tasksToSave?.length)
+  // почему кнопка неактивна — пишем рядом с ней
+  const blocker = !classIds.length
+    ? 'Выберите класс.'
+    : existing
+      ? !title.trim() && 'Укажите название работы.'
+      : !tasksToSave?.length &&
+        (files.length
+          ? 'В DOCX не найдены задания с номерами «1.», «2.» — номера должны быть напечатаны текстом, не автонумерацией Word. Или введите текст заданий ниже.'
+          : 'Добавьте DOCX с заданиями или введите их текст.')
 
   const save = () => {
     if (existing) {
@@ -315,6 +327,7 @@ export function AssignmentForm({ id }: { id?: string }) {
           <a className="btn" href={existing ? href('a', existing.id, 'source', back) : '#/'}>
             Отмена
           </a>
+          {blocker && job?.status !== 'running' && <span className="muted small">{blocker}</span>}
           <button className="btn btn--primary" disabled={!canSave || job?.status === 'running'} onClick={save}>
             {existing ? 'Сохранить' : 'Далее: проверка распознавания →'}
           </button>
