@@ -316,3 +316,32 @@ def testAuthorStopsAtTheDeadline() -> None:
 
     with pytest.raises(BuildTimedOut):
         solverAuthor.write("b", AuthorTask(QUADRATIC, {}), "direct", clock.now(), AuthorLog())
+
+
+class RefusingTransport:
+    name = "gigachat"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, call: ModelCall) -> ModelReply:
+        self.calls += 1
+        raise TransportError("internal_error", "GigaChat auth answered HTTP 400: scope from db not fully includes")
+
+
+def testProviderRefusalIsRetriedByTheNextRequest(sessionFactory: sessionmaker[Session]) -> None:
+    stand = Stand(sessionFactory)
+    refusing = RefusingTransport()
+    stand.author.transport = refusing  # type: ignore[assignment]
+
+    build = stand.build(task(QUADRATIC))
+    refused = stand.provider.check(task(QUADRATIC))
+    stand.author.transport = FixtureTransport.fromFile()
+    again = stand.provider.start(ProviderTask(assignmentRev=2, statement=QUADRATIC, constraints={}))
+    assert stand.builder.runOnce()
+
+    assert build.reasonCode == "provider_error" and refusing.calls == 1
+    assert "scope" in json.dumps(build.log)
+    assert refused == RefusedOutcome(state="validation_failed", reasonCode="provider_error")
+    assert isinstance(again, PendingOutcome)
+    assert isinstance(stand.provider.check(task(QUADRATIC)), ReadyOutcome)

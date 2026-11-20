@@ -21,6 +21,8 @@ from references.solvers.tables import SolverBuildRecord, SolverVersionRecord
 
 TASK_KEY_VERSION = "t1"
 OPEN_STATES = ("queued", "running")
+REOPENED_REASONS = ("provider_error", "generation_timeout")
+"""Failures that say nothing about the task: a new request for it opens the build again."""
 
 
 def taskKeyOf(statement: str, constraints: dict[str, JsonValue]) -> str:
@@ -109,9 +111,13 @@ class SolverStore:
             return VersionView(record.solverVersion, record.schemaId, dict(record.value), record.source)
 
     def ensureBuild(
-        self, statement: str, constraints: dict[str, JsonValue], now: datetime, deadlineS: float
+        self, statement: str, constraints: dict[str, JsonValue], now: datetime, deadlineS: float,
+        *, reopen: bool = False,
     ) -> BuildView:
-        """The build of this task, opened now if there is none. Parallel calls open one build."""
+        """The build of this task, opened now if there is none. Parallel calls open one build.
+
+        With reopen, a build that failed for a reason outside the task (REOPENED_REASONS) is queued again.
+        """
         taskKey = taskKeyOf(statement, constraints)
         row: dict[str, Any] = {
             "buildId": f"bld_{uuid.uuid4().hex}",
@@ -125,6 +131,16 @@ class SolverStore:
         }
         with self.sessionFactory() as session, session.begin():
             session.execute(insert(SolverBuildRecord).values(row).on_conflict_do_nothing(index_elements=["task_key"]))
+            if reopen:
+                session.execute(
+                    update(SolverBuildRecord)
+                    .where(
+                        SolverBuildRecord.taskKey == taskKey,
+                        SolverBuildRecord.state == "failed",
+                        SolverBuildRecord.reasonCode.in_(REOPENED_REASONS),
+                    )
+                    .values(state="queued", reasonCode=None, notBefore=None, deadline=row["deadline"])
+                )
             record = session.scalars(select(SolverBuildRecord).where(SolverBuildRecord.taskKey == taskKey)).one()
             return BuildView.of(record)
 

@@ -9,9 +9,10 @@ published: code, the cross-check and SolverArtifact metadata in S3 under referen
 and a row in refs.solver_versions with the agreed value.
 
 Failures, all final for the task key:
-- generation_failed: an author used up its attempts (format, policy or sandbox errors), or the provider refused;
+- generation_failed: an author used up its attempts (format, policy or sandbox errors);
+- provider_error: the provider refused outright (sign-in, key, scope); a later request for the task tries again;
 - independent_tests_failed: the independent solvers did not agree;
-- generation_timeout: the build deadline passed;
+- generation_timeout: the build deadline passed; a later request for the task tries again;
 - personal_data_suspected: the statement looks like it holds personal data; the model is never called.
 A rate limit or an unavailable provider only pauses the build until its deadline.
 """
@@ -47,6 +48,8 @@ DEFAULT_LEASE_S = 180.0
 DEFAULT_PAUSE_S = 30.0
 PAUSED_CODES = frozenset({"rate_limited", "unavailable", "timeout"})
 MAX_VERSION_TRIES = 5
+PROVIDER_ERROR = "provider_error"
+"""The provider refused outright (sign-in, key, scope, a broken request): nothing about the task itself."""
 logger = logging.getLogger("references.solvers")
 
 
@@ -120,9 +123,9 @@ class SolverBuilder:
         except AuthorFailed:
             self.finish(lease, build, "generation_failed", log)
         except TransportError as error:
-            log.entries.append({"event": "transport", "code": error.code})
+            log.entries.append({"event": "transport", "code": error.code, "message": error.message[:300]})
             if error.code not in PAUSED_CODES:
-                self.finish(lease, build, "generation_failed", log)
+                self.finish(lease, build, PROVIDER_ERROR, log)
                 return
             pauseS = float(error.retryAfterS) if error.retryAfterS is not None else DEFAULT_PAUSE_S
             notBefore = self.clock.now() + timedelta(seconds=pauseS)

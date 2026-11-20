@@ -84,9 +84,19 @@ def retryAfterSeconds(response: httpx.Response) -> int | None:
     return int(value) if value.isdigit() else None
 
 
+def providerMessage(response: httpx.Response) -> str:
+    """The provider's own error text ({"message": ...}), cut short. It never holds our key or the request text."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ""
+    message = body.get("message") if isinstance(body, dict) else None
+    return f": {str(message)[:200]}" if message else ""
+
+
 def statusError(stage: str, response: httpx.Response) -> TransportError:
     status = response.status_code
-    message = f"GigaChat {stage} answered HTTP {status}"
+    message = f"GigaChat {stage} answered HTTP {status}{providerMessage(response)}"
     if status == 429:
         return TransportError("rate_limited", message, retryAfterSeconds(response))
     if status == 504:

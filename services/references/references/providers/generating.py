@@ -5,7 +5,8 @@ Fixtures answer first, exactly as FixtureProvider. A task no fixture knows gets 
   the admitted solver computed in the sandbox;
 - otherwise the build of the task is opened (one per task key, shared by every assignment with that statement)
   and the reference is pending; the registry asks again after retryAfterS (check());
-- a failed build -> its reason: unsupported for personal_data_suspected, validation_failed for the rest.
+- a failed build -> its reason: unsupported for personal_data_suspected, validation_failed for the rest;
+  provider_error and generation_timeout are not about the task, so a new record (start) queues the build again.
 The provider never calls the model and never runs generated code: solver-builder does both (references/solvers).
 """
 
@@ -37,14 +38,15 @@ class GeneratingProvider:
         self.pollS = pollS
 
     def start(self, task: ProviderTask) -> ProviderOutcome:
+        """A new registry record: a build that failed for a reason outside the task is tried again."""
         outcome = self.fixtures.start(task)
-        return self.generated(task) if isUnknown(outcome) else outcome
+        return self.generated(task, reopen=True) if isUnknown(outcome) else outcome
 
     def check(self, task: ProviderTask) -> ProviderOutcome:
         outcome = self.fixtures.check(task)
-        return self.generated(task) if isUnknown(outcome) else outcome
+        return self.generated(task, reopen=False) if isUnknown(outcome) else outcome
 
-    def generated(self, task: ProviderTask) -> ProviderOutcome:
+    def generated(self, task: ProviderTask, *, reopen: bool) -> ProviderOutcome:
         version = self.store.activeVersion(taskKeyOf(task.statement, task.constraints))
         if version is not None:
             return ReadyOutcome(
@@ -54,7 +56,7 @@ class GeneratingProvider:
                 solverVersion=version.solverVersion,
             )
         now = self.clock.now()
-        build = self.store.ensureBuild(task.statement, task.constraints, now, self.buildDeadlineS)
+        build = self.store.ensureBuild(task.statement, task.constraints, now, self.buildDeadlineS, reopen=reopen)
         if build.state in ("queued", "running") and now >= build.deadline:
             build = self.store.expireIfAbandoned(build.buildId, now)
         if build.state == "failed":
