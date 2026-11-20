@@ -192,6 +192,7 @@ class GradingWorker:
             raise ValueError("expected a submission check job")
         submitted = AttemptSubmittedInput.model_validate(lease.payload)
         referenceErrors: dict[str, dict[str, object]] = {}
+        failed = False
         with Session(self.engine) as session:
             job = session.get(AssignmentJob, (submitted.assignmentId, submitted.assignmentRev))
             if job is not None and job.state in ("ready", "needs_review") and job.completedStage in ("references_requested", "reference_unavailable"):
@@ -200,8 +201,16 @@ class GradingWorker:
                 references = referencesAdapter.validate_python(job.stageData["references"])
                 tasks = parsedTasksAdapter.validate_python(job.stageData["tasks"])
                 referenceErrors = referenceErrorsAdapter.validate_python(job.stageData.get("referenceErrors", {}))
+            elif job is not None and job.state == "failed":
+                failed = True
+                references = None
             else:
                 references = None
+        if failed:
+            # The assignment revision itself could not be read: the teacher decides, nothing is waited for.
+            if not self.jobs.finish(lease, "needs_review", "assignment_failed"):
+                raise RuntimeError("check lease expired before the assignment failure was saved")
+            return None
         if references is None:
             if not self.jobs.waitForReference(lease, ASSIGNMENT_RECHECK_DELAY):
                 raise RuntimeError("check lease expired before it could wait for the assignment")
