@@ -160,7 +160,6 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
       {!processed ? (
         <div className="empty">
           <h2>Нет проверенных работ</h2>
-          <p className="muted">Работа над ошибками формируется по ошибкам, допущенным классом.</p>
         </div>
       ) : (
         <>
@@ -217,7 +216,7 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
                       </p>
                     </>
                   ) : (
-                    <p className="muted">Нажмите «Сформировать задания».</p>
+                    null
                   )}
                 </section>
               ) : (

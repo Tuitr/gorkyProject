@@ -56,7 +56,7 @@ export function taskBrief(a: Assignment, variantId: string | null) {
     .map((t) => {
       const tv = v?.tasks.find((x) => x.taskId === t.id)
       const text = tv?.text || t.text
-      return `№${t.num} (макс. ${t.max}${t.manual ? ', ручная проверка' : ''}): ${text}${tv?.answer ? `\n   Ответ: ${tv.answer}` : ''}`
+      return `№${t.num} (макс. ${t.max}): ${text}${tv?.answer ? `\n   Ответ: ${tv.answer}` : ''}`
     })
     .join('\n')
 }
@@ -154,7 +154,7 @@ export async function processSubmission(
     const score = Number(rt?.score)
     return {
       taskId: t.id,
-      status: t.manual ? 'manual' : st ?? (ok ? 'ok' : 'error'),
+      status: st ?? (ok ? 'ok' : 'error'),
       answer: str(rt?.answer) === 'верно' ? 'correct' : str(rt?.answer) === 'нет' ? 'none' : ok ? 'correct' : 'wrong',
       technique: TECH[str(rt?.technique)] ?? (ok ? 'shown' : 'not_shown'),
       aiScore: Number.isFinite(score) ? Math.max(0, Math.min(t.max, score)) : ok ? t.max : 0,

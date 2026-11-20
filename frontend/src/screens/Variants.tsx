@@ -3,7 +3,7 @@ import { replaceTask } from '../api/generate'
 import type { Assignment, EquivFeature, Variant } from '../domain'
 import { href } from '../router'
 import { patch, useStore } from '../store'
-import { Badge, JobStatus } from '../ui'
+import { JobStatus } from '../ui'
 import { AssignmentHeader, NotFound, useAssignment } from './common'
 
 /** Экран 4. Варианты и печать: число вариантов, А и Б рядом с ключами, признаки равнозначности, утверждение. */
@@ -96,10 +96,6 @@ export function Variants({ id }: { id: string }) {
       {!a.variants.length ? (
         <div className="empty">
           <h2>Варианты не сформированы</h2>
-          <p className="muted">
-            Будут сформированы ответы к варианту А{a.variantCount > 1 ? ` и ещё ${a.variantCount - 1} равнозначных варианта` : ''}
-            . Обычно это занимает 20–60 секунд.
-          </p>
         </div>
       ) : (
         <>
@@ -128,7 +124,6 @@ export function Variants({ id }: { id: string }) {
                   <div className="variants__row">
                     <div className="variants__num">
                       <b>№{t.num}</b>
-                      {t.manual && <Badge tone="warn">ручная</Badge>}
                     </div>
                     {cols.map((v, vi) => {
                       const cell = v.tasks.find((x) => x.taskId === t.id)

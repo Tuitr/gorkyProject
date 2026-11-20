@@ -142,6 +142,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .a-head--focus { gap: 8px; }
 .a-head--focus h1 { font-size: 28px; line-height: 34px; }
 .a-head__of { color: var(--muted); font-weight: 600; }
+.a-head__row { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
+.a-head__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 /* страница работы: плитки действий */
 .hub { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 .hub__tile {
@@ -161,9 +163,6 @@ button:disabled { opacity: 0.6; cursor: default; }
 .hub__icon { font-size: 26px; line-height: 1; margin-bottom: 6px; }
 .hub__note { color: var(--muted); font-size: 14px; }
 .hub__tile--main { border-color: var(--accent); background: var(--accent-soft); }
-.hub__more { display: flex; gap: 20px; font-size: 14px; font-weight: 600; }
-.hub__more a { color: var(--muted); }
-.hub__more a:hover { color: var(--text); }
 .back-link { align-self: flex-start; color: var(--muted); font-size: 15px; font-weight: 600; }
 .back-link:hover { color: var(--text); }
 /* Этапы работы: три крупных шага, внутри открытого — его подразделы */
@@ -250,6 +249,8 @@ button:disabled { opacity: 0.6; cursor: default; }
   cursor: pointer;
 }
 .btn:hover { border-color: var(--accent); background: var(--surface); text-decoration: none; }
+.btn--danger { border-color: var(--danger); color: var(--danger); }
+.btn--danger:hover { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .btn--primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .btn--primary:hover { border-color: var(--accent-hover); background: var(--accent-hover); filter: none; }
 .btn--sm { min-height: 30px; padding: 0 10px; border-radius: 8px; font-size: 13px; }
@@ -457,20 +458,22 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .class-note { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---------- исходник ---------- */
-.source { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(260px, 0.7fr); gap: 16px; align-items: start; }
-.source__orig { position: sticky; top: 64px; max-height: calc(100svh - 84px); overflow: auto; }
+.source { --sh: max(480px, calc(100svh - 190px)); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: stretch; }
+/* две колонки одной высоты (по окну); длинное содержимое прокручивается внутри колонки */
+.source > .panel { height: var(--sh); overflow-y: auto; overscroll-behavior: contain; }
+.source > .panel > * { flex-shrink: 0; }
 .docx { font-size: 14px; line-height: 1.55; }
 .docx p { margin: 0 0 8px; }
 .docx img { max-width: 100%; }
 .pdf { width: 100%; height: 70svh; border: none; border-radius: 8px; }
-.orig-img { width: 100%; border-radius: 6px; }
+/* фото исходника целиком вписывается в окно колонки (пропорции сохраняются), по центру;
+   где не заполняет — пустые поля по бокам или сверху/снизу */
+.orig-img { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(var(--sh) - 100px); margin: 0 auto; object-fit: contain; border-radius: 6px; }
 .src-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .src-task { padding: 10px; border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
-.src-task.is-manual { border-color: var(--warn-line); background: var(--warn-soft); }
 .src-task__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 14px; }
 .src-task__head .num, .src-task__head .max { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
 .src-task__head .input--num { width: 56px; padding: 4px; }
-.how { position: sticky; top: 64px; }
 .rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .unrec { padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); }
 .unrec ul { margin: 6px 0; padding-left: 20px; font-size: 14px; }
@@ -674,7 +677,6 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .mode b { font-size: 18px; }
 .mode[aria-checked='true'] { border-color: var(--accent); background: var(--accent-soft); }
 .src-task { border-radius: 12px; background: var(--inset); }
-.src-task.is-manual { border-color: var(--warn-line); background: var(--amber-soft); }
 /* Склеить/удалить — редкие действия: серые, проявляются при наведении на номер */
 .src-task__head .src-task__tool { color: var(--faint); font-weight: 500; }
 .src-task:hover .src-task__tool, .src-task__tool:focus-visible { color: var(--muted); }
@@ -739,11 +741,12 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 /* ---------- узкие экраны ---------- */
 @media (max-width: 1200px) {
   .source { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .how { grid-column: 1 / -1; position: static; }
 }
 @media (max-width: 900px) {
   .two-col, .report-grid, .source { grid-template-columns: minmax(0, 1fr); }
-  .source__orig { position: static; max-height: 50svh; }
+  .source > .panel { height: auto; overflow: visible; }
+  .source > .source__orig { max-height: 50svh; overflow-y: auto; }
+  .orig-img { max-height: calc(50svh - 90px); }
   .modes { grid-template-columns: minmax(0, 1fr); }
   .queue { grid-template-columns: minmax(0, 1fr); }
 }
@@ -812,3 +815,26 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .class-strip .parallel > span { white-space: nowrap; text-align: center; }
 .class-strip .tabs { flex-wrap: nowrap; }
 .class-strip .tabs button { white-space: nowrap; }
+
+/* Проверка распознавания: страница ровно по окну, без прокрутки страницы —
+   колонки заполняют остаток высоты, прокрутка только внутри колонок (на узких экранах — обычная страница) */
+@media (min-width: 901px) {
+  .shell:has(.page--fit) { height: 100svh; min-height: 0; overflow: hidden; }
+  .shell:has(.page--fit) .shell__main { display: flex; flex-direction: column; min-height: 0; }
+  .page--fit { flex: 1; min-height: 0; padding-bottom: 24px; }
+  .page--fit > * { flex-shrink: 0; }
+  .page--fit > .source { flex: 1 1 0; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .page--fit .source > .panel { height: auto; min-height: 0; container-type: size; }
+  .page--fit .orig-img { max-height: calc(100cqh - 100px); }
+}
+
+/* Спорные места: карточка на работу ученика */
+.qworks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.qwork { display: flex; flex-direction: column; gap: 10px; width: 100%; height: 100%; padding: 14px; border: 1px solid var(--line-soft); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; }
+.qwork:hover { transform: translateY(-2px); border-color: var(--accent-line); box-shadow: 0 12px 32px rgba(31, 35, 40, 0.11); }
+.qwork__photo { display: flex; align-items: center; justify-content: center; aspect-ratio: 3 / 4; overflow: hidden; border-radius: 12px; background: var(--surface-2); }
+.qwork__photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.qwork__name { font-size: 17px; }
+.qwork__count { color: var(--muted); font-size: 14px; }
+.qwork__count b { color: var(--danger); font-size: 16px; }
+.queue--modal { grid-template-columns: minmax(0, 1fr); }

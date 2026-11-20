@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { splitTasksAi } from '../api/generate'
 import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, WORK_TYPE_LABEL, type Assignment, type SourceFile, type SourceTask, type WorkType } from '../domain'
-import { go, href } from '../router'
+import { go, href, useRoute } from '../router'
 import { patch, useStore } from '../store'
 import { Badge, PageHead } from '../ui'
 import { NotFound, useOwnClasses } from './common'
@@ -18,6 +18,8 @@ export function AssignmentForm({ id }: { id?: string }) {
   const { state, update, runJob, jobs, toast } = useStore()
   const classes = useOwnClasses()
   const existing = id ? state.assignments.find((a) => a.id === id) : undefined
+  // пришли из проверки распознавания новой работы — туда же и возвращаемся (с «Отмена»/«Сохранить»)
+  const back = useRoute().query.get('new') === '1' ? { new: '1' } : {}
   const [title, setTitle] = useState(existing?.title ?? '')
   const [type, setType] = useState<WorkType>(existing?.type ?? 'control')
   const [classIds, setClassIds] = useState<string[]>(existing?.classIds ?? (classes[0] ? [classes[0].id] : []))
@@ -99,7 +101,7 @@ export function AssignmentForm({ id }: { id?: string }) {
         })),
       }))
       toast('Сохранено')
-      go('a', existing.id, 'source')
+      go('a', existing.id, 'source', back)
       return
     }
     const a: Assignment = {
@@ -126,7 +128,7 @@ export function AssignmentForm({ id }: { id?: string }) {
     <div className="page page--narrow">
       <PageHead
         title={existing ? 'Параметры работы' : 'Добавить работу'}
-        sub={existing ? existing.title : 'Загрузите материалы работы. На следующем шаге проверьте правильность распознавания заданий.'}
+        sub={existing?.title}
       />
 
       <div className="form">
@@ -198,8 +200,7 @@ export function AssignmentForm({ id }: { id?: string }) {
               }}
             />
             <span>
-              {files.length ? '+ Добавить ещё файлы' : 'Нажмите, чтобы выбрать файлы, или перетащите их сюда'}{' '}
-              <span className="muted small">— задания нумеруются в порядке файлов</span>
+              {files.length ? '+ Добавить ещё файлы' : 'Нажмите, чтобы выбрать файлы, или перетащите их сюда'}
             </span>
           </label>
           {job?.status === 'running' && (
@@ -308,13 +309,10 @@ export function AssignmentForm({ id }: { id?: string }) {
             onChange={(e) => setNotes(e.target.value)}
             placeholder={NOTES_EXAMPLE}
           />
-          <span className="muted small">
-            Указания составляются в свободной форме. На странице проверки распознавания будет показано, какие правила учтены, а какие требуют ручной проверки.
-          </span>
         </label>
 
         <div className="form__foot">
-          <a className="btn" href={existing ? href('a', existing.id, 'source') : '#/'}>
+          <a className="btn" href={existing ? href('a', existing.id, 'source', back) : '#/'}>
             Отмена
           </a>
           <button className="btn btn--primary" disabled={!canSave || job?.status === 'running'} onClick={save}>

@@ -42,7 +42,6 @@ export function Classes() {
     <div className="page">
       <PageHead
         title="Мои классы"
-        sub="Фотографии работ и отчёты доступны только учителю, создавшему класс"
         actions={
           <button className="btn btn--primary" onClick={() => setCreating(true)}>
             + Создать класс
@@ -95,7 +94,7 @@ export function Classes() {
                   </button>
                 </div>
                 {!current.students.length ? (
-                  <p className="muted">Введите список учеников в поле справа, по одному в строке.</p>
+                  <p className="muted">Учеников нет</p>
                 ) : (
                   <ol className="students students--scroll">
                     {current.students.map((st) => (
@@ -128,7 +127,6 @@ export function Classes() {
 
               <section className="panel">
                 <h2>Добавить учеников</h2>
-                <p className="muted small">По одному в строке; список можно скопировать из электронного журнала. Порядковые номера в начале строк удаляются автоматически.</p>
                 <textarea
                   className="input class-paste"
                   rows={10}

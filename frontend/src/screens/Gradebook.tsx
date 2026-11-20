@@ -39,29 +39,28 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
 
   return (
     <div className="page page--wide">
-      <AssignmentHeader a={a} step="sheet" classId={cls.id} />
+      <AssignmentHeader
+        a={a}
+        step="sheet"
+        classId={cls.id}
+        primary={
+          <button
+            className="btn btn--primary"
+            disabled={!ready.length}
+            onClick={() => {
+              update((st) => ({
+                ...st,
+                submissions: st.submissions.map((s) => (ready.some((r) => r.id === s.id) ? { ...s, approved: true } : s)),
+              }))
+              toast(`Утверждено: ${ready.length}`)
+            }}
+            title="Утвердить все проверенные работы с окончательным баллом"
+          >
+            Утвердить проверенные ({ready.length})
+          </button>
+        }
+      />
       <ClassTabs classes={classes} value={cls.id} a={a} step="sheet" />
-
-      <div className="toolbar">
-        <span className="muted small">
-          Нажмите на ячейку, чтобы открыть сведения об ошибках; на заголовок задания — чтобы изменить критерии оценивания.
-        </span>
-        <span className="spacer" />
-        <button
-          className="btn btn--primary"
-          disabled={!ready.length}
-          onClick={() => {
-            update((st) => ({
-              ...st,
-              submissions: st.submissions.map((s) => (ready.some((r) => r.id === s.id) ? { ...s, approved: true } : s)),
-            }))
-            toast(`Утверждено: ${ready.length}`)
-          }}
-          title="Утвердить все работы, в которых нет заданий на ручной проверке"
-        >
-          Утвердить проверенные ({ready.length})
-        </button>
-      </div>
 
       <div className="table-wrap">
         <table className="table sheet">
@@ -74,7 +73,6 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                   <button className="link-btn" onClick={() => setCriterion(t)} title="Изменить критерий">
                     №{t.num}
                     <span className="muted small"> /{t.max}</span>
-                    {t.manual && <span className="muted small"> ✋</span>}
                   </button>
                 </th>
               ))}
@@ -227,8 +225,7 @@ function Cell({ t, r, onOpen }: { t: SourceTask; r?: TaskResult; onOpen: () => v
 function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask; onClose: () => void }) {
   const { state, update, toast } = useStore()
   const [max, setMax] = useState(task.max)
-  const [manual, setManual] = useState(task.manual)
-  const changed = max !== task.max || manual !== task.manual
+  const changed = max !== task.max
 
   const affected = state.submissions.filter(
     (s) => s.assignmentId === a.id && s.status === 'processed' && s.results.some((r) => r.taskId === task.id && r.status !== 'missing'),
@@ -243,8 +240,6 @@ function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask;
       aiScore: r.aiScore == null ? undefined : Math.round(r.aiScore * k * 2) / 2,
       score: r.score == null ? undefined : Math.min(max, r.score),
     }
-    if (manual && !task.manual) next.status = 'manual'
-    if (!manual && task.manual && r.status === 'manual') next.status = activeMistakes(r).length ? 'error' : 'ok'
     return next
   }
 
@@ -253,7 +248,7 @@ function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask;
       ...st,
       assignments: patch(st.assignments, a.id, (x) => ({
         ...x,
-        tasks: x.tasks.map((t) => (t.id === task.id ? { ...t, max, manual } : t)),
+        tasks: x.tasks.map((t) => (t.id === task.id ? { ...t, max } : t)),
       })),
       submissions: st.submissions.map((s) =>
         affected.some((x) => x.id === s.id) ? { ...s, results: s.results.map(recalc), approved: false } : s,
@@ -281,9 +276,6 @@ function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask;
       <label className="field field--inline">
         <span>Максимальный балл</span>
         <input className="input input--num" type="number" min={0} value={max} onChange={(e) => setMax(Math.max(0, Number(e.target.value) || 0))} />
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} /> Ручная проверка (балл выставляет учитель)
       </label>
       {changed && (
         <div className="affected">

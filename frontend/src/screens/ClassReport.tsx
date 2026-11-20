@@ -98,7 +98,6 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
 
           <section className="panel">
             <h2>Темы для повторения</h2>
-            <p className="muted small">По убыванию доли учеников, допустивших ошибку, среди выполнявших задание.</p>
             <ol className="topics-list">
               {topics.map((t) => (
                 <li key={t.taskId}>

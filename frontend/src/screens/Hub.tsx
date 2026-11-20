@@ -1,12 +1,12 @@
 import { WORK_TYPE_LABEL } from '../domain'
-import { href } from '../router'
+import { go, href } from '../router'
 import { useStore } from '../store'
 import { Badge } from '../ui'
 import { NotFound, useAssignment } from './common'
 
 /** Страница работы: что можно сделать — крупными плитками, каждая открывает только свой раздел. */
 export function Hub({ id }: { id: string }) {
-  const { state } = useStore()
+  const { state, update, toast } = useStore()
   const { a, classes } = useAssignment(id)
   if (!a) return <NotFound />
 
@@ -47,16 +47,37 @@ export function Hub({ id }: { id: string }) {
       to: href('a', a.id, 'class-report', f),
       icon: '📊',
       title: 'Отчёт по классу',
-      note: 'Типовые ошибки и темы для повторения',
+      note: '',
     },
   ]
+
+  const remove = () => {
+    const extra = handed ? `
+Будут удалены также сданные работы учеников: ${handed}.` : ''
+    if (!confirm(`Удалить работу «${a.title}»? Действие нельзя отменить.${extra}`)) return
+    const subIds = new Set(subs.map((s) => s.id))
+    update((s) => ({
+      ...s,
+      assignments: s.assignments.filter((x) => x.id !== a.id),
+      submissions: s.submissions.filter((x) => x.assignmentId !== a.id),
+      review: s.review.filter((r) => !subIds.has(r.submissionId)),
+      practices: s.practices.filter((p) => p.assignmentId !== a.id),
+    }))
+    toast('Работа удалена')
+    go()
+  }
 
   return (
     <div className="page">
       <div className="a-head a-head--focus">
-        <a className="back-link" href="#/">
-          ← Работы
-        </a>
+        <div className="a-head__top">
+          <a className="back-link" href="#/">
+            ← Работы
+          </a>
+          <button className="btn btn--danger" onClick={remove}>
+            Удалить работу
+          </button>
+        </div>
         <h1>
           {a.title}{' '}
           {a.status === 'draft' ? <Badge tone="info">Черновик</Badge> : <Badge tone="ok">Утверждена</Badge>}
@@ -73,15 +94,10 @@ export function Hub({ id }: { id: string }) {
               {t.icon}
             </span>
             <b>{t.title}</b>
-            <span className="hub__note">{t.note}</span>
+            {t.note && <span className="hub__note">{t.note}</span>}
           </a>
         ))}
       </nav>
-
-      <div className="hub__more">
-        <a href={href('a', a.id, a.status === 'draft' ? 'source' : 'collect')}>Все этапы работы</a>
-        <a href={href('a', a.id, 'edit')}>Параметры</a>
-      </div>
     </div>
   )
 }

@@ -113,7 +113,7 @@ export function CameraCapture({ onCapture, onClose }: Props) {
               </>
             ) : (
               <>
-                <span className="muted">Расположите лист ровно так, чтобы он занимал всю рамку</span>
+                <span />
                 <button className="shutter" onClick={takeShot} aria-label="Сделать снимок" />
               </>
             )}

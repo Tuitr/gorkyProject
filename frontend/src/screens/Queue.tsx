@@ -1,18 +1,16 @@
 import { useState } from 'react'
-import { REVIEW_LABEL, type ReviewItem, type ReviewKind, type State, type Submission } from '../domain'
+import { REVIEW_LABEL, type ReviewItem, type State, type Submission } from '../domain'
 import { href } from '../router'
 import { patch, useStore } from '../store'
-import { Badge, Crop, PageHead, Tabs } from '../ui'
+import { Badge, Crop, Modal, PageHead } from '../ui'
 import { AssignmentHeader, NotFound, useOwnClasses } from './common'
 
-type Filter = 'all' | ReviewKind
-
-/** Экран 7. Очередь просмотра: всё, что ИИ не смог решить сам. */
+/** Экран 7. Спорные места: карточка на работу ученика (фото, имя, число предполагаемых ошибок и недочётов);
+ *  по нажатию — окно со спорными местами этой работы. */
 export function Queue({ assignmentId }: { assignmentId?: string }) {
   const { state } = useStore()
   const classes = useOwnClasses()
-  const [filter, setFilter] = useState<Filter>('all')
-  const [showDone, setShowDone] = useState(false)
+  const [openSub, setOpenSub] = useState<string | null>(null)
   const a = assignmentId ? state.assignments.find((x) => x.id === assignmentId) : undefined
   if (assignmentId && !a) return <NotFound />
 
@@ -22,42 +20,57 @@ export function Queue({ assignmentId }: { assignmentId?: string }) {
     return s && own.has(s.classId) && (!assignmentId || s.assignmentId === assignmentId)
   })
   const open = items.filter((r) => !r.resolved)
-  const list = (showDone ? items : open).filter((r) => filter === 'all' || r.kind === filter)
-  const count = (k: ReviewKind) => open.filter((r) => r.kind === k).length
+
+  // по работе ученика — в порядке появления спорных мест
+  const works: { s: Submission; count: number }[] = []
+  for (const r of open) {
+    const w = works.find((x) => x.s.id === r.submissionId)
+    if (w) w.count++
+    else {
+      const s = state.submissions.find((x) => x.id === r.submissionId)
+      if (s) works.push({ s, count: 1 })
+    }
+  }
+  const studentName = (s: Submission) =>
+    state.classes.find((c) => c.id === s.classId)?.students.find((x) => x.id === s.studentId)?.name ?? 'Ученик не определён'
+  const current = works.find((w) => w.s.id === openSub)
+  // в окне — нерассмотренные места; когда разобрано последнее, работа уходит из списка и окно закрывается
+  const currentItems = open.filter((r) => r.submissionId === openSub)
 
   return (
     <div className={a ? 'page page--wide' : 'page'}>
-      {a ? (
-        <AssignmentHeader a={a} step="queue" />
-      ) : (
-        <PageHead title="Спорные места" sub="Фрагменты работ, в которых автоматическая проверка требует решения учителя" />
-      )}
-      <div className="toolbar">
-        <Tabs
-          label="Тип"
-          value={filter}
-          onChange={setFilter}
-          items={[
-            { id: 'all', label: `Все · ${open.length}` },
-            ...(Object.keys(REVIEW_LABEL) as ReviewKind[]).map((k) => ({ id: k, label: `${REVIEW_LABEL[k]} · ${count(k)}` })),
-          ]}
-        />
-        <label className="toggle">
-          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Показать рассмотренные
-        </label>
-      </div>
+      {a ? <AssignmentHeader a={a} step="queue" /> : <PageHead title="Спорные места" />}
 
-      {!list.length ? (
+      {!works.length ? (
         <div className="empty">
-          <h2>{open.length ? 'Записей нет' : 'Спорных мест нет'}</h2>
-          <p className="muted">Все спорные места рассмотрены.</p>
+          <h2>Спорных мест нет</h2>
         </div>
       ) : (
-        <ul className="queue">
-          {list.map((r) => (
-            <QueueCard key={r.id} r={r} />
+        <ul className="qworks">
+          {works.map(({ s, count }) => (
+            <li key={s.id}>
+              <button className="qwork" onClick={() => setOpenSub(s.id)}>
+                <span className="qwork__photo">
+                  {s.pages[0] ? <img src={s.pages[0].image} alt="" /> : <span className="muted small">Нет фото</span>}
+                </span>
+                <b className="qwork__name">{studentName(s)}</b>
+                <span className="qwork__count">
+                  Предположительных ошибок и недочётов: <b>{count}</b>
+                </span>
+              </button>
+            </li>
           ))}
         </ul>
+      )}
+
+      {current && (
+        <Modal title={studentName(current.s)} onClose={() => setOpenSub(null)} wide>
+          <ul className="queue queue--modal">
+            {currentItems.map((r) => (
+              <QueueCard key={r.id} r={r} />
+            ))}
+          </ul>
+        </Modal>
       )}
     </div>
   )

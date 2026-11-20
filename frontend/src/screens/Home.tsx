@@ -27,7 +27,6 @@ export function Home() {
       {!list.length ? (
         <div className="empty">
           <h2>Работы отсутствуют</h2>
-          <p>Загрузите файл DOCX или PDF с заданиями: задания будут выделены автоматически.</p>
           <a className="btn btn--primary" href="#/new">
             Добавить работу
           </a>
@@ -42,7 +41,7 @@ export function Home() {
               <li key={a.id} className={`card${a.status === 'draft' ? ' is-draft' : ''}`}>
                 <div className="card__head">
                   <span className="card__subject">
-                    {WORK_TYPE_LABEL[a.type]} · {new Date(a.createdAt).toLocaleDateString('ru-RU')}
+                    {WORK_TYPE_LABEL[a.type]}
                   </span>
                   {a.status === 'draft' ? <Badge tone="info">Черновик</Badge> : <Badge tone="ok">Утверждена</Badge>}
                 </div>

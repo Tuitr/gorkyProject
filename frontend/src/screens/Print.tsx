@@ -23,7 +23,6 @@ export function PrintView({ path }: { path: string[] }) {
         <button className="btn btn--primary" onClick={() => print()}>
           Печать или сохранение в PDF
         </button>
-        <span className="muted small">В окне печати выберите «Сохранить как PDF».</span>
       </div>
       {kind === 'variants' ? (
         <StudentSheets id={id} />

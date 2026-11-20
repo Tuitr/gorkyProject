@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { splitTasksAi } from '../api/generate'
-import { parseRules, readSource, splitTasks } from '../api/source'
+import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
 import { go, href, useRoute } from '../router'
 import { patch, useStore } from '../store'
@@ -10,7 +10,7 @@ import { AssignmentHeader, NotFound, useAssignment } from './common'
 /** Экран 3. Сверка исходника: оригинал рядом со списком номеров, правка, объединение, правила проверки. */
 export function SourceReview({ id }: { id: string }) {
   const { update, toast } = useStore()
-  const { a, classes } = useAssignment(id)
+  const { a } = useAssignment(id)
   const { query } = useRoute()
   const wantAdd = query.get('add') === '1'
   // только что создана из формы «Добавить работу»: проверить номера и сохранить
@@ -118,22 +118,19 @@ export function SourceReview({ id }: { id: string }) {
     }
   }
 
-  const { rules, unrecognized } = parseRules(a.notes)
-  const classRules = classes
-    .filter((c) => a.classNotes[c.id]?.trim())
-    .map((c) => ({ c, ...parseRules(a.classNotes[c.id]) }))
-  const manual = a.tasks.filter((t) => t.manual)
   const total = a.tasks.reduce((s, t) => s + t.max, 0)
 
   return (
-    <div className="page page--wide">
+    <div className="page page--wide page--fit">
       {isNew ? (
         <div className="page-head">
           <div>
             <h1>Проверка распознавания</h1>
-            <p className="muted">Сверьте задания с исходным документом и сохраните работу.</p>
           </div>
           <div className="page-head__actions">
+            <a className="btn" href={href('a', a.id, 'edit', { new: '1' })}>
+              ← Назад
+            </a>
             <button
               className="btn"
               onClick={() => {
@@ -149,15 +146,7 @@ export function SourceReview({ id }: { id: string }) {
           </div>
         </div>
       ) : (
-        <AssignmentHeader
-          a={a}
-          step="source"
-          actions={
-            <a className="btn btn--primary" href={href('a', a.id, 'variants')}>
-              Далее: варианты →
-            </a>
-          }
-        />
+        <AssignmentHeader a={a} step="source" noStages />
       )}
 
       <div className="source">
@@ -171,19 +160,16 @@ export function SourceReview({ id }: { id: string }) {
           <Original a={a} />
         </section>
 
-        <section className="panel">
+        <section className="panel source__tasks">
           <div className="panel__head">
             <h2>
               Задания: {a.tasks.length} · максимальный балл: {total}
             </h2>
             <Badge tone={a.status === 'draft' ? 'warn' : 'ok'}>{a.status === 'draft' ? 'Черновик' : 'Утверждена'}</Badge>
           </div>
-          <p className="muted small">
-            Сверьте задания с исходным документом. Если одно задание разделено на два, используйте «Объединить с предыдущим».
-          </p>
           <ol className="src-tasks">
             {a.tasks.map((t, i) => (
-              <li key={t.id} className={`src-task${t.manual ? ' is-manual' : ''}`}>
+              <li key={t.id} className="src-task">
                 <div className="src-task__head">
                   <label className="num">
                     №
@@ -205,14 +191,6 @@ export function SourceReview({ id }: { id: string }) {
                       aria-label="Максимальный балл"
                     />
                     б.
-                  </label>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={t.manual}
-                      onChange={(e) => setTask(t.id, { manual: e.target.checked })}
-                    />
-                    Ручная проверка
                   </label>
                   <span className="spacer" />
                   <button
@@ -285,61 +263,6 @@ export function SourceReview({ id }: { id: string }) {
           />
         </section>
 
-        <section className="panel how">
-          <h2>Критерии проверки</h2>
-          {rules.length === 0 && !classRules.length && !manual.length && (
-            <p className="muted">Дополнительных правил нет. Проверка выполняется по эталонному ответу: оцениваются правильность ответа и хода решения.</p>
-          )}
-          {rules.length > 0 && (
-            <ul className="rules">
-              {rules.map((r) => (
-                <li key={r.text}>
-                  <Badge tone="info">{r.kind}</Badge> {r.text}
-                </li>
-              ))}
-            </ul>
-          )}
-          {classRules.map(({ c, rules: cr, unrecognized: cu }) => (
-            <div key={c.id}>
-              <h3>Только для {c.name}</h3>
-              <ul className="rules">
-                {cr.map((r) => (
-                  <li key={r.text}>
-                    <Badge tone="info">{r.kind}</Badge> {r.text}
-                  </li>
-                ))}
-                {cu.map((r) => (
-                  <li key={r}>
-                    <Badge tone="warn">Не учитывается автоматической проверкой</Badge> {r}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-          {manual.length > 0 && (
-            <p>
-              <Badge tone="warn">Ручная проверка</Badge> {manual.map((t) => `№${t.num}`).join(', ')} — автоматическая проверка не выставляет
-              балл; итоговый балл будет предварительным до оценки учителем.
-            </p>
-          )}
-          {unrecognized.length > 0 && (
-            <div className="unrec">
-              <h3>Не учитывается автоматической проверкой</h3>
-              <ul>
-                {unrecognized.map((u) => (
-                  <li key={u}>{u}</li>
-                ))}
-              </ul>
-              <p className="muted small">
-                Эти указания будут переданы на проверку без изменений, однако однозначного правила в них нет. Проверьте такие задания вручную или
-                уточните формулировку: «вычитать 1 балл за…», «не засчитывать…», «допускается…».
-              </p>
-            </div>
-          )}
-          <a className="link-btn" href={href('a', a.id, 'edit')}>
-            Изменить указания
-          </a>
-        </section>
       </div>
     </div>
   )

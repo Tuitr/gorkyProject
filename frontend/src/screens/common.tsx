@@ -60,11 +60,17 @@ export function AssignmentHeader({
   step,
   classId,
   actions,
+  primary,
+  noStages,
 }: {
   a: Assignment
   step: Step
   classId?: string
   actions?: ReactNode
+  /** главное действие раздела — справа вверху, в том числе в упрощённом виде (?f=1) */
+  primary?: ReactNode
+  /** без шагов «1 Подготовка / 2 Проверка / 3 Итоги» и подвкладок (страница проверки распознавания) */
+  noStages?: boolean
 }) {
   const { state } = useStore()
   const queue = state.review.filter(
@@ -81,9 +87,12 @@ export function AssignmentHeader({
         <a className="back-link" href={href('a', a.id)}>
           ← {a.title}
         </a>
-        <h1>
-          {label} <span className="a-head__of">· {a.title}</span>
-        </h1>
+        <div className="a-head__row">
+          <h1>
+            {label} <span className="a-head__of">· {a.title}</span>
+          </h1>
+          {primary && <div className="page-head__actions">{primary}</div>}
+        </div>
       </div>
     )
   }
@@ -101,12 +110,14 @@ export function AssignmentHeader({
           </h1>
         </div>
         <div className="page-head__actions">
+          {primary}
           {actions}
           <a className="btn" href={href('a', a.id, 'edit')}>
             Параметры
           </a>
         </div>
       </div>
+      {!noStages && (
       <div className="stages">
         <nav className="stages__main" aria-label="Шаги работы">
           {STAGES.map((g, i) => {
@@ -142,6 +153,7 @@ export function AssignmentHeader({
           ))}
         </nav>
       </div>
+      )}
     </div>
   )
 }

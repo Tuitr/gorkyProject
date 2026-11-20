@@ -23,7 +23,7 @@ export type SourceTask = {
   id: Id
   num: string // «1», «2а»
   text: string
-  manual: boolean // «Ручная проверка» — ИИ не ставит балл
+  manual: boolean // устарело: ручная проверка номера убрана из интерфейса, флаг не учитывается
   max: number // максимальный балл
 }
 

@@ -197,7 +197,6 @@ export function ReportPanel({
           </>
         ) : (
           <>
-            <span className="muted small">Работа проверена автоматически. Просмотрите найденные ошибки и подтвердите результат.</span>
             <button className="btn btn--primary" onClick={onToggleConfirm}>
               Подтвердить проверку
             </button>
