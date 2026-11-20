@@ -12,7 +12,7 @@ from typing import Annotated, Literal, Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from contracts.v1.references.reference import VALUE_SCHEMAS, ReferenceRequest
+from contracts.v1.references.reference import VALUE_SCHEMAS, ReferenceRequest, SolverVersion
 
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 
@@ -44,7 +44,7 @@ class ReadyOutcome(BaseModel):
     source: Literal["fixture", "generated", "manual"]
     schemaId: NonEmptyStr
     value: dict[str, JsonValue]
-    solverVersion: NonEmptyStr | None = None
+    solverVersion: SolverVersion | None = None
 
     @model_validator(mode="after")
     def checkValue(self) -> Self:

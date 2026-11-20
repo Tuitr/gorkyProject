@@ -59,7 +59,7 @@ class FakeSolver:
         return self.checks.pop(0)
 
 
-GENERATED = ReadyOutcome(source="generated", schemaId="scalar.v1", value={"exact": "13"}, solverVersion="vectorLength@1.0.0")
+GENERATED = ReadyOutcome(source="generated", schemaId="scalar.v1", value={"exact": "13"}, solverVersion="vectorLength.v1")
 
 
 @pytest.mark.parametrize(
@@ -101,7 +101,7 @@ def testFutureSolverPlugsInThroughTheSameApi(sessionFactory: sessionmaker[Sessio
         "source": "generated",
         "schemaId": "scalar.v1",
         "value": {"exact": "13"},
-        "solverVersion": "vectorLength@1.0.0",
+        "solverVersion": "vectorLength.v1",
     }
     assert repeated.json() == ready.json()
     assert solver.startCalls == 1
@@ -144,9 +144,17 @@ def testProviderSeesOnlyTheAuthorContext(sessionFactory: sessionmaker[Session]) 
         {"source": "manual", "schemaId": "scalar.v1", "value": {"exact": "5"}},
         {"source": "fixture", "schemaId": "vector.v9", "value": {"exact": "5"}},
         {"source": "fixture", "schemaId": "scalar.v1", "value": {"approx": 5}},
-        {"source": "latest", "schemaId": "scalar.v1", "value": {"exact": "5"}, "solverVersion": "x"},
+        {"source": "generated", "schemaId": "scalar.v1", "value": {"exact": "5"}, "solverVersion": "latest"},
+        {"source": "latest", "schemaId": "scalar.v1", "value": {"exact": "5"}, "solverVersion": "vectorLength.v1"},
     ],
-    ids=["generatedWithoutVersion", "manualWithoutVersion", "unknownSchema", "wrongValue", "unknownSource"],
+    ids=[
+        "generatedWithoutVersion",
+        "manualWithoutVersion",
+        "unknownSchema",
+        "wrongValue",
+        "mutableVersion",
+        "unknownSource",
+    ],
 )
 def testReadyOutcomeRules(outcome: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
