@@ -1,6 +1,7 @@
 """Boundary of the worker input: raw stream data in, a validated event or a managed rejection out."""
 
 import json
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -67,6 +68,19 @@ def testReadAndSchemaFailuresAreDistinguishable(contractExample: ExampleReader) 
 def testUnreadableDataIsMalformed(data: str | bytes) -> None:
     with pytest.raises(MalformedEvent):
         readEvent(data)
+
+
+@pytest.mark.skipif(sys.get_int_max_str_digits() == 0, reason="Python's integer conversion limit is disabled")
+def testOversizedJsonIntegerIsMalformed() -> None:
+    data = '{"number":' + "1" * (sys.get_int_max_str_digits() + 1) + "}"
+    with pytest.raises(MalformedEvent):
+        readEvent(data)
+
+
+def testBooleanVersionIsInvalid(contractExample: ExampleReader) -> None:
+    example = contractExample("events/attemptSubmitted.json") | {"v": True}
+    with pytest.raises(InvalidEvent):
+        readEvent(json.dumps(example))
 
 
 def testUnknownEventTypeIsInvalid(contractExample: ExampleReader) -> None:

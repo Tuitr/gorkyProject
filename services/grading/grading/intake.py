@@ -13,7 +13,7 @@ before any business processing. Rejection messages name fields and error kinds, 
 import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError
 
 from contracts.v1.events.checks import NonEmptyStr, Revision, UtcTimestamp
 
@@ -77,10 +77,17 @@ class AttemptSubmittedInput(BaseModel):
     docRef: IncomingDocRef
 
 
+def rejectBooleanVersion(value: object) -> object:
+    # Python's True equals 1, so Pydantic's numeric literal alone accepts both.
+    if isinstance(value, bool):
+        raise ValueError("event version must be an integer")
+    return value
+
+
 class IncomingEnvelope(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
-    v: Literal[1]
+    v: Annotated[Literal[1], BeforeValidator(rejectBooleanVersion)]
     eventId: NonEmptyStr
     traceId: NonEmptyStr
     occurredAt: UtcTimestamp
@@ -121,6 +128,8 @@ def readEvent(data: str | bytes) -> IncomingEvent:
         raise MalformedEvent("checks.v1 data is not valid UTF-8") from None
     except json.JSONDecodeError as error:
         raise MalformedEvent(f"checks.v1 data is not valid JSON: {error.msg} at char {error.pos}") from None
+    except (ValueError, RecursionError):
+        raise MalformedEvent("checks.v1 data exceeds the JSON parser limits") from None
     if not isinstance(raw, dict):
         raise MalformedEvent(f"checks.v1 data is JSON {type(raw).__name__}, expected an object")
     try:
