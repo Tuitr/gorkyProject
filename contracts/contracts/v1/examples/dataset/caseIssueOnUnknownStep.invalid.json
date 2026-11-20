@@ -1,0 +1,56 @@
+{
+  "caseId": "vectorLength68Consequence",
+  "split": "demo",
+  "assignmentRef": {
+    "file": "assignments/w1.docx",
+    "taskNumber": "2",
+    "statement": "Длина вектора (6; 8)",
+    "constraints": {},
+    "sourceTaskId": "vectorLength68"
+  },
+  "submissionRef": {
+    "file": "submissions/student1.docx",
+    "sha256": "1bff83e137442b0767cc8a8398d98bf091500df308db5bcc333eb3257ebe73dc",
+    "studentName": "Тестов Пётр"
+  },
+  "expectedReference": {
+    "schemaId": "scalar.v1",
+    "value": {
+      "exact": "10"
+    }
+  },
+  "expectedSteps": [
+    {
+      "stepId": "s1",
+      "markdown": "$|\\vec a| = \\sqrt{6^2 + 8^2}$"
+    },
+    {
+      "stepId": "s2",
+      "markdown": "$= \\sqrt{12 + 64}$"
+    },
+    {
+      "stepId": "s3",
+      "markdown": "$= \\sqrt{76} \\approx 8{,}7$"
+    }
+  ],
+  "expectedVerdict": {
+    "answer": "incorrect",
+    "reasoning": "invalid",
+    "method": "optional",
+    "needsReview": false
+  },
+  "expectedIssues": [
+    {
+      "issueId": "i1",
+      "stepId": "s9",
+      "category": "arithmetic",
+      "causedByIssueId": null
+    },
+    {
+      "issueId": "i2",
+      "stepId": "s3",
+      "category": "answer",
+      "causedByIssueId": "i1"
+    }
+  ]
+}

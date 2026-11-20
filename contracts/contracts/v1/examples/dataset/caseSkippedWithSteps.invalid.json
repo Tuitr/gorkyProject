@@ -1,0 +1,35 @@
+{
+  "caseId": "vectorLength34Skipped",
+  "split": "e2e",
+  "assignmentRef": {
+    "file": "assignments/w1.docx",
+    "taskNumber": "1",
+    "statement": "Длина вектора (3; 4)",
+    "constraints": {},
+    "sourceTaskId": "vectorLength34"
+  },
+  "submissionRef": {
+    "file": "submissions/student2.docx",
+    "sha256": "71e844da64465fca7844eb0fc3e0b0d2a6eabad27e3d75158f20fd4133f336ab",
+    "studentName": "Примерова Анна"
+  },
+  "expectedReference": {
+    "schemaId": "scalar.v1",
+    "value": {
+      "exact": "5"
+    }
+  },
+  "expectedSteps": [
+    {
+      "stepId": "s1",
+      "markdown": "$5$"
+    }
+  ],
+  "expectedVerdict": {
+    "answer": "skipped",
+    "reasoning": "not_shown",
+    "method": "optional",
+    "needsReview": false
+  },
+  "expectedIssues": []
+}

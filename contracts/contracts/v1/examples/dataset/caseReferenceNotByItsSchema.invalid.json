@@ -1,0 +1,39 @@
+{
+  "caseId": "vectorLength34Correct",
+  "split": "demo",
+  "assignmentRef": {
+    "file": "assignments/w1.docx",
+    "taskNumber": "1",
+    "statement": "Длина вектора (3; 4)",
+    "constraints": {},
+    "sourceTaskId": "vectorLength34"
+  },
+  "submissionRef": {
+    "file": "submissions/student1.docx",
+    "sha256": "1bff83e137442b0767cc8a8398d98bf091500df308db5bcc333eb3257ebe73dc",
+    "studentName": "Тестов Пётр"
+  },
+  "expectedReference": {
+    "schemaId": "scalar.v1",
+    "value": {
+      "exact": 5
+    }
+  },
+  "expectedSteps": [
+    {
+      "stepId": "s1",
+      "markdown": "$|\\vec a| = \\sqrt{3^2 + 4^2}$"
+    },
+    {
+      "stepId": "s2",
+      "markdown": "$= \\sqrt{25} = 5$"
+    }
+  ],
+  "expectedVerdict": {
+    "answer": "correct",
+    "reasoning": "valid",
+    "method": "optional",
+    "needsReview": false
+  },
+  "expectedIssues": []
+}

@@ -8,7 +8,7 @@
 | Ошибка HTTP `{code, message, retryable, traceId}` | `common/errors.py` | № 1 | все | готово |
 | Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/` | № 1 | фронтенд | планируется |
 | События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | готово |
-| Манифест мини-набора | `dataset/` | № 1 | № 2, № 3 | планируется |
+| Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания), № 3 (`expectedReference`) | готово; файлы набора — в A6.2 |
 | Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | черновик от № 3, ждёт подтверждения № 2 |
 | Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | `review.v1.md` — черновик от № 3, ждёт № 2 |
@@ -19,6 +19,10 @@
 
 **`taskResult` существует в одном месте.** Конверт ответа шлюза (№ 3) ссылается на `grading/taskresult.py` (№ 2)
 и не заводит свою копию полей `answer`, `reasoning`, `method`, `issues`.
+
+**Манифест набора — ключ ответов.** Одна запись — одно задание одной синтетической работы. Манифест не попадает
+в DOCX ученика и в ZIP, а задания `closed` не попадают в промпты и фикстуры агентов. Условие (`assignmentRef.statement`)
+и эталон (`expectedReference`) — разные поля. Разбиение на `demo`, `e2e` и `closed` идёт по `sourceTaskId`, а не по ученикам.
 
 **`solverVersion` называет одну неизменяемую сборку**: `<familyId>.v<N>`, например `vectorLength.v2`. Ключа `latest` нет.
 Исправленный солвер получает новый номер, а старая проверка по своему `solverVersion` находит тот же код и тесты.

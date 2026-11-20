@@ -1,0 +1,310 @@
+{
+  "$defs": {
+    "AssignmentRef": {
+      "additionalProperties": false,
+      "description": "The task in the teacher's variant, as the student sees it.",
+      "properties": {
+        "constraints": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Constraints",
+          "type": "object"
+        },
+        "file": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.docx$",
+          "title": "File",
+          "type": "string"
+        },
+        "sourceTaskId": {
+          "minLength": 1,
+          "title": "Sourcetaskid",
+          "type": "string"
+        },
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "taskNumber": {
+          "minLength": 1,
+          "title": "Tasknumber",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "taskNumber",
+        "statement",
+        "constraints",
+        "sourceTaskId"
+      ],
+      "title": "AssignmentRef",
+      "type": "object"
+    },
+    "DatasetCase": {
+      "additionalProperties": false,
+      "properties": {
+        "assignmentRef": {
+          "$ref": "#/$defs/AssignmentRef"
+        },
+        "caseId": {
+          "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+          "title": "Caseid",
+          "type": "string"
+        },
+        "expectedIssues": {
+          "items": {
+            "$ref": "#/$defs/ExpectedIssue"
+          },
+          "title": "Expectedissues",
+          "type": "array"
+        },
+        "expectedReference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExpectedReference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedSteps": {
+          "items": {
+            "$ref": "#/$defs/ExpectedStep"
+          },
+          "title": "Expectedsteps",
+          "type": "array"
+        },
+        "expectedVerdict": {
+          "$ref": "#/$defs/ExpectedVerdict"
+        },
+        "split": {
+          "enum": [
+            "demo",
+            "e2e",
+            "closed"
+          ],
+          "title": "Split",
+          "type": "string"
+        },
+        "submissionRef": {
+          "$ref": "#/$defs/SubmissionRef"
+        }
+      },
+      "required": [
+        "caseId",
+        "split",
+        "assignmentRef",
+        "submissionRef",
+        "expectedReference",
+        "expectedSteps",
+        "expectedVerdict",
+        "expectedIssues"
+      ],
+      "title": "DatasetCase",
+      "type": "object"
+    },
+    "ExpectedIssue": {
+      "additionalProperties": false,
+      "description": "One expected error at one step; a consequence points to its root through causedByIssueId.",
+      "properties": {
+        "category": {
+          "minLength": 1,
+          "title": "Category",
+          "type": "string"
+        },
+        "causedByIssueId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Causedbyissueid"
+        },
+        "issueId": {
+          "minLength": 1,
+          "title": "Issueid",
+          "type": "string"
+        },
+        "stepId": {
+          "minLength": 1,
+          "title": "Stepid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issueId",
+        "stepId",
+        "category"
+      ],
+      "title": "ExpectedIssue",
+      "type": "object"
+    },
+    "ExpectedReference": {
+      "additionalProperties": false,
+      "description": "The key: what the reference API should answer for this task (a ready value).",
+      "properties": {
+        "schemaId": {
+          "minLength": 1,
+          "title": "Schemaid",
+          "type": "string"
+        },
+        "value": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Value",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schemaId",
+        "value"
+      ],
+      "title": "ExpectedReference",
+      "type": "object"
+    },
+    "ExpectedStep": {
+      "additionalProperties": false,
+      "description": "One step of the solution as developer 2's reader should extract it, in order.",
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "title": "Markdown",
+          "type": "string"
+        },
+        "stepId": {
+          "minLength": 1,
+          "title": "Stepid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stepId",
+        "markdown"
+      ],
+      "title": "ExpectedStep",
+      "type": "object"
+    },
+    "ExpectedVerdict": {
+      "additionalProperties": false,
+      "description": "Answer, reasoning and method are separate dimensions, as in taskResult.",
+      "properties": {
+        "answer": {
+          "enum": [
+            "correct",
+            "incorrect",
+            "skipped",
+            "unreadable"
+          ],
+          "title": "Answer",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "met",
+            "unmet",
+            "unconfirmed",
+            "optional"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "needsReview": {
+          "title": "Needsreview",
+          "type": "boolean"
+        },
+        "reasoning": {
+          "enum": [
+            "valid",
+            "invalid",
+            "not_shown",
+            "unknown"
+          ],
+          "title": "Reasoning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer",
+        "reasoning",
+        "method",
+        "needsReview"
+      ],
+      "title": "ExpectedVerdict",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "SubmissionRef": {
+      "additionalProperties": false,
+      "description": "One synthetic student's DOCX; the ZIP of submissions holds the same bytes.",
+      "properties": {
+        "file": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.docx$",
+          "title": "File",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "studentName": {
+          "minLength": 1,
+          "title": "Studentname",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "sha256",
+        "studentName"
+      ],
+      "title": "SubmissionRef",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "manifest.json of one dataset version.",
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/DatasetCase"
+      },
+      "minItems": 1,
+      "title": "Cases",
+      "type": "array"
+    },
+    "datasetVersion": {
+      "pattern": "^[a-z][A-Za-z0-9]{0,31}\\.v[1-9][0-9]{0,8}$",
+      "title": "Datasetversion",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": "datasetManifest.v1",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "seed": {
+      "minimum": 0,
+      "title": "Seed",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "datasetVersion",
+    "seed",
+    "cases"
+  ],
+  "title": "DatasetManifest",
+  "type": "object"
+}
