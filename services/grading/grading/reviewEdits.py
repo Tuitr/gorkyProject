@@ -1,10 +1,12 @@
 """Apply an edit and save its receipt in the same database transaction."""
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from contracts.v1.grading.checkresult import CheckOutcome
 from contracts.v1.grading.reviewedit import RemoveIssue, ReviewEditReceipt, ReviewEditRequest, SetOverallReview, SetVerdict
+from grading.feedback import composeOverallReview
+from grading.resultArtifacts import loadResultSource
 from grading.results import latestRevision
 from grading.review import anchoredIssues
 from grading.tables import CheckJob, CheckResultRevision, TeacherReviewEdit
@@ -28,7 +30,8 @@ class ReviewEditor:
         request = edit.model_dump(mode="json", exclude_unset=True)
         with Session(self.engine) as session, session.begin():
             # Shared lock with result allocation and publication, including across processes.
-            if session.get(CheckJob, checkId, with_for_update=True) is None:
+            check = session.get(CheckJob, checkId, with_for_update=True)
+            if check is None:
                 return None
             previous = session.get(TeacherReviewEdit, (checkId, edit.editId))
             if previous is not None and previous.request == request:
@@ -44,6 +47,18 @@ class ReviewEditor:
                 raise ReviewConflict("the current result revision is still awaiting Markdown", currentRev)
 
             outcome = applyChanges(CheckOutcome.model_validate(latest.outcome), edit)
+            prior = session.scalars(
+                select(TeacherReviewEdit.request).filter_by(checkId=checkId)
+            )
+            changes = [change for requestData in prior for change in ReviewEditRequest.model_validate(requestData).changes]
+            changes.extend(edit.changes)
+            if not any(isinstance(change, SetOverallReview) for change in changes):
+                source = loadResultSource(session, check, outcome)
+                feedback = composeOverallReview(
+                    source.tasks, source.reading, tuple(outcome.taskResults), source.references,
+                    teacherVerdicts={change.taskId for change in changes if isinstance(change, SetVerdict)},
+                )
+                outcome = outcome.model_copy(update={"overallReview": feedback})
             session.add(CheckResultRevision(
                 checkId=checkId, resultRev=outcome.resultRev, calculationId=f"teacher:{edit.editId}",
                 outcome=outcome.model_dump(mode="json"),

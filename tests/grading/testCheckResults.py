@@ -18,6 +18,7 @@ from redis import Redis
 from sqlalchemy import Engine
 
 from contracts.v1.events.checks import DATA_FIELD
+from contracts.v1.grading.assignmentreport import AssignmentReport
 from contracts.v1.grading.checkresult import PublishedCheck
 from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
@@ -50,7 +51,7 @@ def resultStorage() -> Iterator[tuple[MarkdownStorage, str]]:
         yield storage, checkId
     finally:
         checkKey = hashlib.sha256(checkId.encode()).hexdigest()
-        for rev in (1, 2):
+        for rev in (1, 2, 3, 4):
             admin.delete_object(Bucket="results", Key=f"checks/{checkKey}/{rev}.md")
         storage.client.close()
         admin.close()
@@ -81,7 +82,9 @@ def testRecoversDraftAndReadsPublishedRevisions(
                                value={"exact": "5"}, solverVersion=None)
     worker.prepareAssignment(assignmentLease, lambda _: assignment, requestReference=lambda _: reference)
 
-    settings = Settings(serviceTokensJson=json.dumps({"test": {"serviceName": "cabinet", "rights": ["checks.read"]}}))
+    settings = Settings(serviceTokensJson=json.dumps({
+        "test": {"serviceName": "cabinet", "rights": ["checks.read", "checks.edit", "reports.read"]},
+    }))
     api = TestClient(createApp(settings, engine=gradingEngine, storage=storage))
     url = f"/internal/v1/checks/{checkId}"
     headers = {"Authorization": "Bearer test"}
@@ -139,17 +142,49 @@ def testRecoversDraftAndReadsPublishedRevisions(
     with pytest.raises(ResultConflict):
         recovered.results.saveDraft(checkId, "initial", (result,), "Другой отзыв.")
 
-    secondDraft = recovered.results.saveDraft(checkId, "teacher-review", (result,), "Уточнили отзыв.")
-    assert secondDraft.resultRev == 2
+    reportUrl = "/internal/v1/assignments/w1/report"
+    before = AssignmentReport.model_validate(api.get(reportUrl, headers=headers).json())
+    assert before.tasks[0].categories[0].category == "arithmetic"
+    edit = {"baseRev": 1, "editId": "fix-arithmetic", "actorId": "teacher", "changes": [
+        {"op": "removeIssue", "taskId": "t1", "issueId": "i1"},
+        {"op": "setVerdict", "taskId": "t1", "answer": "correct", "reasoning": "valid"},
+    ]}
+    with Stubber(storage.client) as s3Failure:
+        s3Failure.add_client_error("put_object", service_error_code="ServiceUnavailable", http_status_code=503)
+        assert api.patch(url + "/review", headers=headers, json=edit).status_code == 503
+        s3Failure.assert_no_pending_responses()
     assert api.get(url, headers=headers).json()["reason"] == "awaiting_artifact"
+    assert api.get(reportUrl, headers=headers).json() == before.model_dump(mode="json")
     assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json")
-    second = recovered.publishCheckResult(checkId, 2, storage)
+    receipt = api.patch(url + "/review", headers=headers, json=edit)
+    assert receipt.status_code == 200 and receipt.json()["resultRev"] == 2
+    second = PublishedCheck.model_validate(api.get(url, headers=headers).json())
     secondRef = second.markdownRef
     assert secondRef.key != firstRef.key
-    assert api.get(url, headers=headers).json() == second.model_dump(mode="json")
+    assert "Ответ верный." in second.overallReview and "Вычислите сумму" not in second.overallReview
+    with closing(storage.client.get_object(Bucket="results", Key=secondRef.key)["Body"]) as streamBody:
+        revised = streamBody.read().decode("utf-8")
+    assert "Вычислите сумму" not in revised and "Ответ верный" in revised
+    with closing(storage.client.get_object(Bucket="results", Key=firstRef.key)["Body"]) as streamBody:
+        assert streamBody.read() == report.encode("utf-8")
+    after = AssignmentReport.model_validate(api.get(reportUrl, headers=headers).json())
+    assert after.rev == before.rev + 1 and after.students[0].resultRev == 2
+    assert after.tasks[0].categories == []
+    assert api.get(reportUrl, params={"rev": before.rev}, headers=headers).json() == before.model_dump(mode="json")
     assert api.get(url, params={"resultRev": 3}, headers=headers).status_code == 404
+
+    manualText = "Мой отзыв о решении."
+    manual = {"baseRev": 2, "editId": "manual", "actorId": "teacher", "changes": [
+        {"op": "setOverallReview", "overallReview": manualText},
+    ]}
+    assert api.patch(url + "/review", headers=headers, json=manual).json()["resultRev"] == 3
+    later = {"baseRev": 3, "editId": "method", "actorId": "teacher", "changes": [
+        {"op": "setVerdict", "taskId": "t1", "method": "met"},
+    ]}
+    assert api.patch(url + "/review", headers=headers, json=later).json()["resultRev"] == 4
+    assert api.get(url, headers=headers).json()["overallReview"] == manualText
     storage.client.put_object(Bucket="results", Key=secondRef.key, Body=b"different bytes")
-    assert api.get(url, headers=headers).status_code == 503
+    assert api.get(url, params={"resultRev": 2}, headers=headers).status_code == 503
     assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json")
 
 

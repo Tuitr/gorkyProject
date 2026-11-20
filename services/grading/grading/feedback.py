@@ -1,7 +1,7 @@
 """Compose the overall feedback from the checked attempt and its stored references."""
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.reference import ReferenceReady, ReferenceResult, ScalarValueV1
@@ -50,7 +50,7 @@ def taskFeedback(result: TaskResult, stepIds: list[str], exact: str | None) -> l
 
 def composeOverallReview(
     tasks: tuple[AssignmentTask, ...], reading: SubmissionReading, results: tuple[TaskResult, ...],
-    references: Mapping[str, ReferenceResult],
+    references: Mapping[str, ReferenceResult], *, teacherVerdicts: Collection[str] = (),
 ) -> str:
     byTask = {result.taskId: result for result in results}
     readings = {task.taskId: task for task in reading.taskReadings}
@@ -64,7 +64,15 @@ def composeOverallReview(
         result = byTask.get(task.taskId)
         source = readings.get(task.taskId)
         reference = references.get(task.taskId)
-        if source is None or source.status == "needsReview":
+        exact = (
+            ScalarValueV1.model_validate(reference.value).exact
+            if isinstance(reference, ReferenceReady) and reference.schemaId == "scalar.v1" else None
+        )
+        if result is not None and task.taskId in teacherVerdicts:
+            lines = ["Задание пропущено. Допишите решение."] if result.answer == "skipped" else taskFeedback(
+                result, steps[task.taskId], exact
+            )
+        elif source is None or source.status == "needsReview":
             detail = source.reviewReason if source is not None else None
             lines = ["Запись требует ручной проверки.", *([detail] if detail else [])]
         elif source.status == "skipped":
@@ -74,10 +82,6 @@ def composeOverallReview(
         elif not isinstance(reference, ReferenceReady):
             lines = ["Эталон недоступен. Задание требует ручной проверки."]
         else:
-            exact = (
-                ScalarValueV1.model_validate(reference.value).exact
-                if reference.schemaId == "scalar.v1" else None
-            )
             lines = taskFeedback(result, steps[task.taskId], exact)
         sections.append(f"Задание {task.taskNumber}. " + " ".join(lines))
     if reading.unassignedFragments:

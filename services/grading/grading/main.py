@@ -11,6 +11,7 @@ from contracts.v1.grading.checkresult import CheckStatus, PublishedCheck
 from contracts.v1.grading.reviewedit import RESULT_REV_HEADER, ReviewEditReceipt, ReviewEditRequest
 from grading.markdownStorage import MarkdownStorage
 from grading.reports import ReportStore
+from grading.resultArtifacts import publishResultArtifact
 from grading.results import ArtifactUnavailable, ResultStore
 from grading.reviewEdits import InvalidReviewChange, ReviewConflict, ReviewEditor
 from grading.settings import Settings
@@ -63,6 +64,10 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
             raise ApiProblem("invalid_input", str(error)) from error
         if receipt is None:
             raise ApiProblem("not_found", "Check not found")
+        try:
+            publishResultArtifact(store, id, receipt.resultRev, markdown)
+        except ArtifactUnavailable as error:
+            raise ApiProblem("unavailable", "The edit is saved and its Markdown is awaiting publication") from error
         return receipt
 
     return app

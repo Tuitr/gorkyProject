@@ -5,6 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from typing import Any
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 from httpx import Response
@@ -17,6 +18,7 @@ from contracts.v1.grading.taskresult import Issue, TaskResult
 from grading.inbox import saveEvent
 from grading.intake import incomingEventAdapter
 from grading.main import createApp
+from grading.markdownStorage import MarkdownStorage
 from grading.results import ResultStore
 from grading.settings import Settings
 from grading.tables import TeacherReviewEdit
@@ -53,7 +55,9 @@ def testConcurrentEditsHaveOneWinnerAndReplayReturnsItsReceipt(
         ]}
 
     requests = (body("edit-1", "teacher-a"), body("edit-2", "teacher-b"))
-    with TestClient(createApp(settings, engine=gradingEngine)) as api:
+    storage = Mock(spec=MarkdownStorage)
+    storage.save.return_value = ref.model_copy(update={"key": "edited.md"})
+    with TestClient(createApp(settings, engine=gradingEngine, storage=storage)) as api:
         assert api.patch(path, json=requests[0]).status_code == 401
         assert api.patch(path, headers={"Authorization": "Bearer reader-service"}, json=requests[0]).status_code == 403
         invalid = body("edit-1", "teacher-a")
@@ -84,7 +88,8 @@ def testConcurrentEditsHaveOneWinnerAndReplayReturnsItsReceipt(
         assert changed.status_code == 409 and changed.headers[RESULT_REV_HEADER] == "2"
 
         reading = api.get("/internal/v1/checks/c1", headers={"Authorization": "Bearer reader-service"})
-        assert reading.json() == {"checkId": "c1", "state": "running", "reason": "awaiting_artifact"}
+        assert reading.json()["resultRev"] == 2 and reading.json()["state"] == "ready"
+        assert storage.save.call_count == 1
 
     saved = store.findDraft("c1", f"teacher:{receipt.editId}")
     assert saved is not None and saved.resultRev == 2
