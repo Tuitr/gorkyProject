@@ -33,10 +33,13 @@ class ReferenceService:
         self.idFactory = idFactory
 
     def request(self, request: ReferenceRequest) -> ReferenceResult:
+        """Parallel calls with one lookup key ask the provider once and share one referenceId."""
         record = self.findSame(request)
         if record is None:
-            outcome = self.provider.start(ProviderTask.fromRequest(request))
-            record = self.store.addOrGet(self.buildRecord(request, outcome))
+            record = self.store.addOnce(
+                buildLookupKey(request),
+                lambda: self.buildRecord(request, self.provider.start(ProviderTask.fromRequest(request))),
+            )
         return self.refresh(record)
 
     def get(self, referenceId: str) -> ReferenceResult | None:
@@ -45,18 +48,24 @@ class ReferenceService:
         return None if record is None else self.refresh(record)
 
     def refresh(self, record: ReferenceRecord) -> ReferenceResult:
-        """Once the promised wait of a pending record has passed, ask the provider again."""
-        if record.state != "pending" or record.readyAt is None or self.clock.now() < record.readyAt:
+        """Once the promised wait of a pending record has passed, ask the provider again.
+
+        check() runs while the row is locked, so parallel GETs and POSTs of one record ask the provider once;
+        the others wait for the lock and read the new state.
+        """
+        if not self.isDue(record):
             return self.toResult(record)
-        outcome = self.provider.check(taskFromRecord(record))
         with self.store.sessionFactory() as session, session.begin():
             current = session.get(ReferenceRecord, record.referenceId, with_for_update=True)
             assert current is not None
-            if current.state == "pending":
-                self.applyOutcome(current, outcome)
+            if self.isDue(current):
+                self.applyOutcome(current, self.provider.check(taskFromRecord(current)))
             session.flush()
             session.expunge(current)
         return self.toResult(current)
+
+    def isDue(self, record: ReferenceRecord) -> bool:
+        return record.state == "pending" and record.readyAt is not None and self.clock.now() >= record.readyAt
 
     def toResult(self, record: ReferenceRecord) -> ReferenceResult:
         retryAfterS = 0
@@ -66,7 +75,7 @@ class ReferenceService:
         return recordToResult(record, retryAfterS)
 
     def findSame(self, request: ReferenceRequest) -> ReferenceRecord | None:
-        """Fast path for a repeated request. Uniqueness itself comes from ReferenceStore.addOrGet."""
+        """Fast path for a repeated request, without a lock. Uniqueness itself comes from ReferenceStore.addOnce."""
         with self.store.sessionFactory() as session:
             query = select(ReferenceRecord).where(ReferenceRecord.lookupKey == buildLookupKey(request))
             record = session.scalars(query).first()
