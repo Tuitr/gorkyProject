@@ -49,7 +49,9 @@ def createApp(
     limited = LimitedTransport(transport, limiter, clock, policy)
     journal = ReviewJournal(sessionFactory, clock, settings.reviewLeaseS)
     catalog = prompts if prompts is not None else PromptCatalog()
-    service = ReviewService(journal, limited, catalog, formatAttempts=settings.formatAttempts)
+    service = ReviewService(
+        journal, limited, catalog, formatAttempts=settings.formatAttempts, budgetS=settings.requestBudgetS, clock=clock
+    )
 
     app = FastAPI(title="Model gateway", version="1.0.0")
     installErrorHandlers(app)

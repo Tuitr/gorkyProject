@@ -5,8 +5,9 @@ the lease expired and went to another call changes nothing. A crashed process fr
 lease runs out. Waiting for a slot or for Retry-After never holds a slot.
 
 LimitedTransport wraps any transport: it repeats 429 and 503 (with Retry-After, or a default pause) up to
-maxAttempts and never longer than maxWaitS in total, then refuses explicitly. A timeout is not repeated
-here: the provider may already have done the work, so the caller decides (same requestId, C3.3).
+maxAttempts, never longer than maxWaitS in total and never past the deadline of the call, then refuses
+explicitly. A timeout is not repeated here: the provider may already have done the work, so the caller
+decides (same requestId, C3.3).
 """
 
 import math
@@ -130,6 +131,8 @@ class LimitedTransport:
 
     def complete(self, call: ModelCall) -> ModelReply:
         deadline = self.clock.now() + timedelta(seconds=self.policy.maxWaitS)
+        if call.deadline is not None:
+            deadline = min(deadline, call.deadline)
         attempt = 0
         while True:
             slot = self.waitForSlot(call, deadline)

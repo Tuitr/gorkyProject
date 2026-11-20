@@ -26,6 +26,10 @@ TRANSPORTS: dict[str, TransportName] = {"fixture": "fixture", "gigachat": "gigac
 SWITCHES = {"0": False, "1": True}
 
 
+DEFAULT_REQUEST_BUDGET_S = 50.0
+"""Longest time one POST /internal/v1/model/review may take, all waits and attempts included.
+Keep it below the client timeout of developer 2's worker (60 s in grading/review.py)."""
+LEASE_MARGIN_S = 10.0
 DEFAULT_LEASE_S = 90.0
 """How long one provider call may hold its slot. Keep it above the transport timeout (GIGACHAT_TIMEOUT_S, 60 s)."""
 
@@ -41,6 +45,7 @@ class GatewaySettings:
     maxAttempts: int = 3
     maxWaitS: float = 30.0
     formatAttempts: int = 2
+    requestBudgetS: float = DEFAULT_REQUEST_BUDGET_S
     failureScenarios: bool = False
 
     def __post_init__(self) -> None:
@@ -49,8 +54,8 @@ class GatewaySettings:
 
     @property
     def reviewLeaseS(self) -> float:
-        """How long one review owns its requestId: every wait and every attempt, for each format attempt."""
-        return self.formatAttempts * (self.maxWaitS + self.maxAttempts * self.leaseS)
+        """How long one review owns its requestId: the request budget and a margin for the last write."""
+        return self.requestBudgetS + LEASE_MARGIN_S
 
     @classmethod
     def fromEnv(cls, environ: Mapping[str, str] = os.environ) -> Self:
@@ -72,6 +77,7 @@ class GatewaySettings:
             maxAttempts=int(parsePositive(environ, "GATEWAY_MAX_ATTEMPTS", 3, whole=True)),
             maxWaitS=parsePositive(environ, "GATEWAY_MAX_WAIT_S", 30.0),
             formatAttempts=int(parsePositive(environ, "GATEWAY_FORMAT_ATTEMPTS", 2, whole=True)),
+            requestBudgetS=parsePositive(environ, "GATEWAY_REQUEST_BUDGET_S", DEFAULT_REQUEST_BUDGET_S),
             failureScenarios=SWITCHES[scenarios],
         )
 

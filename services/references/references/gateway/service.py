@@ -2,11 +2,15 @@
 
 An answer that is not a valid taskResult is asked for again, up to formatAttempts calls in total;
 after that the caller gets 502 model_invalid_output and nothing is stored.
+The whole review fits into budgetS (GATEWAY_REQUEST_BUDGET_S): no new attempt starts after it, waits and
+provider calls are cut to it, and an unfinished review answers 503 unavailable so the caller repeats it
+with the same requestId. The lease is released at once, so that repeat is not refused as still running.
 Every outcome is one structured log line with requestId, traceId, stage, code and duration.
 """
 
 import logging
 import time
+from datetime import timedelta
 from typing import TypedDict
 
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
@@ -22,8 +26,10 @@ from references.gateway.transports.base import (
     TransportError,
 )
 from references.gateway.validation import SCHEMA_VERSION, InvalidOutput, toResponse
+from shared.clock import Clock, SystemClock
 
 INVALID_OUTPUT = "model_invalid_output"
+OUT_OF_BUDGET = "unavailable"
 
 
 class LogIds(TypedDict):
@@ -37,12 +43,21 @@ def elapsedMs(started: float) -> int:
 
 class ReviewService:
     def __init__(
-        self, journal: ReviewJournal, transport: ModelTransport, prompts: PromptCatalog, formatAttempts: int = 2
+        self,
+        journal: ReviewJournal,
+        transport: ModelTransport,
+        prompts: PromptCatalog,
+        formatAttempts: int = 2,
+        *,
+        budgetS: float | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self.journal = journal
         self.transport = transport
         self.prompts = prompts
         self.formatAttempts = formatAttempts
+        self.budgetS = budgetS
+        self.clock = clock if clock is not None else SystemClock()
 
     def review(self, request: ModelReviewRequest, traceId: str = "-") -> ModelReviewResponse:
         """409 and a stored answer come first; a refused request leaves no record."""
@@ -54,6 +69,8 @@ class ReviewService:
                 logEvent("review.cached", stage="journal", code="ok", durationMs=elapsedMs(started), **ids)
                 return stored
             call = buildModelCall(request, self.prompts, traceId)
+            if self.budgetS is not None:
+                call = call.model_copy(update={"deadline": self.clock.now() + timedelta(seconds=self.budgetS)})
             claim = self.journal.begin(request)
         except GatewayError as error:
             stage = "sanitize" if isinstance(error, RequestRefused) and error.code != "conflict" else "journal"
@@ -69,6 +86,13 @@ class ReviewService:
     ) -> ModelReviewResponse:
         attempt = 0
         while True:
+            if attempt and call.deadline is not None and self.clock.now() >= call.deadline:
+                self.journal.fail(claim, OUT_OF_BUDGET)
+                late = TransportError(
+                    OUT_OF_BUDGET, "the review did not finish within its time budget; repeat with the same requestId", 1
+                )
+                self.logFailure(late, "budget", started, ids, attempt)
+                raise late
             attempt += 1
             try:
                 response = toResponse(request, self.transport.complete(call))

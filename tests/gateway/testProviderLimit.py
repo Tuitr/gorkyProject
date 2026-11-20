@@ -259,10 +259,10 @@ def testSlotIsFreedOnFailureAndStop(sessionFactory: sessionmaker[Session], failu
 
 def testSettingsComputeTheReviewLease() -> None:
     settings = GatewaySettings.fromEnv(
-        {"GATEWAY_TRANSPORT": "fixture", "GATEWAY_LEASE_S": "60", "GATEWAY_MAX_ATTEMPTS": "2", "GATEWAY_MAX_WAIT_S": "10"}
+        {"GATEWAY_TRANSPORT": "fixture", "GATEWAY_LEASE_S": "60", "GATEWAY_REQUEST_BUDGET_S": "40"}
     )
 
-    assert (settings.providerLimit, settings.formatAttempts, settings.reviewLeaseS) == (1, 2, 260)
+    assert (settings.providerLimit, settings.formatAttempts, settings.reviewLeaseS) == (1, 2, 50)
 
 
 @pytest.mark.parametrize(("name", "value"), [("GATEWAY_PROVIDER_LIMIT", "0"), ("GATEWAY_MAX_ATTEMPTS", "1.5")])

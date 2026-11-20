@@ -115,19 +115,29 @@ class GigaChatTransport:
         self.tokenExpiresAt = datetime.min.replace(tzinfo=UTC)
 
     def complete(self, call: ModelCall) -> ModelReply:
-        response = self.postChat(call, self.token())
+        response = self.postChat(call, self.token(call))
         if response.status_code == 401:
             self.accessToken = None
-            response = self.postChat(call, self.token())
+            response = self.postChat(call, self.token(call))
         if response.status_code != 200:
             raise statusError("chat", response)
         return self.readReply(response)
 
-    def token(self) -> str:
+    def timeoutFor(self, call: ModelCall) -> float:
+        """GIGACHAT_TIMEOUT_S, cut down to what is left of the request budget."""
+        if call.deadline is None:
+            return self.settings.timeoutS
+        leftS = (call.deadline - self.clock.now()).total_seconds()
+        if leftS <= 0:
+            raise TransportError("timeout", "the request budget ran out before the GigaChat call")
+        return min(self.settings.timeoutS, leftS)
+
+    def token(self, call: ModelCall) -> str:
         if self.accessToken is not None and self.clock.now() < self.tokenExpiresAt - TOKEN_MARGIN:
             return self.accessToken
         response = self.send(
             "auth",
+            self.timeoutFor(call),
             "POST",
             self.settings.authUrl,
             headers={
@@ -150,15 +160,16 @@ class GigaChatTransport:
     def postChat(self, call: ModelCall, token: str) -> httpx.Response:
         return self.send(
             "chat",
+            self.timeoutFor(call),
             "POST",
             f"{self.settings.apiUrl}/chat/completions",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "X-Request-ID": call.requestId},
             json=buildChatBody(call, self.settings.model),
         )
 
-    def send(self, stage: str, method: str, url: str, **options: Any) -> httpx.Response:
+    def send(self, stage: str, timeoutS: float, method: str, url: str, **options: Any) -> httpx.Response:
         try:
-            return self.client.request(method, url, **options)
+            return self.client.request(method, url, timeout=timeoutS, **options)
         except httpx.TimeoutException as error:
             raise TransportError("timeout", f"GigaChat {stage} timed out") from error
         except httpx.TransportError as error:
