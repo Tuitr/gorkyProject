@@ -58,7 +58,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if len(sys.argv) != 2:
         raise SystemExit("usage: python -m references.solvers.sandboxd <jobs directory>")
-    serve(Path(sys.argv[1]), uid=SANDBOX_UID if os.geteuid() == 0 else None)
+    serve(Path(sys.argv[1]), uid=SANDBOX_UID if sys.platform != "win32" and os.geteuid() == 0 else None)
 
 
 if __name__ == "__main__":

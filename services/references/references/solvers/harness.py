@@ -10,9 +10,11 @@ The solver sees builtins without file, import or reflection functions; print() g
 import builtins
 import io
 import json
-import resource
 import sys
 import traceback
+
+if sys.platform != "win32":
+    import resource
 
 MEMORY_BYTES = 256 * 1024 * 1024
 FORBIDDEN = (
@@ -37,17 +39,19 @@ MAX_ERROR_CHARS = 1000
 
 
 def limitSelf(cpuS: int) -> None:
-    for limit, value in (
-        (resource.RLIMIT_AS, MEMORY_BYTES),
-        (resource.RLIMIT_CPU, cpuS),
-        (resource.RLIMIT_FSIZE, 0),
-        (resource.RLIMIT_NPROC, 0),
-        (resource.RLIMIT_CORE, 0),
-    ):
-        try:
-            resource.setrlimit(limit, (value, value))
-        except (ValueError, OSError):
-            pass
+    """Linux only (the solver-sandbox container). On Windows (LocalSandbox in local tests) there are no rlimits."""
+    if sys.platform != "win32":
+        for limit, value in (
+            (resource.RLIMIT_AS, MEMORY_BYTES),
+            (resource.RLIMIT_CPU, cpuS),
+            (resource.RLIMIT_FSIZE, 0),
+            (resource.RLIMIT_NPROC, 0),
+            (resource.RLIMIT_CORE, 0),
+        ):
+            try:
+                resource.setrlimit(limit, (value, value))
+            except (ValueError, OSError):
+                pass
 
 
 def restrictedBuiltins(allowedImports: frozenset[str]) -> dict[str, object]:

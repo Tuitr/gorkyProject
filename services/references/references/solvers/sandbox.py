@@ -53,6 +53,13 @@ def jobPayload(code: str, task: dict[str, JsonValue], timeoutS: float) -> str:
     )
 
 
+def childEnvironment() -> dict[str, str]:
+    """Empty on Linux. Windows Python cannot start without SYSTEMROOT; nothing secret is in it."""
+    if sys.platform == "win32":
+        return {"SYSTEMROOT": os.environ.get("SYSTEMROOT", r"C:\Windows")}
+    return {}
+
+
 def runChild(payload: str, *, timeoutS: float = DEFAULT_RUN_TIMEOUT_S, uid: int | None = None) -> SandboxResult:
     """One run of harness.py. Any timeout, crash, oversized or malformed output is a failed run."""
     command = [sys.executable, "-I", "-S", "-B", str(HARNESS)]
@@ -61,7 +68,7 @@ def runChild(payload: str, *, timeoutS: float = DEFAULT_RUN_TIMEOUT_S, uid: int 
             command,
             input=payload.encode("utf-8"),
             capture_output=True,
-            env={},
+            env=childEnvironment(),
             cwd="/",
             timeout=timeoutS,
             check=False,
