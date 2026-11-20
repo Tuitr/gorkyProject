@@ -8,22 +8,25 @@ from pydantic import TypeAdapter
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from contracts.v1.grading.checkresult import CheckOutcome, PublishedCheck
 from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextReader, readAssignment
+from grading.feedback import composeOverallReview
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
+from grading.markdownStorage import MarkdownStorage
 from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
+from grading.resultArtifacts import parsedTasksAdapter, publishResultArtifact, submissionReadingAdapter
+from grading.resultArtifacts import referencesAdapter as referencesAdapter
+from grading.results import ResultStore
 from grading.review import PROMPT_VERSION, reviewTasks, sendReview
 from grading.stream import StreamConsumer, StreamDelivery
 from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
 from grading.tables import AssignmentJob
 
-parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
-submissionReadingAdapter = TypeAdapter(SubmissionReading)
-referencesAdapter: TypeAdapter[dict[str, ReferenceResult]] = TypeAdapter(dict[str, ReferenceResult])
 deadlinesAdapter: TypeAdapter[dict[str, datetime]] = TypeAdapter(dict[str, datetime])
 referenceAttemptsAdapter: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, int])
 referenceErrorsAdapter: TypeAdapter[dict[str, dict[str, object]]] = TypeAdapter(dict[str, dict[str, object]])
@@ -50,6 +53,7 @@ class GradingWorker:
         self.pendingIdleMs = pendingIdleMs
         self.jobs = JobQueue(engine, clock=clock)
         self.now = clock or (lambda: datetime.now(UTC))
+        self.results = ResultStore(engine, clock)
 
     def runBatch(self, *, count: int = 10, blockMs: int | None = None) -> list[SavedJob]:
         """Persist pending and fresh deliveries. A zero block uses a one-second poll."""
@@ -234,6 +238,37 @@ class GradingWorker:
         if prepared is None:
             return None
         return reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport, promptVersion)
+
+    def calculateCheck(
+        self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
+        overallReview: str | None = None, transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview,
+    ) -> CheckOutcome | None:
+        """Store the initial calculation exactly once so a retry can resume publication."""
+        if not isinstance(lease.key, str):
+            raise ValueError("expected a submission check job")
+        existing = self.results.findDraft(lease.key, "initial")
+        if existing is not None:
+            return existing
+        prepared = self.prepareCheck(lease, loadDocument)
+        if prepared is None:
+            return None
+        results = reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport)
+        if overallReview is None:
+            overallReview = composeOverallReview(prepared.tasks, prepared.reading, results, prepared.references)
+        return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease)
+
+    def completeCheck(
+        self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], storage: MarkdownStorage, *,
+        transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview,
+    ) -> PublishedCheck | None:
+        """Resume from the stored calculation when an artifact write needs a retry."""
+        draft = self.calculateCheck(lease, loadDocument, transport=transport)
+        if draft is None:
+            return None
+        return self.publishCheckResult(draft.checkId, draft.resultRev, storage)
+
+    def publishCheckResult(self, checkId: str, resultRev: int, storage: MarkdownStorage) -> PublishedCheck:
+        return publishResultArtifact(self.results, checkId, resultRev, storage)
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
         return self.parseSubmissionDetails(lease, loadDocument).steps

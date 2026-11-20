@@ -8,13 +8,14 @@ from typing import Any
 import pytest
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
-from sqlalchemy import Engine
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from contracts.v1.events.checks import CONSUMER_GROUP, DATA_FIELD
 from grading.inbox import SavedCheck
+from grading.jobs import FinalState
 from grading.stream import StreamConsumer
-from grading.tables import CheckJob
+from grading.tables import CheckJob, InboxEntry
 from grading.worker import GradingWorker
 from shared.clock import ManualClock
 
@@ -47,8 +48,9 @@ def testRestartReclaimsAnAlreadyCommittedRedisDelivery(
     assert restarted.jobs.finish(lease, "ready", "finished")
 
 
-def testRestartAfterAckResumesExpiredLeaseFromCheckpointWithOneResult(
-    gradingEngine: Engine, gradingStream: tuple[Redis, str], contractExample: ExampleReader,
+@pytest.mark.parametrize("finalState", ["ready", "needs_review", "failed"])
+def testRestartAfterAckResumesExpiredLeaseAndKeepsFinalStateOnLateDelivery(
+    gradingEngine: Engine, gradingStream: tuple[Redis, str], contractExample: ExampleReader, finalState: FinalState,
 ) -> None:
     client, streamName = gradingStream
     clock = ManualClock()
@@ -64,6 +66,8 @@ def testRestartAfterAckResumesExpiredLeaseFromCheckpointWithOneResult(
     original = restarted.jobs.claimCheck(leaseFor=timedelta(seconds=5))
     assert original is not None
     assert original.completedStage is None
+    with Session(gradingEngine) as session:
+        assert session.get_one(CheckJob, checkId).state == "running"
     assert restarted.jobs.checkpoint(original, "parsed", {"steps": ["s1"]})
 
     replacement = GradingWorker(StreamConsumer(client, "third", streamName=streamName), gradingEngine, clock=clock.now)
@@ -77,12 +81,22 @@ def testRestartAfterAckResumesExpiredLeaseFromCheckpointWithOneResult(
     assert resumed.completedStage == "parsed"
     assert resumed.stageData == {"steps": ["s1"]}
     assert not restarted.jobs.checkpoint(original, "overwritten")
-    assert replacement.jobs.finish(resumed, "ready", "finished", {"worker": "replacement"})
-    assert not replacement.jobs.finish(resumed, "ready", "finished", {"worker": "duplicate"})
+    assert replacement.jobs.finish(resumed, finalState, "finished", {"worker": "replacement"})
+    assert not replacement.jobs.finish(resumed, finalState, "finished", {"worker": "duplicate"})
+
+    # The event can arrive again with the original ID or a new envelope for the same check.
+    late = {**event, "eventId": "late-submission"}
+    for delivery in (event, late):
+        client.xadd(streamName, {DATA_FIELD: json.dumps(delivery)})
+    assert replacement.runBatch() == [SavedCheck(checkId, finalState), SavedCheck(checkId, finalState)]
+    assert client.xpending(streamName, CONSUMER_GROUP)["pending"] == 0
     assert replacement.jobs.claimCheck() is None
     with Session(gradingEngine) as session:
+        assert session.scalar(select(func.count()).select_from(CheckJob)) == 1
+        assert session.scalar(select(func.count()).select_from(InboxEntry)) == 2
         job = session.get_one(CheckJob, checkId)
-        assert (job.state, job.completedStage, job.stageData) == ("ready", "finished", {"worker": "replacement"})
+        assert job.leaseVersion == resumed.version and job.leaseUntil is None
+        assert (job.state, job.completedStage, job.stageData) == (finalState, "finished", {"worker": "replacement"})
 
 
 def testWaitingAssignmentResumesOnlyAtNextAttempt(

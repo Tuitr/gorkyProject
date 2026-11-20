@@ -1,0 +1,19 @@
+{
+  "assignmentId": "w1",
+  "assignmentRev": 2,
+  "rev": 4,
+  "studentCount": 0,
+  "students": [],
+  "tasks": [
+    {
+      "taskId": "t1",
+      "answer": {"correct": 0, "incorrect": 0, "skipped": 0, "unreadable": 0},
+      "reasoning": {"valid": 0, "invalid": 0, "not_shown": 0, "unknown": 0},
+      "method": {"met": 0, "unmet": 0, "unconfirmed": 0, "optional": 0},
+      "needsReview": 0,
+      "missing": 0,
+      "correctShare": null,
+      "categories": []
+    }
+  ]
+}

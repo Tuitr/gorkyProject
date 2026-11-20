@@ -30,7 +30,10 @@ def migratedGradingEngine(adminEngine: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def gradingEngine(migratedGradingEngine: Engine) -> Engine:
     with migratedGradingEngine.begin() as connection:
-        connection.execute(text("TRUNCATE grading.inbox, grading.check_jobs, grading.assignment_jobs"))
+        connection.execute(text(
+            "TRUNCATE grading.inbox, grading.assignment_report_snapshots, grading.teacher_review_edits, grading.check_result_revisions, "
+            "grading.check_jobs, grading.assignment_jobs"
+        ))
     return migratedGradingEngine
 
 

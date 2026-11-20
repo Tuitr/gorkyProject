@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping
 from http.client import HTTPConnection, HTTPSConnection
 from urllib.parse import urlsplit
 
-from contracts.v1.grading.taskresult import TaskResult
+from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse, ReviewReference, ReviewStep
 from contracts.v1.references.reference import ReferenceReady, ReferenceResult
 from grading.assignment import AssignmentTask
@@ -57,14 +57,11 @@ def sendReview(request: ModelReviewRequest) -> ModelReviewResponse:
         connection.close()
 
 
-def validatedResult(request: ModelReviewRequest, result: TaskResult, reading: TaskReading) -> TaskResult:
-    if result.taskId != request.taskId:
-        return localResult(request.taskId, skipped=False, required=bool(request.rubric))
-    stepIds = {step.stepId for step in request.steps}
-    counts = Counter(issue.issueId for issue in result.issues)
+def anchoredIssues(issues: list[Issue], stepIds: set[str]) -> list[Issue]:
+    counts = Counter(issue.issueId for issue in issues)
     children: dict[str, list[str]] = defaultdict(list)
     roots: deque[str] = deque()
-    for issue in result.issues:
+    for issue in issues:
         if counts[issue.issueId] != 1 or issue.stepId not in stepIds:
             continue
         if issue.causedByIssueId is None:
@@ -77,7 +74,13 @@ def validatedResult(request: ModelReviewRequest, result: TaskResult, reading: Ta
         issueId = roots.popleft()
         accepted.add(issueId)
         roots.extend(children[issueId])
-    issues = [issue for issue in result.issues if issue.issueId in accepted]
+    return [issue for issue in issues if issue.issueId in accepted]
+
+
+def validatedResult(request: ModelReviewRequest, result: TaskResult, reading: TaskReading) -> TaskResult:
+    if result.taskId != request.taskId:
+        return localResult(request.taskId, skipped=False, required=bool(request.rubric))
+    issues = anchoredIssues(result.issues, {step.stepId for step in request.steps})
     reasoning = "not_shown" if reading.status == "answerOnly" else result.reasoning
     method = result.method if request.rubric else "optional"
     if reading.status == "answerOnly" and request.rubric:

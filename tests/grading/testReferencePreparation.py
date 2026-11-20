@@ -106,13 +106,21 @@ def testPendingReferenceResumesByGetAfterRestart(
 
 def testEarlyAttemptsShareOnlyTheReferencesOfTheirRevision(
     gradingEngine: Engine, gradingStream: tuple[Redis, str], contractExample: Callable[[str], Any],
-    liveRegistry: None, sessionFactory: sessionmaker[Session],
+    liveRegistry: None, sessionFactory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, stream = gradingStream
     clock = ManualClock()
     worker = GradingWorker(StreamConsumer(client, "preparer", streamName=stream), gradingEngine, clock=clock.now)
     assignment = buildDocx("Вариант", [Paragraph("1. Длина вектора (3; 4)"), Paragraph("2. Длина вектора (0; 0)")])
     submission = buildDocx("Работа", [Paragraph("Задание 1. Ответ: 5"), Paragraph("Задание 2. Ответ: 0")])
+    calls: list[tuple[int, str]] = []
+    send = ReferenceClient.request
+
+    def recordCall(registry: ReferenceClient, request: ReferenceRequest) -> ReferenceResult:
+        calls.append((request.assignmentRev, request.taskId))
+        return send(registry, request)
+
+    monkeypatch.setattr(ReferenceClient, "request", recordCall)
 
     def publish(rev: int) -> None:
         event = contractExample("events/assignmentPublished.json")
@@ -137,7 +145,15 @@ def testEarlyAttemptsShareOnlyTheReferencesOfTheirRevision(
     early = worker.jobs.claimCheck()
     assert early is not None and worker.prepareCheck(early, noDocument) is None
     with Session(gradingEngine) as session:
-        assert session.get_one(CheckJob, "c1").state == "waiting_reference"
+        waiting = session.get_one(CheckJob, "c1")
+        assert waiting.state == "waiting_reference" and waiting.nextAttemptAt is not None
+        deadline = waiting.nextAttemptAt
+    submit(1, 1)
+    with Session(gradingEngine) as session:
+        queued = session.scalars(select(CheckJob)).all()
+        assert [(job.checkId, job.state, job.nextAttemptAt) for job in queued] == [("c1", "waiting_reference", deadline)]
+    assert worker.jobs.claimCheck() is None and worker.jobs.claimAssignment() is None
+    assert calls == []
     submit(2, 1)
     publish(1)
     lease = worker.jobs.claimAssignment()
@@ -161,6 +177,9 @@ def testEarlyAttemptsShareOnlyTheReferencesOfTheirRevision(
         assert len(prepared.reading.steps) == 2
         assert restarted.jobs.finish(check, "ready", "test_complete")
 
+    publish(1)
+    assert restarted.jobs.claimAssignment() is None
+    assert calls == [(1, "t1"), (1, "t2")]
     submit(3, 2)
     newCheck = restarted.jobs.claimCheck()
     assert newCheck is not None and restarted.prepareCheck(newCheck, noDocument) is None
@@ -174,6 +193,7 @@ def testEarlyAttemptsShareOnlyTheReferencesOfTheirRevision(
     assert retried is not None
     prepared = restarted.prepareCheck(retried, lambda _: submission)
     assert prepared is not None and prepared.references == newRefs
+    assert calls == [(1, "t1"), (1, "t2"), (2, "t1"), (2, "t2")]
 
 
 def testInterruptedRegistrationResumesAtTheFirstMissingTask(

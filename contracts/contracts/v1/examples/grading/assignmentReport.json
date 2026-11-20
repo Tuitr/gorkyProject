@@ -1,0 +1,24 @@
+{
+  "assignmentId": "w1",
+  "assignmentRev": 1,
+  "rev": 2,
+  "studentCount": 2,
+  "students": [
+    {"studentId": "s1", "attemptId": "a1", "checkId": "c1", "resultRev": 1, "selection": "accepted"},
+    {"studentId": "s2", "attemptId": "a3", "checkId": "c3", "resultRev": 1, "selection": "draft"}
+  ],
+  "tasks": [
+    {
+      "taskId": "t1",
+      "answer": {"correct": 0, "incorrect": 1, "skipped": 1, "unreadable": 0},
+      "reasoning": {"valid": 0, "invalid": 1, "not_shown": 1, "unknown": 0},
+      "method": {"met": 0, "unmet": 0, "unconfirmed": 0, "optional": 2},
+      "needsReview": 0,
+      "missing": 0,
+      "correctShare": 0.0,
+      "categories": [
+        {"category": "sign_error", "affectedStudents": 1, "primaryIssues": 2}
+      ]
+    }
+  ]
+}
