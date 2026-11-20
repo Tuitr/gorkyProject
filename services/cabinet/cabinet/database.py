@@ -19,6 +19,8 @@ def allMetadata() -> MetaData:
     """Base.metadata after importing every table module."""
     import cabinet.auth.tables  # noqa: F401  (registers the tables on Base)
 
+    import cabinet.classes  # noqa: F401
+
     return Base.metadata
 
 

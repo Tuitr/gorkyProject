@@ -6,6 +6,7 @@ Public routes live under /v1. The schema is served at /openapi.json.
 from datetime import timedelta
 import hashlib
 import secrets
+import uuid
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from sqlalchemy import create_engine, delete, select
@@ -16,7 +17,9 @@ from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
 from cabinet.auth.throttle import LoginThrottle
+from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.settings import Settings
+from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.common.errors import ApiError
 from shared.clock import Clock, SystemClock
@@ -83,6 +86,8 @@ def createApp(
                 session.execute(select(TeacherRecord).limit(0))
                 session.execute(select(LoginThrottleRecord).limit(0))
                 session.execute(select(SessionRecord).limit(0))
+                session.execute(select(ClassRecord).limit(0))
+                session.execute(select(StudentRecord).limit(0))
         except SQLAlchemyError as error:
             raise ApiProblem("unavailable", "Cabinet database is unavailable") from error
         return {"status": "ready"}
@@ -112,7 +117,7 @@ def createApp(
         response.headers["Cache-Control"] = "no-store"
         return teacher
 
-    def currentTeacher(request: Request) -> TeacherSession:
+    def currentTeacher(request: Request, response: Response) -> TeacherSession:
         with sessionFactory() as db:
             teacher = db.scalar(select(TeacherRecord).join(SessionRecord).where(
                 SessionRecord.tokenHash == tokenHash(request.cookies.get(COOKIE, "")),
@@ -120,11 +125,53 @@ def createApp(
             ))
             if teacher is None:
                 raise ApiProblem("unauthorized", "Session is invalid or expired")
+            response.headers["Cache-Control"] = "no-store"
             return TeacherSession(teacherId=teacher.teacherId, displayName=teacher.displayName)
 
+    @v1.get("/classes", responses={401: {"model": ApiError}})
+    def listClasses(teacher: TeacherSession = Depends(currentTeacher)) -> list[ClassSummary]:
+        with sessionFactory() as db:
+            rows = db.scalars(
+                select(ClassRecord).where(ClassRecord.teacherId == teacher.teacherId)
+                .order_by(ClassRecord.name, ClassRecord.classId)
+            )
+            return [ClassSummary(classId=row.classId, name=row.name) for row in rows]
+
+    @v1.post(
+        "/classes", status_code=201,
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 422: {"model": ApiError}},
+    )
+    def createClass(body: CreateClass, teacher: TeacherSession = Depends(currentTeacher)) -> ClassSummary:
+        created = ClassSummary(classId=str(uuid.uuid4()), name=body.name)
+        with sessionFactory.begin() as db:
+            db.add(ClassRecord(classId=created.classId, teacherId=teacher.teacherId, name=created.name))
+        return created
+
+    @v1.get("/classes/{classId}/students", responses={401: {"model": ApiError}, 404: {"model": ApiError}})
+    def listStudents(classId: str, teacher: TeacherSession = Depends(currentTeacher)) -> list[StudentSummary]:
+        with sessionFactory() as db:
+            requireOwnedClass(db, classId, teacher.teacherId)
+            rows = db.scalars(
+                select(StudentRecord).where(StudentRecord.classId == classId)
+                .order_by(StudentRecord.name, StudentRecord.studentId)
+            )
+            return [StudentSummary(studentId=row.studentId, name=row.name) for row in rows]
+
+    @v1.post(
+        "/classes/{classId}/students", status_code=201,
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError}},
+    )
+    def addStudent(
+        classId: str, body: CreateStudent, teacher: TeacherSession = Depends(currentTeacher)
+    ) -> StudentSummary:
+        created = StudentSummary(studentId=str(uuid.uuid4()), name=body.name)
+        with sessionFactory.begin() as db:
+            requireOwnedClass(db, classId, teacher.teacherId)
+            db.add(StudentRecord(studentId=created.studentId, classId=classId, name=created.name))
+        return created
+
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
-    def readSession(response: Response, teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:
-        response.headers["Cache-Control"] = "no-store"
+    def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:
         return teacher
 
     @v1.delete("/sessions/current", status_code=204, responses={401: {"model": ApiError}, 403: {"model": ApiError}})

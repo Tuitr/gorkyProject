@@ -49,7 +49,9 @@ def cabinetEngine(adminEngine: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def cabinetSessions(cabinetEngine: Engine) -> sessionmaker[Session]:
     with cabinetEngine.begin() as connection:
-        connection.execute(text(f'TRUNCATE "{DB_SCHEMA}".teachers, "{DB_SCHEMA}".sessions, "{DB_SCHEMA}".login_throttle'))
+        tables = ("teachers", "sessions", "login_throttle", "classes", "students")
+        qualified = ", ".join(f'"{DB_SCHEMA}".{table}' for table in tables)
+        connection.execute(text(f"TRUNCATE {qualified}"))
     return sessionmaker(cabinetEngine, expire_on_commit=False)
 
 
@@ -237,3 +239,40 @@ def testSessionLifetime(client: TestClient, cabinetSessions: sessionmaker[Sessio
     assert login(client, "teacher.one", PASSWORD)[0] == 200
     clock.advance(8 * 3600)
     assert client.get(path).status_code == 401
+
+
+def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
+    addTeacher(cabinetSessions, "teacher.one")
+    addTeacher(cabinetSessions, "teacher.two")
+    path = "/v1/classes"
+    assert client.get(path).status_code == 401
+    assert client.post(path, json={"name": "8А"}).status_code == 401
+    assert login(client, "teacher.one", PASSWORD)[0] == 200
+
+    created = client.post(path, json={"name": " 8А "})
+    assert created.status_code == 201
+    firstClass = created.json()
+    assert firstClass["name"] == "8А"
+    assert client.get(path).json() == [firstClass]
+
+    roster = f"{path}/{firstClass['classId']}/students"
+    assert client.get(roster).json() == []
+    students = [client.post(roster, json={"name": "Саша Иванов"}) for _ in range(2)]
+    assert [student.status_code for student in students] == [201, 201]
+    studentIds = {student.json()["studentId"] for student in students}
+    assert len(studentIds) == 2
+
+    assert login(client, "teacher.two", PASSWORD)[0] == 200
+    assert client.get(path).json() == []
+    second = client.post(path, json={"name": "8Б"})
+    assert second.status_code == 201
+    assert client.get(path).json() == [second.json()]
+    assert client.get(roster).status_code == 404
+    assert client.post(roster, json={"name": "Новый ученик"}).status_code == 404
+
+    assert login(client, "teacher.one", PASSWORD)[0] == 200
+    assert client.get(path).json() == [firstClass]
+    assert client.get(f"{path}/{second.json()['classId']}/students").status_code == 404
+    assert client.post(roster, json={"name": "   "}).status_code == 422
+    assert client.post(roster, json={"name": "Саша", "classId": second.json()["classId"]}).status_code == 422
+    assert {student["studentId"] for student in client.get(roster).json()} == studentIds
