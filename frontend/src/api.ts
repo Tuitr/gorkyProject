@@ -14,6 +14,20 @@ export type UploadFile = {
 }
 export type Upload = { uploadId: string; files: UploadFile[] }
 
+// Задания варианта с эталонами (contracts/v1/grading/assignmentreferences.py).
+export type References = {
+  assignmentId: string
+  assignmentRev: number
+  state: 'queued' | 'running' | 'waiting_reference' | 'ready' | 'needs_review' | 'failed'
+  tasks: {
+    taskId: string
+    taskNumber: string
+    statement: string
+    state: 'missing' | 'pending' | 'ready' | 'unsupported' | 'validation_failed'
+    answer?: string | null
+  }[]
+}
+
 // Отчёт кабинета по ревизии варианта (contracts/v1/cabinet/reports.py).
 export type ReportTask = {
   taskId: string
@@ -88,6 +102,8 @@ export const api = {
     fd.append('assignmentRev', String(a.assignmentRev))
     return call<{ uploadId: string }>('POST', `/v1/assignments/${e(a.assignmentId)}/uploads`, fd)
   },
+  references: (a: Assignment) =>
+    call<References>('GET', `/v1/assignments/${e(a.assignmentId)}/references?rev=${a.assignmentRev}`),
   report: (a: Assignment) => call<Report>('GET', `/v1/assignments/${e(a.assignmentId)}/report?rev=${a.assignmentRev}`),
   upload: (uploadId: string) => call<Upload>('GET', `/v1/uploads/${e(uploadId)}`),
   bind: (uploadId: string, fileId: string, studentId: string) =>

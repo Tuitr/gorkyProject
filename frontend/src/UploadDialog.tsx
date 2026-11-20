@@ -1,35 +1,44 @@
 import { useState, type CSSProperties } from 'react'
+import type { Assignment } from './api'
 import { FORMATS, FORMATS_TEXT, TASK_FORMATS, extension } from './convert'
 
 export type Subject = 'math' | 'physics'
 export type UploadKind = 'task' | 'solution'
+export type UploadRequest =
+  | { kind: 'task'; subject: Subject; files: File[] }
+  | { kind: 'solution'; assignmentId: string; files: File[] }
 
+export const folderName = (a: Assignment) => `${a.subject === 'physics' ? 'Физика' : 'Математика'} · ${a.assignmentDate}`
 
-// Окно загрузки: предмет, что загружаем (задание или решение ученика) и файлы.
+// Окно загрузки. Задание (вариант проверочной) создаёт новую папку — для него выбираем предмет.
+// Ответ ученика кладётся в выбранную папку (задание).
 export function UploadDialog(props: {
-  hasTask: (s: Subject) => boolean
-  onSubmit: (p: { subject: Subject; kind: UploadKind; files: File[] }) => void
+  folders: Assignment[]
+  /** Открыть сразу на «Ответ ученика» в эту папку (кнопка в самой папке). */
+  folderId?: string
+  onSubmit: (r: UploadRequest) => void
   onClose: () => void
 }) {
+  const [kind, setKind] = useState<UploadKind | ''>(props.folderId ? 'solution' : '')
   const [subject, setSubject] = useState<Subject | ''>('')
-  const [kind, setKind] = useState<UploadKind | ''>('')
+  const [folderId, setFolderId] = useState(props.folderId ?? '')
   const [files, setFiles] = useState<File[]>([])
 
-  const noTask = subject !== '' && kind === 'solution' && !props.hasTask(subject)
   const wrongFormat = files.filter((f) => !FORMATS.includes(extension(f)))
-  const taskNotDocx = kind === 'task' && wrongFormat.length === 0 && files.some((f) => !TASK_FORMATS.includes(extension(f)))
-  const ready = subject !== '' && kind !== '' && files.length > 0 && !noTask && wrongFormat.length === 0 && !taskNotDocx
+  const taskNotDoc = kind === 'task' && wrongFormat.length === 0 && files.some((f) => !TASK_FORMATS.includes(extension(f)))
+  const target = kind === 'task' ? subject : kind === 'solution' ? folderId : ''
+  const ready = target !== '' && files.length > 0 && wrongFormat.length === 0 && !taskNotDoc
+
+  const submit = () => {
+    if (!ready) return
+    if (kind === 'task') props.onSubmit({ kind, subject: subject as Subject, files })
+    else props.onSubmit({ kind: 'solution', assignmentId: folderId, files })
+  }
 
   return (
     <div style={st.backdrop} onClick={props.onClose}>
       <div style={st.dialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h2 style={st.h2}>Загрузка файлов</h2>
-
-        <fieldset style={st.group}>
-          <legend style={st.legend}>Предмет</legend>
-          <Choice name="subject" value="math" current={subject} onChange={setSubject} label="Математика" />
-          <Choice name="subject" value="physics" current={subject} onChange={setSubject} label="Физика" />
-        </fieldset>
 
         <fieldset style={st.group}>
           <legend style={st.legend}>Что загружаем</legend>
@@ -41,7 +50,7 @@ export function UploadDialog(props: {
               setKind(v)
               setFiles([])
             }}
-            label="Задание (вариант контрольной)"
+            label="Вариант проверочной работы (создаст новую папку)"
           />
           <Choice
             name="kind"
@@ -51,20 +60,39 @@ export function UploadDialog(props: {
               setKind(v)
               setFiles([])
             }}
-            label="Решение ученика"
+            label="Ответ ученика"
           />
         </fieldset>
 
-        {noTask && <p style={st.error}>В этом классе ещё нет задания по этому предмету — сначала загрузите задание.</p>}
+        {kind === 'task' && (
+          <fieldset style={st.group}>
+            <legend style={st.legend}>Предмет</legend>
+            <Choice name="subject" value="math" current={subject} onChange={setSubject} label="Математика" />
+            <Choice name="subject" value="physics" current={subject} onChange={setSubject} label="Физика" />
+          </fieldset>
+        )}
+
+        {kind === 'solution' &&
+          (props.folders.length === 0 ? (
+            <p style={st.error}>Папок пока нет — сначала загрузите вариант проверочной работы.</p>
+          ) : (
+            <label style={st.group}>
+              <span style={st.legend}>Папка</span>
+              <select value={folderId} onChange={(e) => setFolderId(e.target.value)} style={st.select}>
+                <option value="" disabled>
+                  Выберите папку…
+                </option>
+                {props.folders.map((a) => (
+                  <option key={a.assignmentId} value={a.assignmentId}>
+                    📁 {folderName(a)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
 
         {kind && (
-          <label style={st.file}>
-            <input
-              type="file"
-              multiple={kind === 'solution'}
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            />
-          </label>
+          <input type="file" multiple={kind === 'solution'} onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
         )}
 
         {wrongFormat.length > 0 && (
@@ -72,22 +100,16 @@ export function UploadDialog(props: {
             Загрузите файл нужного формата: {FORMATS_TEXT}. Не подходит: {wrongFormat.map((f) => f.name).join(', ')}
           </p>
         )}
-        {taskNotDocx && (
-          <p style={st.error}>Задание загружается только как документ: DOCX или TXT. Фото — это «Решение ученика».</p>
-        )}
-        {files.length > 0 && (subject === '' || kind === '') && (
-          <p style={st.error}>Выберите {subject === '' ? 'предмет' : 'что загружаем: задание или решение ученика'}.</p>
+        {taskNotDoc && <p style={st.error}>Вариант загружается только как документ: DOCX или TXT.</p>}
+        {files.length > 0 && target === '' && (
+          <p style={st.error}>{kind === 'task' ? 'Выберите предмет.' : 'Выберите папку, куда положить ответ.'}</p>
         )}
 
         <div style={st.actions}>
           <button style={st.button} onClick={props.onClose}>
             Отмена
           </button>
-          <button
-            style={{ ...st.button, ...st.primary, opacity: ready ? 1 : 0.5 }}
-            disabled={!ready}
-            onClick={() => ready && props.onSubmit({ subject, kind, files })}
-          >
+          <button style={{ ...st.button, ...st.primary, opacity: ready ? 1 : 0.5 }} disabled={!ready} onClick={submit}>
             Загрузить
           </button>
         </div>
@@ -107,12 +129,12 @@ function Choice<T extends string>(p: { name: string; value: T; current: T | ''; 
 
 const st: Record<string, CSSProperties> = {
   backdrop: { position: 'fixed', inset: 0, background: 'rgba(17, 24, 39, 0.45)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 10 },
-  dialog: { background: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 440, boxShadow: '0 10px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 14 },
+  dialog: { background: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 460, boxShadow: '0 10px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 14 },
   h2: { margin: 0, fontSize: 18 },
   group: { border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 },
   legend: { fontSize: 13, color: '#6b7280', marginBottom: 6, padding: 0 },
   choice: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
-  file: { display: 'block' },
+  select: { padding: '8px 10px', font: 'inherit', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' },
   error: { color: '#b91c1c', margin: 0, fontSize: 14 },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: 8 },
   button: { padding: '8px 16px', font: 'inherit', cursor: 'pointer' },

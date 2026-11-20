@@ -1,41 +1,11 @@
-import { useEffect, useState, type CSSProperties } from 'react'
-import { api, type Assignment, type Report } from './api'
+import { useState, type CSSProperties } from 'react'
+import type { Assignment, Report } from './api'
+import { TasksDialog } from './TasksDialog'
 
-// Статистика выбранного класса: отчёт кабинета по каждому варианту.
-export function ClassStats(props: { assignments: Assignment[]; refreshKey: number }) {
+// Статистика выбранного класса: отчёт кабинета по каждому заданию (отчёты грузит useReports).
+export function ClassStats(props: { assignments: Assignment[]; reports: Record<string, Report>; error?: string; loading: boolean }) {
+  const { reports, error, loading } = props
   const shown = props.assignments
-  const [reports, setReports] = useState<Record<string, Report>>({})
-  const [error, setError] = useState<string>()
-  const [loading, setLoading] = useState(false)
-
-  const ids = shown.map((a) => a.assignmentId + ':' + a.assignmentRev).join(',')
-
-  useEffect(() => {
-    let alive = true
-    let timer: number | undefined
-    const load = async () => {
-      setLoading(true)
-      try {
-        const list = await Promise.all(shown.map((a) => api.report(a)))
-        if (!alive) return
-        setReports(Object.fromEntries(list.map((r) => [r.assignmentId, r])))
-        setError(undefined)
-        // Пока работы проверяются, обновляем статистику сами.
-        if (list.some((r) => r.waiting.length > 0)) timer = window.setTimeout(load, 10000)
-      } catch (e) {
-        if (alive) setError((e as Error).message)
-      } finally {
-        if (alive) setLoading(false)
-      }
-    }
-    setReports({})
-    if (shown.length) load()
-    return () => {
-      alive = false
-      window.clearTimeout(timer)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ids, props.refreshKey])
 
   if (shown.length === 0)
     return <p style={st.muted}>В классе пока нет заданий — загрузите задание через «Загрузить файлы».</p>
@@ -60,12 +30,19 @@ function AssignmentStats({ a, r }: { a: Assignment; r: Report }) {
   const issues = new Map<string, number>()
   for (const t of r.tasks) for (const [c, n] of Object.entries(t.issuesByCategory)) issues.set(c, (issues.get(c) ?? 0) + n)
   const topIssues = [...issues].sort((x, y) => y[1] - x[1]).slice(0, 5)
+  const [tasksOpen, setTasksOpen] = useState(false)
 
   return (
     <div style={st.block}>
-      <h3 style={st.h3}>
-        {a.subject === 'physics' ? 'Физика' : 'Математика'} · {a.assignmentDate}
-      </h3>
+      <div style={st.blockHead}>
+        <h3 style={st.h3}>
+          {a.subject === 'physics' ? 'Физика' : 'Математика'} · {a.assignmentDate}
+        </h3>
+        <button onClick={() => setTasksOpen(true)} style={st.tasksButton}>
+          Задания
+        </button>
+      </div>
+      {tasksOpen && <TasksDialog a={a} onClose={() => setTasksOpen(false)} />}
 
       <div style={st.tiles}>
         <Tile value={`${r.submittedCount}/${r.students.length}`} label="сдали работу" />
@@ -126,7 +103,9 @@ const st: Record<string, CSSProperties> = {
   muted: { color: '#6b7280', margin: '6px 0' },
   error: { color: '#b91c1c', margin: '6px 0' },
   block: { border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, marginBottom: 12 },
-  h3: { margin: '0 0 10px', fontSize: 16 },
+  blockHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
+  h3: { margin: 0, fontSize: 16 },
+  tasksButton: { padding: '4px 12px', font: 'inherit', fontSize: 14, cursor: 'pointer' },
   tiles: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 },
   tile: { background: '#f9fafb', borderRadius: 8, padding: '10px 12px' },
   caption: { fontSize: 13, color: '#6b7280', margin: '8px 0 6px' },
