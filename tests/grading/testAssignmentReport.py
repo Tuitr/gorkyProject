@@ -72,6 +72,16 @@ def testReportSelectsAcceptedAttemptAndPinsEachRevision(
         assert accepted == AssignmentReport.model_validate(contractExample("grading/assignmentReport.json"))
         assert api.get(path, headers=headers).json() == accepted.model_dump(mode="json")
 
+        with Session(gradingEngine) as session, session.begin():
+            resubmission = contractExample("events/attemptSubmitted.json")
+            resubmission.update(eventId="submission-5", occurredAt="2026-11-20T09:05:00Z")
+            resubmission["payload"].update(checkId="c5", attemptId="a5", studentId="s1")
+            saveEvent(session, incomingEventAdapter.validate_python(resubmission))
+        draftResubmission = store.saveDraft("c5", "initial", (right,), "")
+        store.publish("c5", draftResubmission.resultRev,
+                      MarkdownRef(bucket="results", key="c5", sha256="a" * 64), lambda _: None)
+        assert api.get(path, headers=headers).json() == accepted.model_dump(mode="json")
+
         correction = store.saveDraft("c1", "teacher-edit", (right,), "")
         assert correction.resultRev == 2
         assert api.get(path, headers=headers).json() == accepted.model_dump(mode="json")
@@ -89,7 +99,7 @@ def testReportSelectsAcceptedAttemptAndPinsEachRevision(
             event["payload"]["assignmentRev"] = 2
             saveEvent(session, incomingEventAdapter.validate_python(event))
             session.get_one(AssignmentJob, ("w1", 2)).stageData = {"tasks": tasks}
-        empty = AssignmentReport.model_validate(api.get(path, headers=headers).json())
-        assert empty.rev == 4 and empty.assignmentRev == 2 and empty.studentCount == 0
-        assert empty.tasks[0].correctShare is None and sum(empty.tasks[0].answer.values()) == 0
+        empty = api.get(path, headers=headers)
+        assert empty.status_code == 200
+        assert empty.json() == contractExample("grading/assignmentReportEmpty.json")
         assert api.get(path, params={"rev": 2}, headers=headers).json() == accepted.model_dump(mode="json")

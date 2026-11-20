@@ -18,6 +18,7 @@ from contracts.v1.grading.taskresult import Issue, TaskResult
 from grading.inbox import saveEvent
 from grading.intake import incomingEventAdapter
 from grading.main import createApp
+from grading.markdown import inlineText
 from grading.markdownStorage import MarkdownStorage
 from grading.results import ResultStore
 from grading.settings import Settings
@@ -56,7 +57,7 @@ def testConcurrentEditsHaveOneWinnerAndReplayReturnsItsReceipt(
 
     requests = (body("edit-1", "teacher-a"), body("edit-2", "teacher-b"))
     storage = Mock(spec=MarkdownStorage)
-    storage.save.return_value = ref.model_copy(update={"key": "edited.md"})
+    storage.save.side_effect = [ref.model_copy(update={"key": f"edited-{rev}.md"}) for rev in (2, 3)]
     with TestClient(createApp(settings, engine=gradingEngine, storage=storage)) as api:
         assert api.patch(path, json=requests[0]).status_code == 401
         assert api.patch(path, headers={"Authorization": "Bearer reader-service"}, json=requests[0]).status_code == 403
@@ -87,17 +88,40 @@ def testConcurrentEditsHaveOneWinnerAndReplayReturnsItsReceipt(
         changed = api.patch(path, headers=headers, json={**applied, "actorId": "another-editor"})
         assert changed.status_code == 409 and changed.headers[RESULT_REV_HEADER] == "2"
 
-        reading = api.get("/internal/v1/checks/c1", headers={"Authorization": "Bearer reader-service"})
+        checkPath = "/internal/v1/checks/c1"
+        readerHeaders = {"Authorization": "Bearer reader-service"}
+        winningReview = f"Ручной отзыв {applied['actorId']}."
+        reading = api.get(checkPath, headers=readerHeaders)
         assert reading.json()["resultRev"] == 2 and reading.json()["state"] == "ready"
-        assert storage.save.call_count == 1
+        assert reading.json()["overallReview"] == winningReview
+        storage.save.assert_called_once()
+        assert inlineText(winningReview) in storage.save.call_args.args[2]
+
+        followup = {"baseRev": 2, "editId": "edit-3", "actorId": applied["actorId"], "changes": [
+            {"op": "setVerdict", "taskId": "t1", "reasoning": "valid"},
+        ]}
+        nextEdit = api.patch(path, headers=headers, json=followup)
+        assert nextEdit.status_code == 200 and nextEdit.json()["resultRev"] == 3
+
+        again = api.patch(path, headers=headers, json=applied)
+        assert again.status_code == 200 and again.json() == winner.json()
+        rejected = api.patch(path, headers=headers, json=requests[1 - winningIndex])
+        assert rejected.status_code == 409 and rejected.headers[RESULT_REV_HEADER] == "3"
+
+        latest = api.get(checkPath, headers=readerHeaders).json()
+        assert latest["resultRev"] == 3 and latest["overallReview"] == winningReview
+        assert latest["taskResults"][0]["reasoning"] == "valid"
+        assert api.get(checkPath, headers=readerHeaders, params={"resultRev": 2}).json() == reading.json()
+        assert storage.save.call_count == 2
+        assert inlineText(winningReview) in storage.save.call_args.args[2]
 
     saved = store.findDraft("c1", f"teacher:{receipt.editId}")
     assert saved is not None and saved.resultRev == 2
     edited = saved.taskResults[0]
     assert edited.answer == "correct" and edited.reasoning == "invalid" and not edited.needsReview
     assert edited.issues == [independent.model_copy(update={"comment": "Уточните формулу."})]
-    assert saved.overallReview == f"Ручной отзыв {applied['actorId']}."
+    assert saved.overallReview == winningReview
     assert store.findDraft("c1", "initial") == original
     with Session(gradingEngine) as session:
         history = session.query(TeacherReviewEdit).all()
-        assert len(history) == 1 and history[0].request == applied
+        assert {row.resultRev: row.request for row in history} == {2: applied, 3: followup}
