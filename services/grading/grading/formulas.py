@@ -11,6 +11,8 @@ from grading.word import W
 M = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
 OBJECT = "\ufffc"  # One source character per inline equation, including empty equations.
 REVIEW = "[формула требует уточнения]"
+WORD_OBJECTS = {W + name for name in ("drawing", "pict", "object", "sym", "contentPart", "subDoc", "fldSimple", "instrText")}
+WORD_OBJECTS.add("{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent")
 ReadStatus = Literal["read", "ambiguous"]
 
 SUPER = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻"
@@ -126,8 +128,8 @@ def ommlLatex(node: Element) -> str:
     raise AmbiguousFormula
 
 
-def wordFragments(node: Element, alignment: str | None = None) -> Iterator[tuple[str, str | None, Element | None]]:
-    if node.tag == M + "oMath":
+def wordFragments(node: Element, includeEmbedded: bool, alignment: str | None = None) -> Iterator[tuple[str, str | None, Element | None]]:
+    if node.tag == M + "oMath" or (includeEmbedded and node.tag in WORD_OBJECTS):
         yield OBJECT, OBJECT, node
     elif node.tag == W + "t":
         source = node.text or ""
@@ -146,7 +148,7 @@ def wordFragments(node: Element, alignment: str | None = None) -> Iterator[tuple
             prop = node.find(f"{W}rPr/{W}vertAlign")
             alignment = prop.get(W + "val") if prop is not None else None
         for child in node:
-            yield from wordFragments(child, alignment)
+            yield from wordFragments(child, includeEmbedded, alignment)
 
 
 @dataclass
@@ -157,12 +159,12 @@ class MathParagraph:
     unclear: list[tuple[int, int]]
 
     @classmethod
-    def fromWord(cls, paragraph: Element) -> "MathParagraph":
+    def fromWord(cls, paragraph: Element, *, includeEmbedded: bool = False) -> "MathParagraph":
         raw, typed = [], []
         objects = {}
         unclear = []
         offset = 0
-        for source, formatted, equation in wordFragments(paragraph):
+        for source, formatted, equation in wordFragments(paragraph, includeEmbedded):
             if equation is not None:
                 objects[offset] = equation
             if formatted is None and source:
@@ -176,7 +178,7 @@ class MathParagraph:
         if any(start < stop and pos < end for pos, stop in self.unclear):
             return REVIEW, "ambiguous"
         parts = []
-        status: ReadStatus = "read"
+        status: ReadStatus = "ambiguous" if "\ufffd" in self.source[start:end] else "read"
         cursor = start
         equations: list[str] = []
         try:
@@ -189,7 +191,7 @@ class MathParagraph:
                     equations.append(ommlLatex(equation))
                 except AmbiguousFormula:
                     parts.append(typedMarkdown(self.typed[cursor:pos], iter(equations)))
-                    parts.append(REVIEW)
+                    parts.append("[фрагмент требует уточнения]" if equation is not None and equation.tag in WORD_OBJECTS else REVIEW)
                     equations.clear()
                     status = "ambiguous"
                     cursor = pos + 1

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from base64 import b64decode
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -19,7 +20,7 @@ from dataset.generate import generateDataset
 from grading.assignment import AssignmentTask
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
 from grading.stream import StreamConsumer
-from grading.submission import CellAddress, readSubmission, resolveAnchor, resolveEquations
+from grading.submission import CellAddress, readSubmission, readSubmissionDetails, resolveAnchor, resolveEquations, resolveObjects
 from grading.word import WordReadError
 from grading.worker import GradingWorker
 
@@ -148,11 +149,102 @@ def testOpenDatasetStepsMatchTheManifest() -> None:
         tasks = [AssignmentTask("t" + ref.taskNumber, ref.taskNumber, ref.statement, ())
                  for ref in (item.assignmentRef for item in items)]
         document = dataset.files[file]
-        steps = readSubmission(submittedInput(document), document, tasks)
-        assert [(step.taskId, step.stepId, step.markdown, step.readStatus) for step in steps] == [
+        reading = readSubmissionDetails(submittedInput(document), document, tasks)
+        assert not reading.unassignedFragments
+        assert [(step.taskId, step.stepId, step.markdown, step.readStatus) for step in reading.steps] == [
             ("t" + item.assignmentRef.taskNumber, expected.stepId, expected.markdown, "read")
             for item in items for expected in item.expectedSteps
         ], file
+        for task, item in zip(reading.taskReadings, items, strict=True):
+            if item.expectedVerdict.answer == "skipped":
+                assert task.status == "skipped"
+            elif item.expectedVerdict.reasoning == "not_shown":
+                assert task.status == "answerOnly"
+            else:
+                assert task.status == "hasSteps"
+            assert task.reviewReason is None
+
+
+def testCopiedStatementAnswerOnlyAndUnreadableWorkInTheSameDocument() -> None:
+    word = Document()
+    tasks = (
+        AssignmentTask("t1", "1", "Дан вектор.\nНайдите его длину.", ()),
+        AssignmentTask("t2", "2", "Вычислите сумму.", ()),
+        AssignmentTask("t3", "3", "Запишите решение.", ()),
+        AssignmentTask("t4", "4", "Найдите разность.", ()),
+    )
+    word.add_paragraph("Задание 1. Дан   вектор.")
+    word.add_paragraph("Найдите его длину.")
+    word.add_paragraph("Ответ:  ")
+    word.add_paragraph("Задание № 2. Вычислите сумму. Ответ: −5")
+    word.add_paragraph("Задание 3.")
+    cell = word.add_table(rows=1, cols=1).cell(0, 0)
+    cell.text = "x = 3"
+    # A real picture saved inside the DOCX. The original drawing must remain locatable.
+    picture = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=")
+    cell.add_paragraph().add_run().add_picture(BytesIO(picture))
+    word.add_paragraph("Задание 4.")
+    word.add_paragraph("7 − 3 = 4")
+    word.add_paragraph("Ответ: 4")
+    buf = BytesIO()
+    word.save(buf)
+    document = buf.getvalue()
+
+    reading = readSubmissionDetails(submittedInput(document), document, tasks)
+    assert not reading.unassignedFragments
+    assert [(task.taskId, task.status) for task in reading.taskReadings] == [
+        ("t1", "skipped"), ("t2", "answerOnly"), ("t3", "needsReview"), ("t4", "hasSteps"),
+    ]
+    assert reading.taskReadings[2].reviewReason
+    assert [(step.taskId, step.stepId, step.readStatus) for step in reading.steps] == [
+        ("t2", "s1", "read"), ("t3", "s1", "read"), ("t3", "s2", "ambiguous"),
+        ("t4", "s1", "read"), ("t4", "s2", "read"),
+    ]
+    assert resolveAnchor(document, reading.steps[0].sourceAnchor).strip() == "Ответ: −5"
+    anchor = reading.steps[2].sourceAnchor
+    assert anchor.cells == (CellAddress(0, 0, 0),)
+    drawing, = resolveObjects(document, anchor)
+    assert drawing.tag.endswith("}drawing") and drawing.find(".//{*}blip") is not None
+    assert not resolveEquations(document, anchor)
+    assert reading.steps[3].markdown == "$7 - 3 = 4$"
+
+
+@pytest.mark.parametrize("unknown", ["Задание 99.", "Задание ?."])
+def testUnknownHeadingLeavesItsLinesForReviewAndResumesAtTheNextHeading(unknown: str) -> None:
+    word = Document()
+    for line in ("Задание 1.", "2 + 3 = 5", unknown, "Ответ: 88", "Задание 3.", "−4"):
+        word.add_paragraph(line)
+    buf = BytesIO()
+    word.save(buf)
+    document = buf.getvalue()
+    tasks = [AssignmentTask(f"t{i}", str(i), "Вычислите.", ()) for i in (1, 2, 3)]
+    reading = readSubmissionDetails(submittedInput(document), document, tasks)
+    assert [task.status for task in reading.taskReadings] == ["hasSteps", "needsReview", "answerOnly"]
+    assert reading.taskReadings[1].reviewReason
+    assert [(step.taskId, step.markdown) for step in reading.steps] == [("t1", "$2 + 3 = 5$"), ("t3", "$-4$")]
+    assert all(fragment.reviewReason for fragment in reading.unassignedFragments)
+    assert [
+        resolveAnchor(document, fragment.sourceAnchor) for fragment in reading.unassignedFragments
+        if fragment.sourceAnchor is not None
+    ] == [unknown, "Ответ: 88"]
+
+
+def testHiddenOrUnboundWorkDoesNotBecomeASkip() -> None:
+    word = Document()
+    word.add_paragraph("Задание 1.")
+    paragraph = word.add_paragraph("Задание 2.")
+    paragraph._p.addprevious(parse_xml('<w:altChunk xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'))
+    word.add_paragraph("Ответ: \ufffd")
+    buf = BytesIO()
+    word.save(buf)
+    document = buf.getvalue()
+    tasks = [AssignmentTask(f"t{i}", str(i), "Вычислите.", ()) for i in (1, 2, 3)]
+    reading = readSubmissionDetails(submittedInput(document), document, tasks)
+    assert all(task.status == "needsReview" and task.reviewReason for task in reading.taskReadings)
+    assert reading.unassignedFragments[0].reviewReason
+    assert len(reading.steps) == 1 and reading.steps[0].readStatus == "ambiguous"
+    with pytest.raises(WordReadError, match="cannot read"):
+        readSubmissionDetails(submittedInput(b"incomplete"), b"incomplete", tasks)
 
 
 def testWorkerReadsGeneratedWorkAndRestoresItsAnchors(
@@ -199,6 +291,8 @@ def testWorkerReadsGeneratedWorkAndRestoresItsAnchors(
         raise AssertionError("expected saved submission steps")
 
     assert worker.parseSubmission(resumed, unexpectedLoad) == steps
+    stored = worker.parseSubmissionDetails(resumed, unexpectedLoad)
+    assert stored.steps == steps and all(task.status == "hasSteps" for task in stored.taskReadings)
 
     # Old checkpoints could contain zero steps even when an equation was present.
     assert worker.jobs.checkpoint(resumed, "submission_parsed", {"steps": []})
@@ -206,3 +300,8 @@ def testWorkerReadsGeneratedWorkAndRestoresItsAnchors(
     legacyLease = worker.jobs.claimCheck()
     assert legacyLease is not None
     assert worker.parseSubmission(legacyLease, loadDocument) == steps
+    assert worker.jobs.checkpoint(legacyLease, "submission_parsed", {"parserVersion": 2, "steps": []})
+    assert worker.jobs.reschedule(legacyLease, "queued", datetime(2000, 1, 1, tzinfo=UTC))
+    versionTwo = worker.jobs.claimCheck()
+    assert versionTwo is not None
+    assert worker.parseSubmissionDetails(versionTwo, loadDocument) == stored

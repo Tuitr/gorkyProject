@@ -13,12 +13,12 @@ from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
 from grading.stream import StreamConsumer, StreamDelivery
-from grading.submission import SolutionStep, readSubmission
+from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
 from grading.tables import AssignmentJob
 
 parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
-solutionStepsAdapter: TypeAdapter[tuple[SolutionStep, ...]] = TypeAdapter(tuple[SolutionStep, ...])
-SUBMISSION_PARSE_VERSION = 2  # The original checkpoint omitted OMML, including equation-only lines.
+submissionReadingAdapter = TypeAdapter(SubmissionReading)
+SUBMISSION_PARSE_VERSION = 3
 
 
 class GradingWorker:
@@ -68,13 +68,16 @@ class GradingWorker:
         return tasks
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
+        return self.parseSubmissionDetails(lease, loadDocument).steps
+
+    def parseSubmissionDetails(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> SubmissionReading:
         if not isinstance(lease.key, str):
             raise ValueError("expected a submission check job")
         if lease.completedStage == "submission_parsed" and lease.stageData is not None:
             version = lease.stageData.get("parserVersion", 1)
             if version == SUBMISSION_PARSE_VERSION:
-                return solutionStepsAdapter.validate_python(lease.stageData["steps"])
-            if version != 1:
+                return submissionReadingAdapter.validate_python(lease.stageData)
+            if version not in (1, 2):
                 raise ValueError("unsupported submission parser checkpoint version")
         elif lease.completedStage is not None:
             raise ValueError("unexpected checkpoint for submission parsing")
@@ -84,8 +87,8 @@ class GradingWorker:
             if assignment is None or assignment.stageData is None or "tasks" not in assignment.stageData:
                 raise ValueError("parsed tasks are unavailable for the submitted assignment revision")
             tasks = parsedTasksAdapter.validate_python(assignment.stageData["tasks"])
-        steps = readSubmission(submitted, loadDocument(submitted.docRef), tasks)
-        data = {"parserVersion": SUBMISSION_PARSE_VERSION, "steps": solutionStepsAdapter.dump_python(steps, mode="json")}
+        reading = readSubmissionDetails(submitted, loadDocument(submitted.docRef), tasks)
+        data = {"parserVersion": SUBMISSION_PARSE_VERSION, **submissionReadingAdapter.dump_python(reading, mode="json")}
         if not self.jobs.checkpoint(lease, "submission_parsed", data):
             raise RuntimeError("check lease expired before the submission parse could be saved")
-        return steps
+        return reading
