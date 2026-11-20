@@ -3,11 +3,13 @@
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
 from cabinet.auth.throttle import LoginThrottle, clientKey, loginKey
+from contracts.v1.cabinet.registration import TEACHER_LOGIN_CONFLICT_MESSAGE
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE, LOGIN_THROTTLED_MESSAGE, LoginRequest, TeacherSession
 from shared.httperrors import ApiProblem
 
@@ -23,15 +25,22 @@ class TeacherAccounts:
         self.throttle = throttle
 
     def create(self, login: str, displayName: str, password: str) -> TeacherSession:
-        record = TeacherRecord(
-            teacherId=str(uuid.uuid4()),
-            login=normalizeLogin(login),
-            displayName=displayName,
-            passwordHash=self.passwords.hash(password),
+        teacherId = str(uuid.uuid4())
+        statement = (
+            insert(TeacherRecord)
+            .values(
+                teacherId=teacherId,
+                login=normalizeLogin(login),
+                displayName=displayName,
+                passwordHash=self.passwords.hash(password),
+            )
+            .on_conflict_do_nothing(index_elements=[TeacherRecord.login])
+            .returning(TeacherRecord.teacherId)
         )
         with self.sessionFactory.begin() as session:
-            session.add(record)
-        return TeacherSession(teacherId=record.teacherId, displayName=record.displayName)
+            if session.scalar(statement) is None:
+                raise ApiProblem("conflict", TEACHER_LOGIN_CONFLICT_MESSAGE)
+        return TeacherSession(teacherId=teacherId, displayName=displayName)
 
     def find(self, login: str) -> TeacherRecord | None:
         with self.sessionFactory() as session:

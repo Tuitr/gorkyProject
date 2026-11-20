@@ -36,6 +36,7 @@ from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, r
 from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
+from contracts.v1.cabinet.registration import TeacherRegistration
 from contracts.v1.cabinet.reports import AssignmentReport, GradingReport
 from contracts.v1.cabinet.reviews import EditReview, PublishedMarkdown, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
@@ -127,6 +128,16 @@ def createApp(
         except SQLAlchemyError as error:
             raise ApiProblem("unavailable", "Cabinet database is unavailable") from error
         return {"status": "ready"}
+
+    @v1.post(
+        "/teachers/register",
+        status_code=201,
+        responses={403: {"model": ApiError}, 409: {"model": ApiError}, 422: {"model": ApiError}, 500: {"model": ApiError}},
+    )
+    def registerTeacher(body: TeacherRegistration, response: Response) -> TeacherSession:
+        teacher = accounts.create(body.email, body.displayName, body.password)
+        response.headers["Cache-Control"] = "no-store"
+        return teacher
 
     @v1.post(
         "/sessions",

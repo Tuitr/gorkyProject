@@ -116,6 +116,73 @@ def testRightCredentialsReturnTheTeacher(client: TestClient, cabinetSessions: se
     assert (status, body) == (200, {"teacherId": teacherId, "displayName": "Учитель Синтетический"})
 
 
+def testTeacherRegistersAndSignsInWithEmail(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
+    registered = client.post("/v1/teachers/register", json={
+        "email": " Teacher.Signup@Example.org ", "displayName": " Анна Петрова ", "password": PASSWORD,
+    })
+
+    assert registered.status_code == 201, registered.text
+    teacher = registered.json()
+    assert teacher == {"teacherId": teacher["teacherId"], "displayName": "Анна Петрова"}
+    assert registered.headers["cache-control"] == "no-store"
+    with cabinetSessions() as db:
+        stored = db.scalars(select(TeacherRecord)).one()
+        assert (stored.teacherId, stored.login) == (teacher["teacherId"], "teacher.signup@example.org")
+        assert PasswordHasher().verify(stored.passwordHash, PASSWORD)
+
+    assert login(client, "TEACHER.SIGNUP@example.org", PASSWORD)[:2] == (200, teacher)
+    assert client.get("/v1/sessions/current").json() == teacher
+
+
+def testConcurrentRegistrationsCannotReplaceTheAccount(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    app = createApp(SETTINGS, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    ready = Barrier(2)
+
+    def register(email: str, name: str, password: str) -> Response:
+        with TestClient(app, base_url="https://testserver") as contender:
+            ready.wait(timeout=5)
+            response: Response = contender.post("/v1/teachers/register", json={
+                "email": email, "displayName": name, "password": password,
+            })
+            return response
+
+    submissions = (
+        ("Teacher.Signup@Example.org", "Первый учитель", "first-test-password"),
+        (" teacher.signup@example.org ", "Второй учитель", "second-test-password"),
+    )
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        requests = [workers.submit(register, *submission) for submission in submissions]
+        outcomes = [request.result(timeout=10) for request in requests]
+
+    assert sorted(response.status_code for response in outcomes) == [201, 409]
+    with cabinetSessions() as db:
+        stored = db.scalars(select(TeacherRecord)).one()
+        winner = next(index for index, response in enumerate(outcomes) if response.status_code == 201)
+        assert outcomes[1 - winner].json()["code"] == "conflict"
+        assert stored.displayName == submissions[winner][1]
+        assert PasswordHasher().verify(stored.passwordHash, submissions[winner][2])
+
+
+@pytest.mark.parametrize(
+    "invalid", [{"email": "not-an-email"}, {"displayName": "   "}, {"password": "short"}, {"teacherId": "forged"}],
+    ids=["email", "name", "password", "extra-field"],
+)
+def testInvalidRegistrationDoesNotCreateAnAccount(
+    client: TestClient, cabinetSessions: sessionmaker[Session], invalid: dict[str, str],
+) -> None:
+    response = client.post("/v1/teachers/register", json={
+        "email": "teacher.signup@example.org", "displayName": "Анна Петрова", "password": PASSWORD, **invalid,
+    })
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_input"
+    assert PASSWORD not in response.text
+    with cabinetSessions() as db:
+        assert db.scalars(select(TeacherRecord)).all() == []
+
+
 def testUnknownLoginAndWrongPasswordAreRefusedAlike(
     client: TestClient, cabinetSessions: sessionmaker[Session], hasher: CountingHasher
 ) -> None:

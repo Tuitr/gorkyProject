@@ -117,7 +117,12 @@ Compose запускает отдельный процесс `outbox-publisher`.
 По `traceId` и `eventId` в логах `outbox-publisher` можно найти подтверждение публикации или повтор.
 Синтетические сообщения и DOCX для сервиса проверки хранятся в [примере передачи работ](contracts/contracts/v1/examples/handoff/README.md).
 
-### Синтетический учитель
+### Регистрация и вход учителя
+
+`POST /v1/teachers/register` принимает `email`, `displayName` и `password` длиной от 8 символов.
+При успехе кабинет создаёт аккаунт и возвращает `201` с `teacherId` и `displayName`. Затем запросите сессию
+через `POST /v1/sessions`, передав этот email в `login`. Адрес сравнивается без учёта регистра, а повторная
+регистрация существующего адреса возвращает `409`.
 
 Кабинет запускается командой `uv run uvicorn cabinet.main:createApp --factory`. Вход: `POST /v1/sessions` с
 `{"login", "password"}`. Учителя для стенда создаёт `uv run python -m cabinet.seedteacher`: логин и пароль
