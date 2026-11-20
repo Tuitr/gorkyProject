@@ -1,6 +1,7 @@
+import { useEffect, useRef } from 'react'
 import { parseRules } from '../api/source'
 import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
-import { href } from '../router'
+import { href, useRoute } from '../router'
 import { patch, useStore } from '../store'
 import { Badge } from '../ui'
 import { AssignmentHeader, NotFound, useAssignment } from './common'
@@ -9,6 +10,30 @@ import { AssignmentHeader, NotFound, useAssignment } from './common'
 export function SourceReview({ id }: { id: string }) {
   const { update } = useStore()
   const { a, classes } = useAssignment(id)
+  const { query } = useRoute()
+  const wantAdd = query.get('add') === '1'
+  const added = useRef(false)
+
+  // «Добавить номер» со страницы работы: один пустой номер в конец, курсор — в его условие
+  useEffect(() => {
+    if (!wantAdd || !a || added.current) return
+    added.current = true
+    update((s) => ({
+      ...s,
+      assignments: patch(s.assignments, id, (x) => ({
+        ...x,
+        status: 'draft',
+        tasks: [...x.tasks, { id: uid('t'), num: String(x.tasks.length + 1), text: '', manual: false, max: 1 }],
+      })),
+    }))
+    history.replaceState(null, '', href('a', id, 'source', { f: query.get('f') ?? undefined }))
+    setTimeout(() => {
+      const last = [...document.querySelectorAll<HTMLTextAreaElement>('.src-task textarea')].pop()
+      last?.scrollIntoView({ block: 'center' })
+      last?.focus()
+    }, 50)
+  }, [wantAdd, a, id, update, query])
+
   if (!a) return <NotFound />
 
   // любая правка исходника возвращает работу в черновик

@@ -71,8 +71,8 @@ export function AssignmentHeader({
     const label = STEPS.find((s) => s.id === step)?.label
     return (
       <div className="a-head a-head--focus">
-        <a className="back-link" href="#/">
-          ← Работы
+        <a className="back-link" href={href('a', a.id)}>
+          ← {a.title}
         </a>
         <h1>
           {label} <span className="a-head__of">· {a.title}</span>

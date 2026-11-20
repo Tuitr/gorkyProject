@@ -40,6 +40,7 @@ export type Work = {
   image: string // URL или data:URL
   taskImage?: string // фото/скан текста задания
   source: 'sample' | 'camera' | 'upload'
+  fileName?: string // имя загруженного файла — подпись к его расшифровке
   createdAt: number
   result?: CheckResult // нет — ещё не проверена
 }

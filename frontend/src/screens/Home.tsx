@@ -37,7 +37,7 @@ export function Home() {
           {list.map((a) => {
             const subs = state.submissions.filter((s) => s.assignmentId === a.id)
             const q = state.review.filter((r) => !r.resolved && subs.some((s) => s.id === r.submissionId)).length
-            const main = href('a', a.id, a.status === 'draft' ? 'source' : 'collect')
+            const main = href('a', a.id)
             return (
               <li key={a.id} className={`card${a.status === 'draft' ? ' is-draft' : ''}`}>
                 <div className="card__head">

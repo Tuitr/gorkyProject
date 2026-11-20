@@ -12,6 +12,11 @@ const SYMBOLS: Record<string, string> = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', Delta: 'Δ', pi: 'π', varphi: 'φ', phi: 'φ', lambda: 'λ', angle: '∠',
   triangle: '△', perp: '⊥', parallel: '∥', in: '∈', cup: '∪', cap: '∩', ldots: '…', dots: '…', cdots: '…',
   quad: ' ', qquad: ' ', lt: '<', gt: '>', sim: '~', varnothing: '∅', emptyset: '∅',
+  epsilon: 'ε', varepsilon: 'ε', kappa: 'κ', varkappa: 'κ', theta: 'θ', mu: 'μ', nu: 'ν', rho: 'ρ', sigma: 'σ',
+  tau: 'τ', omega: 'ω', Omega: 'Ω', xi: 'ξ', eta: 'η', psi: 'ψ', chi: 'χ', zeta: 'ζ', Sigma: 'Σ', Pi: 'Π',
+  partial: '∂', sum: 'Σ', prod: '∏', int: '∫', nabla: '∇', vdots: '⋮', ddots: '⋱', prime: '′', backprime: '′',
+  leftarrow: '←', Leftarrow: '⇐', mapsto: '↦', equiv: '≡', cong: '≅', propto: '∝', notin: '∉', subset: '⊂',
+  forall: '∀', exists: '∃', neg: '¬', wedge: '∧', vee: '∨', top: '', bot: '⊥', colon: ':', mid: '|', vert: '|',
 }
 const ROOTS: Record<string, string> = { '': '√', '2': '√', '3': '∛', '4': '∜' }
 
@@ -33,7 +38,7 @@ export function latexToText(input: string): string {
     .replace(/\}\s+\{/g, '}{')
     .replace(/\]\s+\{/g, ']{')
     .replace(/\s*([_^])\s*/g, '$1')
-    .replace(/\\(?:left|right|big|Big|bigl|bigr|displaystyle)\b\s*/g, '')
+    .replace(/\\(?:left|right|[Bb]igg?[lrm]?|displaystyle|textstyle|limits|nolimits)(?![a-zA-Z])\s*/g, '')
 
   // изнутри наружу: каждый проход раскрывает самые внутренние {…}
   for (let i = 0; i < 10; i++) {
@@ -41,6 +46,9 @@ export function latexToText(input: string): string {
     s = s
       .replace(/\\(?:vec|overrightarrow)\{([^{}]*)\}/g, (_, a: string) => `${a.trim()}⃗`)
       .replace(/\\(?:overline|bar)\{([^{}]*)\}/g, (_, a: string) => a.trim())
+      // оформление, не нужное в тексте (подчёркивания, рамки, шляпки), — оставляем содержимое
+      .replace(/\\(?:underline|underbrace|overbrace|boxed|hat|widehat|tilde|widetilde|cancel|dot|ddot)\{([^{}]*)\}/g, '$1')
+      .replace(/\\(?:overset|underset|stackrel)\{[^{}]*\}\{([^{}]*)\}/g, '$1')
       .replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, (_, a: string, b: string) => `${wrap(a)}/${wrap(b)}`)
       .replace(/\\sqrt(?:\[(\d*)\])?\{([^{}]*)\}/g, (_, n = '', a: string) => `${ROOTS[n] ?? `${n}√`}${wrap(a)}`)
       .replace(/\\(?:text|textbf|mathrm|mathbf|mathit|mathcal|mathfrak|mathbb|operatorname|boldsymbol)\{([^{}]*)\}/g, '$1')

@@ -10,6 +10,7 @@ import { Classes } from './screens/Classes'
 import { Collect } from './screens/Collect'
 import { Gradebook } from './screens/Gradebook'
 import { Home } from './screens/Home'
+import { Hub } from './screens/Hub'
 import { Practice } from './screens/Practice'
 import { PrintView } from './screens/Print'
 import { Queue } from './screens/Queue'
@@ -28,6 +29,7 @@ function Screen() {
   if (p0 === 'quick') return <QuickCheck />
   if (p0 === 'a' && p1) {
     const c = query.get('c') ?? undefined
+    if (!p2) return <Hub id={p1} />
     switch (p2) {
       case 'edit':
         return <AssignmentForm id={p1} />

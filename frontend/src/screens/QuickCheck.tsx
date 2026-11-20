@@ -3,6 +3,7 @@ import { checkWork } from '../api/check'
 import { recognize, type OcrResult } from '../api/ocr'
 import { CameraCapture } from '../components/CameraCapture'
 import { LatexBlock, OcrPanel, type Pipeline } from '../components/OcrPanel'
+import { PhotoText } from '../components/PhotoText'
 import { ReportPanel } from '../components/ReportPanel'
 import { WorkViewer } from '../components/WorkViewer'
 import { SAMPLE_WORKS } from '../data/samples'
@@ -61,10 +62,17 @@ export function QuickCheck() {
     }
   }, [])
 
-  const addWork = (image: string, source: Work['source']) => {
-    const n = works.filter((w) => w.source !== 'sample').length + 1
-    const work: Work = { id: `w${Date.now()}`, title: `Новая работа ${n}`, image, source, createdAt: Date.now() }
-    setWorks((ws) => [work, ...ws])
+  const addWork = (image: string, source: Work['source'], fileName?: string, createdAt = Date.now()) => {
+    // id и номер — уникальные, даже когда несколько фото добавляются разом
+    const work: Work = {
+      id: `w${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: '',
+      image,
+      source,
+      fileName,
+      createdAt,
+    }
+    setWorks((ws) => [{ ...work, title: `Новая работа ${ws.filter((w) => w.source !== 'sample').length + 1}` }, ...ws])
     select(work.id)
     setCameraOpen(false)
     void runPipeline(work)
@@ -75,20 +83,16 @@ export function QuickCheck() {
     if (id === currentId) select(SAMPLE_WORKS[0].id)
   }
 
-  const onFile = (file?: File) => {
-    if (!file) return
+  /** Время берём в момент выбора: файлы читаются параллельно, а порядок должен остаться как при выборе. */
+  const onFile = (file: File, createdAt: number) => {
     const reader = new FileReader()
-    reader.onload = () => addWork(String(reader.result), 'upload')
+    reader.onload = () => addWork(String(reader.result), 'upload', file.name, createdAt)
     reader.readAsDataURL(file)
   }
 
   return (
     <div className="quick">
-      <header className="page-head">
-        <div>
-          <h1>Быстрая проверка</h1>
-          <div className="muted">Одно фото без класса и ученика: OCR → GigaChat → ошибки на фото</div>
-        </div>
+      <header className="page-head quick__head">
         <div className="page-head__actions">
           <button className="btn" onClick={() => fileRef.current?.click()}>
             Загрузить фото (можно несколько)
@@ -103,12 +107,15 @@ export function QuickCheck() {
             multiple
             hidden
             onChange={(e) => {
-              Array.from(e.target.files ?? []).forEach((f) => onFile(f))
+              const now = Date.now()
+              Array.from(e.target.files ?? []).forEach((f, i) => onFile(f, now + i))
               e.target.value = ''
             }}
           />
         </div>
       </header>
+
+      <PhotoText works={works} pipeline={pipeline} />
 
       <div className="quick__layout">
         <nav className="works" aria-label="Работы">
