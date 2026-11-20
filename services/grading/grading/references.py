@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
-from http.client import HTTPConnection, HTTPSConnection
+from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from urllib.parse import quote, urlsplit
 
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult, referenceResultAdapter
@@ -46,23 +46,16 @@ class ReferenceClient:
         connect = HTTPSConnection if url.scheme == "https" else HTTPConnection
         connection = connect(url.hostname, url.port, timeout=5)
         try:
-            try:
-                connection.request(
-                    method, url.path.rstrip("/") + path, body=body,
-                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"},
-                )
-            except (OSError, TimeoutError) as error:
-                raise ReferenceUnavailableError("reference registry connection failed") from error
-            try:
-                response = connection.getresponse()
-            except (OSError, TimeoutError) as error:
-                raise ReferenceUnavailableError("reference registry connection failed") from error
+            connection.request(
+                method, url.path.rstrip("/") + path, body=body,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"},
+            )
+            response = connection.getresponse()
             if response.status in (408, 425, 429, 500, 502, 503, 504):
                 retryAfterS = 5
                 retryHeader = response.getheader("Retry-After")
                 if retryHeader is not None and retryHeader.isdigit():
                     retryAfterS = max(1, int(retryHeader))
-                response.read()
                 raise ReferenceUnavailableError(
                     f"reference registry temporarily returned HTTP {response.status}", retryAfterS=retryAfterS,
                 )
@@ -71,14 +64,13 @@ class ReferenceClient:
                     f"reference registry returned HTTP {response.status}",
                     reasonCode="reference_not_found" if response.status == 404 else "reference_registry_rejected",
                 )
-            try:
-                payload = response.read()
-            except (OSError, TimeoutError) as error:
-                raise ReferenceUnavailableError("reference registry response could not be read") from error
+            payload = response.read()
             result = referenceResultAdapter.validate_json(payload)
             expectedStatus = 202 if method == "POST" and result.state == "pending" else 200
             if response.status != expectedStatus:
                 raise ValueError("reference state differs from the HTTP response status")
             return result
+        except (OSError, HTTPException) as error:
+            raise ReferenceUnavailableError("reference registry exchange interrupted") from error
         finally:
             connection.close()

@@ -4,8 +4,10 @@ import hashlib
 import json
 import socket
 from collections.abc import Callable, Iterator
+from http.client import IncompleteRead
 from threading import Thread
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 import uvicorn
@@ -21,8 +23,8 @@ from dataset.docxwriter import Paragraph, buildDocx
 from grading.intake import IncomingDocRef
 from grading.stream import StreamConsumer
 from grading.tables import AssignmentJob, CheckJob
-from grading.references import ReferenceUnavailableError
-from grading.worker import REFERENCE_RETRY_LIMIT, GradingWorker
+from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
+from grading.worker import REFERENCE_RETRY_LIMIT, GradingWorker, referencesAdapter
 from references.registry.main import createApp
 from references.registry.tables import ReferenceRecord
 from references.settings import Settings
@@ -32,6 +34,20 @@ from shared.clock import ManualClock
 @pytest.fixture
 def registryClock() -> ManualClock:
     return ManualClock()
+
+
+@pytest.mark.parametrize("status", [200, 503])
+def testInterruptedResponseUsesTransientRetryPolicy(status: int) -> None:
+    with patch("grading.references.HTTPConnection") as connect:
+        connection = connect.return_value
+        response = connection.getresponse.return_value
+        response.status = status
+        response.getheader.return_value = "7"
+        response.read.side_effect = IncompleteRead(b"{", 20)
+        with pytest.raises(ReferenceUnavailableError) as failure:
+            ReferenceClient("http://localhost", "test").get("r1")
+        assert failure.value.retryAfterS == (7 if status == 503 else 5)
+        connection.close.assert_called_once()
 
 
 @pytest.fixture
@@ -219,6 +235,7 @@ def testTerminalReferenceStateRoutesSubmissionToTeacherReview(
     worker = GradingWorker(StreamConsumer(client, "terminal", streamName=stream), gradingEngine, clock=clock.now)
     document = buildDocx("Variant", [Paragraph("1. Длина вектора (3; 4)")])
     event = contractExample("events/assignmentPublished.json")
+    event["payload"]["requirements"] = []
     event["payload"]["docRef"]["sha256"] = hashlib.sha256(document).hexdigest()
     client.xadd(stream, {DATA_FIELD: json.dumps(event)})
     worker.runBatch()
@@ -230,14 +247,16 @@ def testTerminalReferenceStateRoutesSubmissionToTeacherReview(
         stored = session.get_one(AssignmentJob, ("w1", 1))
         assert stored.state == "needs_review"
         assert stored.stageData is not None
-        assert stored.stageData["references"]["t1"]["reasonCode"] == terminal.reasonCode
+        assert referencesAdapter.validate_python(stored.stageData["references"])["t1"] == terminal
 
     submitted = contractExample("events/attemptSubmitted.json")
+    submission = buildDocx("Работа", [Paragraph("Задание 1. Ответ: 5")])
+    submitted["payload"]["docRef"]["sha256"] = hashlib.sha256(submission).hexdigest()
     client.xadd(stream, {DATA_FIELD: json.dumps(submitted)})
     worker.runBatch()
     check = worker.jobs.claimCheck()
     assert check is not None
-    assert worker.prepareCheck(check, lambda _: b"") is None
+    assert worker.prepareCheck(check, lambda _: submission) is None
     with Session(gradingEngine) as session:
         assert session.get_one(CheckJob, "c1").state == "needs_review"
 
@@ -250,6 +269,7 @@ def testTransientReferenceFailureReschedulesAndThenUsesReadyResult(
     worker = GradingWorker(StreamConsumer(client, "transient", streamName=stream), gradingEngine, clock=clock.now)
     document = buildDocx("Variant", [Paragraph("1. Длина вектора (3; 4)")])
     event = contractExample("events/assignmentPublished.json")
+    event["payload"]["requirements"] = []
     event["payload"]["docRef"]["sha256"] = hashlib.sha256(document).hexdigest()
     client.xadd(stream, {DATA_FIELD: json.dumps(event)})
     worker.runBatch()
@@ -278,30 +298,61 @@ def testTransientReferenceFailureReschedulesAndThenUsesReadyResult(
     assert calls == 2 and refs["t1"].referenceId == "r1"
 
 
-def testTransientReferenceFailureStopsAfterThreeAttempts(
+@pytest.mark.parametrize("missingOnGet", [True, False])
+def testFailedReferenceLeavesNeighborAvailable(
     gradingEngine: Engine, gradingStream: tuple[Redis, str], contractExample: Callable[[str], Any],
+    missingOnGet: bool,
 ) -> None:
     client, stream = gradingStream
     clock = ManualClock()
     worker = GradingWorker(StreamConsumer(client, "exhausted", streamName=stream), gradingEngine, clock=clock.now)
-    document = buildDocx("Variant", [Paragraph("1. Длина вектора (3; 4)")])
+    document = buildDocx("Variant", [Paragraph("1. Первое"), Paragraph("2. Второе")])
     event = contractExample("events/assignmentPublished.json")
     event["payload"]["docRef"]["sha256"] = hashlib.sha256(document).hexdigest()
     client.xadd(stream, {DATA_FIELD: json.dumps(event)})
     worker.runBatch()
-    calls = 0
+    calls: list[str] = []
 
-    def request(_: ReferenceRequest) -> ReferenceResult:
-        nonlocal calls
-        calls += 1
+    def request(task: ReferenceRequest) -> ReferenceResult:
+        calls.append(task.taskId)
+        if task.taskId == "t2":
+            return ReferenceReady(referenceId="r2", state="ready", source="fixture", schemaId="scalar.v1",
+                                  value={"exact": "5"}, solverVersion=None)
+        if missingOnGet:
+            return ReferencePending(referenceId="r1", state="pending", retryAfterS=1)
         raise ReferenceUnavailableError("temporary outage", retryAfterS=1)
 
-    for attempt in range(REFERENCE_RETRY_LIMIT):
+    def get(referenceId: str) -> ReferenceResult:
+        calls.append(referenceId)
+        raise ReferenceTerminalError("HTTP 404", reasonCode="reference_not_found")
+
+    for attempt in range(2 if missingOnGet else REFERENCE_RETRY_LIMIT):
         lease = worker.jobs.claimAssignment()
         assert lease is not None
-        assert worker.prepareAssignment(lease, lambda _: document, requestReference=request) == {}
-        if attempt < REFERENCE_RETRY_LIMIT - 1:
-            clock.advance(1)
-    assert calls == REFERENCE_RETRY_LIMIT
+        refs = worker.prepareAssignment(lease, lambda _: document, requestReference=request, getReference=get)
+        assert refs["t2"].referenceId == "r2"
+        clock.advance(1)
+    assert calls == (["t1", "t2", "r1"] if missingOnGet else ["t1", "t2", "t1", "t1"])
+    assert set(refs) == {"t2"}
+    assert worker.jobs.claimAssignment() is None
     with Session(gradingEngine) as session:
         assert session.get_one(AssignmentJob, ("w1", 1)).state == "needs_review"
+
+    submitted = contractExample("events/attemptSubmitted.json")
+    submission = buildDocx("Работа", [Paragraph("Задание 1. Ответ: 2"), Paragraph("Задание 2. Ответ: 5")])
+    submitted["payload"]["docRef"]["sha256"] = hashlib.sha256(submission).hexdigest()
+    client.xadd(stream, {DATA_FIELD: json.dumps(submitted)})
+    worker.runBatch()
+    check = worker.jobs.claimCheck()
+    assert check is not None
+    reading = worker.parseSubmissionDetails(check, lambda _: submission)
+    assert worker.jobs.reschedule(check, "queued", clock.now())
+    resumed = worker.jobs.claimCheck()
+    assert resumed is not None
+    prepared = worker.prepareCheck(resumed, lambda _: b"")
+    assert prepared is not None and prepared.reading == reading
+    assert list(prepared.references) == ["t2"] and list(prepared.referenceErrors) == ["t1"]
+    code = "reference_not_found" if missingOnGet else "reference_registry_unavailable"
+    assert prepared.referenceErrors["t1"]["reasonCode"] == code
+    if missingOnGet:
+        assert prepared.referenceErrors["t1"]["referenceId"] == "r1"
