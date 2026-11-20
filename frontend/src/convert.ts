@@ -5,7 +5,7 @@ export const extension = (f: File) => f.name.split('.').pop()?.toLowerCase() ?? 
 const rename = (name: string, ext: string) => name.replace(/\.[^.]+$/, '') + '.' + ext
 
 /** Все форматы, которые можно выбрать. */
-export const FORMATS = ['docx', 'txt', 'zip', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']
+export const FORMATS = ['docx', 'txt', 'zip', 'jpg', 'jpeg', 'jfif', 'png', 'webp', 'heic', 'heif']
 export const FORMATS_TEXT = 'DOCX, TXT, ZIP, JPG, PNG, WebP или HEIC'
 /** Задание (вариант контрольной) кабинет принимает только как документ. */
 export const TASK_FORMATS = ['docx', 'txt']
@@ -15,6 +15,8 @@ export async function prepare(file: File): Promise<File> {
   const ext = extension(file)
   if (ext === 'heic' || ext === 'heif') return heicToJpg(file)
   if (ext === 'txt') return txtToDocx(file)
+  // .jfif — тот же JPEG (так его часто сохраняет Windows), но кабинет узнаёт фото только по .jpg/.jpeg.
+  if (ext === 'jfif') return new File([file], rename(file.name, 'jpg'), { type: 'image/jpeg' })
   return file
 }
 

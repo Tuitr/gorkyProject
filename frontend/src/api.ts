@@ -70,6 +70,8 @@ const e = encodeURIComponent
 
 export const api = {
   classes: () => call<ClassItem[]>('GET', '/v1/classes'),
+  createClass: (name: string) => call<ClassItem>('POST', '/v1/classes', { name }),
+  addStudent: (classId: string, name: string) => call<Student>('POST', `/v1/classes/${e(classId)}/students`, { name }),
   students: (classId: string) => call<Student[]>('GET', `/v1/classes/${e(classId)}/students`),
   assignments: (classId: string) => call<Assignment[]>('GET', `/v1/classes/${e(classId)}/assignments`),
   // Задание (вариант контрольной) — POST /v1/classes/{classId}/assignments, без доп. требований.

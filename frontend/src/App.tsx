@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
+import { AddClassDialog } from './AddClassDialog'
 import { ClassStats } from './ClassStats'
 import { prepare } from './convert'
 import { UploadDialog, type Subject, type UploadKind } from './UploadDialog'
@@ -18,6 +19,7 @@ const PENDING = new Set(['pending_binding', 'matched'])
 
 export function App() {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [addClassOpen, setAddClassOpen] = useState(false)
   const [logoOk, setLogoOk] = useState(true)
 
   const [classes, setClasses] = useState<ClassItem[]>([])
@@ -142,7 +144,22 @@ export function App() {
             Загрузить файлы
           </button>
         </div>
+
+        <button onClick={() => setAddClassOpen(true)} style={{ ...s.button, marginLeft: 'auto' }}>
+          Добавить класс
+        </button>
       </header>
+
+      {addClassOpen && (
+        <AddClassDialog
+          onClose={() => setAddClassOpen(false)}
+          onCreated={(c) => {
+            setClasses((prev) => [...prev, c])
+            setClassId(c.classId)
+            setAddClassOpen(false)
+          }}
+        />
+      )}
 
       {dialogOpen && (
         <UploadDialog

@@ -72,7 +72,12 @@ export function UploadDialog(props: {
             Загрузите файл нужного формата: {FORMATS_TEXT}. Не подходит: {wrongFormat.map((f) => f.name).join(', ')}
           </p>
         )}
-        {taskNotDocx && <p style={st.error}>Задание загружается только как документ: DOCX или TXT.</p>}
+        {taskNotDocx && (
+          <p style={st.error}>Задание загружается только как документ: DOCX или TXT. Фото — это «Решение ученика».</p>
+        )}
+        {files.length > 0 && (subject === '' || kind === '') && (
+          <p style={st.error}>Выберите {subject === '' ? 'предмет' : 'что загружаем: задание или решение ученика'}.</p>
+        )}
 
         <div style={st.actions}>
           <button style={st.button} onClick={props.onClose}>
