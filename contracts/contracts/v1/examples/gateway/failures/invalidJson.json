@@ -1,0 +1,49 @@
+{
+  "scenario": "invalidJson",
+  "summary": "Модель отвечает текстом, а не JSON. Шлюз просит ответ ещё раз (всего 2 вызова) и отвечает 502 model_invalid_output. Повторять такой запрос бессмысленно, задание уходит учителю.",
+  "gatewayEnv": {
+    "GATEWAY_TRANSPORT": "fixture",
+    "GATEWAY_FAILURE_SCENARIOS": "1"
+  },
+  "request": {
+    "headers": {
+      "X-Trace-Id": "trace-failInvalidJson"
+    },
+    "body": {
+      "requestId": "q-failInvalidJson",
+      "promptVersion": "review.v1",
+      "taskId": "failInvalidJson",
+      "statement": "Длина вектора (3; 4)",
+      "rubric": [
+        "Нужно показать вычисление по формуле длины вектора"
+      ],
+      "steps": [
+        {
+          "stepId": "s1",
+          "markdown": "Ответ: 5"
+        }
+      ],
+      "reference": {
+        "referenceId": "r1",
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "5"
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "status": 502,
+      "retryAfter": null,
+      "body": {
+        "code": "model_invalid_output",
+        "message": "the model did not return a valid taskResult.v1 in 2 attempts",
+        "retryable": false,
+        "traceId": "trace-failInvalidJson"
+      }
+    }
+  ],
+  "providerCalls": 2,
+  "gatewaySleepsS": []
+}

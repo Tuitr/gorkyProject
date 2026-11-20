@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "solverArtifact.v1",
+  "solverVersion": "vectorLength.v1",
+  "source": "generated",
+  "scope": {
+    "familyId": "vectorLength",
+    "schemaId": "scalar.v1",
+    "constraints": {
+      "answerForm": [
+        "exact",
+        "decimal"
+      ]
+    }
+  },
+  "code": {
+    "key": "references/solvers/vectorLength.v1/solver.py",
+    "sha256": "1b2a109ea99b3de2a3b0a607e0e2a4cd3b2c7f8d1386035132511c04ca49eb23",
+    "sizeBytes": 1840
+  },
+  "tests": {
+    "key": "references/solvers/vectorLength.v1/tests.json",
+    "sha256": "ab72a746e296f9ef198b68aad630a46cd05f6310604f728f3d5e4fa567b9eb37",
+    "sizeBytes": 5210
+  },
+  "publishedAt": "2026-11-20T09:30:00Z",
+  "generation": null
+}

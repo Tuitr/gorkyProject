@@ -11,6 +11,10 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
 NonEmptyStr = Annotated[str, Field(min_length=1)]
+FamilyId = Annotated[str, Field(pattern=r"^[a-z][A-Za-z0-9]{0,63}$")]
+"""An approved task family, camelCase, for example "vectorLength"."""
+SolverVersion = Annotated[str, Field(pattern=r"^[a-z][A-Za-z0-9]{0,63}\.v[1-9][0-9]{0,8}$")]
+"""One immutable solver build: "<familyId>.v<N>", for example "vectorLength.v2". There is no "latest"."""
 
 ReferenceState = Literal["ready", "pending", "unsupported", "validation_failed"]
 ReferenceSource = Literal["fixture", "generated", "manual"]
@@ -49,7 +53,8 @@ class ReferenceReady(BaseModel):
     source: ReferenceSource
     schemaId: NonEmptyStr
     value: dict[str, JsonValue]
-    solverVersion: NonEmptyStr | None
+    solverVersion: SolverVersion | None
+    """The exact solver build that computed the value (see solverartifact.py); null only for a fixture."""
 
     @model_validator(mode="after")
     def checkValueAndVersion(self) -> Self:

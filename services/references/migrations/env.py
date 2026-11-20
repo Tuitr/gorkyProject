@@ -3,7 +3,7 @@
 from alembic import context
 from sqlalchemy import create_engine, text
 
-from references.registry.tables import Base
+from references.database import allMetadata
 from references.settings import DB_SCHEMA, Settings
 
 config = context.config
@@ -17,7 +17,7 @@ def runMigrations() -> None:
         connection.commit()
         context.configure(
             connection=connection,
-            target_metadata=Base.metadata,
+            target_metadata=allMetadata(),
             version_table_schema=DB_SCHEMA,
             include_schemas=True,
             include_name=lambda name, kind, parent: kind != "schema" or name == DB_SCHEMA,

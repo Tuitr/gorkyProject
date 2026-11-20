@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from contracts.v1 import openapi
 from contracts.v1.references.reference import ReferenceRequest, referenceResultAdapter
+from references.providers.base import ProviderTask
 from references.providers.fixture import FixtureProvider, ReferenceFixture
 from references.registry.main import createApp
 from references.settings import Settings
@@ -95,7 +96,7 @@ def testFixtureMatchIgnoresConstraintKeyOrder() -> None:
     )
     request = ReferenceRequest.model_validate(requestBody(constraints={"b": 2, "a": 1}))
 
-    fixture = provider.find(request)
+    fixture = provider.find(ProviderTask.fromRequest(request))
 
     assert fixture is not None and fixture.fixtureId == "f1"
 

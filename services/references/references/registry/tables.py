@@ -8,15 +8,11 @@ so a refusal can never be read as a mathematical zero.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Integer, MetaData, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-from references.settings import DB_SCHEMA
-
-
-class Base(DeclarativeBase):
-    metadata = MetaData(schema=DB_SCHEMA)
+from references.database import Base
 
 
 class ReferenceRecord(Base):
@@ -42,6 +38,7 @@ class ReferenceRecord(Base):
     )
 
     referenceId: Mapped[str] = mapped_column("reference_id", String(64), primary_key=True)
+    lookupKey: Mapped[str] = mapped_column("lookup_key", String(80), index=True, unique=True)
     assignmentId: Mapped[str] = mapped_column("assignment_id", String(128))
     assignmentRev: Mapped[int] = mapped_column("assignment_rev", Integer)
     taskId: Mapped[str] = mapped_column("task_id", String(128))

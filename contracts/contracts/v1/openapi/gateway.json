@@ -368,7 +368,7 @@
                 }
               }
             },
-            "description": "Request does not match the schema"
+            "description": "code=invalid_input: schema error or unknown promptVersion; code=personal_data_suspected: the text looks like personal data, the model was not called"
           },
           "429": {
             "content": {
@@ -398,7 +398,17 @@
                 }
               }
             },
-            "description": "Provider unavailable; retryable"
+            "description": "Provider unavailable, or this requestId is still being reviewed; retry after Retry-After with the same requestId"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Provider timed out; retry with the same requestId"
           }
         },
         "security": [

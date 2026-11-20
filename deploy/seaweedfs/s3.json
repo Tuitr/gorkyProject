@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "gorky",
+      "credentials": [{ "accessKey": "gorky-dev", "secretKey": "gorky-dev-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

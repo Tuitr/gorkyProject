@@ -1,0 +1,21 @@
+[
+  {
+    "fixtureId": "vectorLength34AnswerOnly",
+    "taskId": "t1",
+    "statement": "Длина вектора (3; 4)",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: 5"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "not_shown",
+      "method": "unconfirmed",
+      "issues": [],
+      "needsReview": false
+    }
+  }
+]

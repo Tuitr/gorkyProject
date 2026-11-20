@@ -1,0 +1,71 @@
+[
+  {
+    "fixtureId": "failRateLimitedThenOk",
+    "taskId": "failRateLimitedThenOk",
+    "statement": "Длина вектора (3; 4)",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: 5"
+      }
+    ],
+    "failures": [
+      {
+        "code": "rate_limited",
+        "retryAfterS": 2
+      }
+    ],
+    "content": {
+      "answer": "correct",
+      "reasoning": "not_shown",
+      "method": "unconfirmed",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "failRateLimitedAlways",
+    "taskId": "failRateLimitedAlways",
+    "statement": "Длина вектора (3; 4)",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: 5"
+      }
+    ],
+    "failures": [
+      {
+        "code": "rate_limited",
+        "retryAfterS": 2
+      }
+    ]
+  },
+  {
+    "fixtureId": "failTimeoutAlways",
+    "taskId": "failTimeoutAlways",
+    "statement": "Длина вектора (3; 4)",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: 5"
+      }
+    ],
+    "failures": [
+      {
+        "code": "timeout"
+      }
+    ]
+  },
+  {
+    "fixtureId": "failInvalidJson",
+    "taskId": "failInvalidJson",
+    "statement": "Длина вектора (3; 4)",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: 5"
+      }
+    ],
+    "content": "Ответ верный, но это не JSON {"
+  }
+]
