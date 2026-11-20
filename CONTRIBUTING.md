@@ -91,7 +91,7 @@ assert ApiError.model_validate_json(wire) == error
 Пример ответа `401` на `POST /v1/sessions`:
 
 ```json
-{"code":"unauthorized","message":"Wrong login or password","retryable":false,"traceId":"t-login-1"}
+{"code":"unauthorized","message":"Wrong email or password","retryable":false,"traceId":"t-login-1"}
 ```
 
 Идентификатор также приходит в заголовке `X-Trace-Id`.
@@ -121,14 +121,14 @@ Compose запускает отдельный процесс `outbox-publisher`.
 
 `POST /v1/teachers/register` принимает `email`, `displayName` и `password` длиной от 8 символов.
 При успехе кабинет создаёт аккаунт и возвращает `201` с `teacherId` и `displayName`. Затем запросите сессию
-через `POST /v1/sessions`, передав этот email в `login`. Адрес сравнивается без учёта регистра, а повторная
+через `POST /v1/sessions`, передав `email` и `password`. Адрес сравнивается без учёта регистра, а повторная
 регистрация существующего адреса возвращает `409`.
 
-Кабинет запускается командой `uv run uvicorn cabinet.main:createApp --factory`. Вход: `POST /v1/sessions` с
-`{"login", "password"}`. Учителя для стенда создаёт `uv run python -m cabinet.seedteacher`: логин и пароль
-берутся из `CABINET_DEMO_TEACHER_LOGIN` и `CABINET_DEMO_TEACHER_PASSWORD` (`.env.example`), повторный запуск
-ничего не меняет. Пароли хранятся только как хеш Argon2id. Неверный пароль и неизвестный логин дают один и тот
-же 401. После `CABINET_LOGIN_MAX_FAILURES` неудач логин блокируется на `CABINET_LOGIN_WINDOW_S` секунд.
+Кабинет запускается командой `uv run uvicorn cabinet.main:createApp --factory`. Учителя для стенда создаёт
+`uv run python -m cabinet.seedteacher`. Адрес и пароль берутся из `CABINET_DEMO_TEACHER_EMAIL` и
+`CABINET_DEMO_TEACHER_PASSWORD` (`.env.example`). Стандартный адрес демо-учителя — `teacher.demo@example.org`.
+Пароли хранятся только как хеш Argon2id. Неверный пароль и неизвестный адрес дают один и тот же `401`.
+После `CABINET_LOGIN_MAX_FAILURES` неудач вход по этому адресу блокируется на `CABINET_LOGIN_WINDOW_S` секунд.
 
 Cookie `__Host-cabinet` действует 8 часов. Используйте HTTPS (для локальной разработки — localhost).
 Кабинет и браузерный фронтенд работают через один origin. После входа `GET /v1/sessions/current`

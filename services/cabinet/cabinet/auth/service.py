@@ -48,7 +48,7 @@ class TeacherAccounts:
 
     def authenticate(self, request: LoginRequest, clientAddress: str) -> TeacherSession:
         """The teacher behind the credentials, or ApiProblem: one 401 for every refusal, 429 while blocked."""
-        login = normalizeLogin(request.login)
+        login = normalizeLogin(request.email)
         keys = [loginKey(login), clientKey(clientAddress)]
         retryAfterS = self.throttle.retryAfterS(keys)
         if retryAfterS is not None:

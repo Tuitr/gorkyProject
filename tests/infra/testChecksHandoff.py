@@ -105,7 +105,7 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
     runId = uuid.uuid4().hex
     variantTrace, attemptTrace = f"handoff-{runId}-variant", f"handoff-{runId}-attempt"
     traces = {variantTrace, attemptTrace}
-    loginName, password = f"handoff.{runId}", uuid.uuid4().hex
+    email, password = f"handoff.{runId}@example.org", uuid.uuid4().hex
     studentName = "Тестов Павел"
     variant = makeDocx("Синтетический вариант", "1. Решите уравнение x + 2 = 5.")
     submission = makeDocx("Синтетическая работа", f"Ученик: {studentName}", "1. x = 5 − 2 = 3.")
@@ -118,7 +118,7 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
     sessions = sessionmaker(engine, expire_on_commit=False)
     try:
         teacher = buildAccounts(settings, sessions, Passwords(), SystemClock()).create(
-            loginName, "Синтетический учитель", password,
+            email, "Синтетический учитель", password,
         )
         with (
             Redis.from_url(settings.redisUrl, protocol=2, socket_connect_timeout=3, socket_timeout=3) as redis,
@@ -130,7 +130,7 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
             try:
                 tail = redis.xrevrange(STREAM_NAME, count=1)
                 cursor = tail[0][0] if tail else "0-0"
-                login = api.post("/v1/sessions", json={"login": loginName, "password": password})
+                login = api.post("/v1/sessions", json={"email": email, "password": password})
                 assert login.status_code == 200, login.text
                 # The dev server uses HTTP, while the teacher cookie normally requires HTTPS.
                 api.headers["Cookie"] = f"{COOKIE}={login.cookies[COOKIE]}"

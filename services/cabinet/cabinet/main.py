@@ -142,7 +142,7 @@ def createApp(
     @v1.post(
         "/sessions",
         responses={
-            401: {"model": ApiError, "description": "Wrong login or password"},
+            401: {"model": ApiError, "description": "Wrong email or password"},
             403: {"model": ApiError, "description": "Cross-origin request refused"},
             422: {"model": ApiError, "description": "Invalid request"},
             429: {

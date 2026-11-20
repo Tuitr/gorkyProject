@@ -103,15 +103,15 @@ def addTeacher(sessions: sessionmaker[Session], login: str, name: str = "Учи�
     return accounts.create(login, name, PASSWORD).teacherId
 
 
-def login(client: TestClient, login: str, password: str) -> tuple[int, dict[str, object], dict[str, str]]:
-    response = client.post("/v1/sessions", json={"login": login, "password": password})
+def login(client: TestClient, email: str, password: str) -> tuple[int, dict[str, object], dict[str, str]]:
+    response = client.post("/v1/sessions", json={"email": email, "password": password})
     return response.status_code, response.json(), dict(response.headers)
 
 
 def testRightCredentialsReturnTheTeacher(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
-    teacherId = addTeacher(cabinetSessions, "teacher.one")
+    teacherId = addTeacher(cabinetSessions, "teacher.one@example.org")
 
-    status, body, _ = login(client, "  Teacher.One ", PASSWORD)
+    status, body, _ = login(client, "  Teacher.One@Example.org ", PASSWORD)
 
     assert (status, body) == (200, {"teacherId": teacherId, "displayName": "Учитель Синтетический"})
 
@@ -186,10 +186,10 @@ def testInvalidRegistrationDoesNotCreateAnAccount(
 def testUnknownLoginAndWrongPasswordAreRefusedAlike(
     client: TestClient, cabinetSessions: sessionmaker[Session], hasher: CountingHasher
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
+    addTeacher(cabinetSessions, "teacher.one@example.org")
 
     refusals = []
-    for name, password in (("teacher.one", "wrong password"), ("nobody.here", PASSWORD)):
+    for name, password in (("teacher.one@example.org", "wrong password"), ("nobody.here@example.org", PASSWORD)):
         before = hasher.verifications
         status, body, headers = login(client, name, password)
         headerNames = sorted(set(headers) - {"x-trace-id"})
@@ -204,8 +204,8 @@ def testUnknownLoginAndWrongPasswordAreRefusedAlike(
 
 
 def testSamePasswordGivesDifferentArgon2idHashes(cabinetSessions: sessionmaker[Session]) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
-    addTeacher(cabinetSessions, "teacher.two")
+    addTeacher(cabinetSessions, "teacher.one@example.org")
+    addTeacher(cabinetSessions, "teacher.two@example.org")
     with cabinetSessions() as session:
         hashes = list(session.scalars(select(TeacherRecord.passwordHash)))
 
@@ -218,12 +218,12 @@ def testSamePasswordGivesDifferentArgon2idHashes(cabinetSessions: sessionmaker[S
 def testPasswordAndHashNeverLeaveTheService(
     client: TestClient, cabinetSessions: sessionmaker[Session], caplog: pytest.LogCaptureFixture
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
+    addTeacher(cabinetSessions, "teacher.one@example.org")
     with cabinetSessions() as session:
         stored = session.scalars(select(TeacherRecord.passwordHash)).one()
 
     caplog.set_level(logging.DEBUG)
-    texts = [client.post("/v1/sessions", json={"login": "teacher.one", "password": p}).text for p in (PASSWORD, "bad")]
+    texts = [client.post("/v1/sessions", json={"email": "teacher.one@example.org", "password": p}).text for p in (PASSWORD, "bad")]
 
     for secret in (PASSWORD, stored, stored.split("$")[-1]):
         assert all(secret not in answer for answer in texts)
@@ -233,46 +233,46 @@ def testPasswordAndHashNeverLeaveTheService(
 def testRepeatedFailuresBlockTheLoginEvenForTheRightPassword(
     client: TestClient, cabinetSessions: sessionmaker[Session], clock: ManualClock
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
-    statuses = [login(client, "teacher.one", "wrong")[0] for _ in range(SETTINGS.loginMaxFailures)]
+    addTeacher(cabinetSessions, "teacher.one@example.org")
+    statuses = [login(client, "teacher.one@example.org", "wrong")[0] for _ in range(SETTINGS.loginMaxFailures)]
 
-    status, body, headers = login(client, "teacher.one", PASSWORD)
+    status, body, headers = login(client, "teacher.one@example.org", PASSWORD)
 
     assert statuses == [401] * SETTINGS.loginMaxFailures
     assert (status, body["code"], body["retryable"]) == (429, "rate_limited", True)
     assert int(headers["retry-after"]) == SETTINGS.loginWindowS
     clock.advance(SETTINGS.loginWindowS)
-    assert login(client, "teacher.one", PASSWORD)[0] == 200
+    assert login(client, "teacher.one@example.org", PASSWORD)[0] == 200
 
 
 def testUnknownLoginIsBlockedTheSameWay(client: TestClient) -> None:
     for _ in range(SETTINGS.loginMaxFailures):
-        login(client, "nobody.here", "guess")
+        login(client, "nobody.here@example.org", "guess")
 
-    assert login(client, "nobody.here", "guess")[0] == 429
+    assert login(client, "nobody.here@example.org", "guess")[0] == 429
 
 
 def testSuccessClearsTheFailuresOfTheLogin(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
+    addTeacher(cabinetSessions, "teacher.one@example.org")
     for _ in range(SETTINGS.loginMaxFailures - 1):
-        login(client, "teacher.one", "wrong")
-    assert login(client, "teacher.one", PASSWORD)[0] == 200
+        login(client, "teacher.one@example.org", "wrong")
+    assert login(client, "teacher.one@example.org", PASSWORD)[0] == 200
 
-    statuses = [login(client, "teacher.one", "wrong")[0] for _ in range(SETTINGS.loginMaxFailures - 1)]
+    statuses = [login(client, "teacher.one@example.org", "wrong")[0] for _ in range(SETTINGS.loginMaxFailures - 1)]
 
     assert statuses == [401] * (SETTINGS.loginMaxFailures - 1)
 
 
 def testOneClientTryingManyLoginsIsBlocked(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
+    addTeacher(cabinetSessions, "teacher.one@example.org")
     for number in range(SETTINGS.clientMaxFailures):
-        assert login(client, f"guess{number}", "guess")[0] == 401
+        assert login(client, f"guess{number}@example.org", "guess")[0] == 401
 
-    assert login(client, "teacher.one", PASSWORD)[0] == 429
+    assert login(client, "teacher.one@example.org", PASSWORD)[0] == 429
 
 
 def testThrottleStoresNoLoginsOrAddresses(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
-    login(client, "mistyped.login", "guess")
+    login(client, "mistyped.login@example.org", "guess")
     with cabinetSessions() as session:
         keys = list(session.execute(text(f'SELECT throttle_key FROM "{DB_SCHEMA}".login_throttle')).scalars())
 
@@ -281,7 +281,12 @@ def testThrottleStoresNoLoginsOrAddresses(client: TestClient, cabinetSessions: s
 
 
 @pytest.mark.parametrize(
-    "body", [{"login": "teacher.one"}, {"login": "", "password": "x"}, {"login": "a", "password": "b", "role": "admin"}]
+    "body", [
+        {"email": "teacher.one@example.org"},
+        {"email": "teacher.one", "password": "x"},
+        {"email": "teacher.one@example.org", "password": "x", "role": "admin"},
+        {"login": "teacher.one@example.org", "password": "x"},
+    ],
 )
 def testMalformedRequestIsInvalidInput(client: TestClient, body: dict[str, str]) -> None:
     response = client.post("/v1/sessions", json=body)
@@ -306,6 +311,7 @@ def testStandTeacherIsCreatedOnce(
     from cabinet import seedteacher
 
     monkeypatch.setenv("CABINET_DEMO_TEACHER_PASSWORD", PASSWORD)
+    monkeypatch.delenv("CABINET_DEMO_TEACHER_EMAIL", raising=False)
     monkeypatch.delenv("CABINET_DEMO_TEACHER_LOGIN", raising=False)
 
     assert seedteacher.main() == 0
@@ -313,16 +319,31 @@ def testStandTeacherIsCreatedOnce(
 
     with cabinetSessions() as session:
         logins = list(session.scalars(select(TeacherRecord.login)))
-    assert logins == [seedteacher.DEMO_LOGIN]
+    assert logins == [seedteacher.DEMO_EMAIL]
     output = capsys.readouterr().out
     assert "Created teacher" in output and "already exists" in output and PASSWORD not in output
 
 
+def testOldDemoTeacherKeepsItsIdentityWhenLoginChangesToEmail(
+    client: TestClient, cabinetSessions: sessionmaker[Session],
+) -> None:
+    from cabinet import seedteacher
+
+    teacherId = addTeacher(cabinetSessions, "teacher.demo", seedteacher.DEMO_NAME)
+    config = buildAlembicConfig(Settings.fromEnv().databaseUrl)
+    command.downgrade(config, "0013")
+    command.upgrade(config, "head")
+
+    assert login(client, seedteacher.DEMO_EMAIL, PASSWORD)[:2] == (
+        200, {"teacherId": teacherId, "displayName": seedteacher.DEMO_NAME},
+    )
+
+
 def testSessionLifetime(client: TestClient, cabinetSessions: sessionmaker[Session], clock: ManualClock) -> None:
-    teacherId = addTeacher(cabinetSessions, "teacher.one")
+    teacherId = addTeacher(cabinetSessions, "teacher.one@example.org")
     path = "/v1/sessions/current"
     assert client.get(path).status_code == 401
-    status, _, headers = login(client, "teacher.one", PASSWORD)
+    status, _, headers = login(client, "teacher.one@example.org", PASSWORD)
     assert status == 200
     assert all(flag in headers["set-cookie"].lower() for flag in ("secure", "httponly", "samesite=strict"))
     cookie = headers["set-cookie"].split(";", 1)[0]
@@ -331,18 +352,18 @@ def testSessionLifetime(client: TestClient, cabinetSessions: sessionmaker[Sessio
     assert client.delete(path).status_code == 204
     assert client.get(path, headers={"Cookie": cookie}).status_code == 401
     assert client.delete(path, headers={"Cookie": cookie}).status_code == 401
-    assert login(client, "teacher.one", PASSWORD)[0] == 200
+    assert login(client, "teacher.one@example.org", PASSWORD)[0] == 200
     clock.advance(8 * 3600)
     assert client.get(path).status_code == 401
 
 
 def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions: sessionmaker[Session]) -> None:
-    addTeacher(cabinetSessions, "teacher.one")
-    addTeacher(cabinetSessions, "teacher.two")
+    addTeacher(cabinetSessions, "teacher.one@example.org")
+    addTeacher(cabinetSessions, "teacher.two@example.org")
     path = "/v1/classes"
     assert client.get(path).status_code == 401
     assert client.post(path, json={"name": "8А"}).status_code == 401
-    assert login(client, "teacher.one", PASSWORD)[0] == 200
+    assert login(client, "teacher.one@example.org", PASSWORD)[0] == 200
 
     created = client.post(path, json={"name": " 8А "})
     assert created.status_code == 201
@@ -357,7 +378,7 @@ def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions
     studentIds = {student.json()["studentId"] for student in students}
     assert len(studentIds) == 2
 
-    assert login(client, "teacher.two", PASSWORD)[0] == 200
+    assert login(client, "teacher.two@example.org", PASSWORD)[0] == 200
     assert client.get(path).json() == []
     second = client.post(path, json={"name": "8Б"})
     assert second.status_code == 201
@@ -365,7 +386,7 @@ def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions
     assert client.get(roster).status_code == 404
     assert client.post(roster, json={"name": "Новый ученик"}).status_code == 404
 
-    assert login(client, "teacher.one", PASSWORD)[0] == 200
+    assert login(client, "teacher.one@example.org", PASSWORD)[0] == 200
     assert client.get(path).json() == [firstClass]
     assert client.get(f"{path}/{second.json()['classId']}/students").status_code == 404
     assert client.post(roster, json={"name": "   "}).status_code == 422
@@ -384,8 +405,8 @@ def assignmentDocx(title: str, *signatures: str) -> bytes:
 
 
 def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session], clock: ManualClock) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
-    addTeacher(cabinetSessions, "teacher.other")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     firstDocx = assignmentDocx("Задание 1")
@@ -394,7 +415,7 @@ def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session
     updated = [{"text": "Решите через формулу корней", "taskNumber": "1"}]
 
     with TestClient(app, base_url="https://testserver") as client:
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         created = client.post("/v1/classes", json={"name": "8А"})
         path = f"/v1/classes/{created.json()['classId']}/assignments"
 
@@ -414,10 +435,10 @@ def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session
         assert second.status_code == 201, second.text
         assert second.json() == {"assignmentId": assignmentId, "assignmentRev": 2}
 
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         denied = client.post(path, data={"requirements": "[]"}, files={"file": ("first.docx", firstDocx)})
         assert denied.status_code == 404
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         otherClass = client.post("/v1/classes", json={"name": "8Б"})
         otherPath = f"/v1/classes/{otherClass.json()['classId']}/assignments"
         deniedRevision = client.post(
@@ -459,8 +480,8 @@ def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session
 def testIndividualSubmissionUpload(
     cabinetSessions: sessionmaker[Session], clock: ManualClock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
-    addTeacher(cabinetSessions, "teacher.other")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     assignmentDoc = assignmentDocx("Задание")
@@ -468,7 +489,7 @@ def testIndividualSubmissionUpload(
     uploadPart = ("Иванов.docx", studentDoc)
 
     with TestClient(app, base_url="https://testserver") as client:
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         created = client.post("/v1/classes", json={"name": "8А"})
         classPath = f"/v1/classes/{created.json()['classId']}/assignments"
         first = client.post(classPath, data={"requirements": "[]"}, files={"file": ("assignment.docx", assignmentDoc)})
@@ -489,13 +510,13 @@ def testIndividualSubmissionUpload(
             limits.setattr(documents, "MAX_DOCX_BYTES", len(studentDoc) - 1)
             assert client.post(path, data=form, files={"file": uploadPart}).status_code == 413
 
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         assert client.post(path, data=form, files={"file": uploadPart}).status_code == 404
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         assert client.delete("/v1/sessions/current").status_code == 204
         assert client.post(path, data=form, files={"file": uploadPart}).status_code == 401
 
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         failingApp = createApp(
             replace(settings, s3AccessKeyId="unrecognized-test-credential"), sessionFactory=cabinetSessions,
             passwords=Passwords(CountingHasher()), clock=clock,
@@ -539,7 +560,7 @@ def submissionZip(*entries: tuple[str | ZipInfo, bytes]) -> bytes:
 def testArchiveSubmissionUpload(
     cabinetSessions: sessionmaker[Session], clock: ManualClock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     one = assignmentDocx("Первое решение")
@@ -560,7 +581,7 @@ def testArchiveSubmissionUpload(
     ]
 
     with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(settings)) as s3:
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         created = client.post("/v1/classes", json={"name": "8А"})
         classPath = f"/v1/classes/{created.json()['classId']}/assignments"
         initial = client.post(classPath, data={"requirements": "[]"}, files={"file": ("assignment.docx", one)})
@@ -611,19 +632,19 @@ def testArchiveSubmissionUpload(
 def testOnlyOwnerCanReadMixedUploadProgress(
     cabinetSessions: sessionmaker[Session], clock: ManualClock,
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
-    addTeacher(cabinetSessions, "teacher.other")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     docx = assignmentDocx("Решение")
     archive = submissionZip(("bound.docx", docx), ("unclear.docx", docx), ("rejected.docx", docx))
 
     with TestClient(app, base_url="https://testserver") as client:
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         otherClass = client.post("/v1/classes", json={"name": "8Б"}).json()
         foreign = client.post(f"/v1/classes/{otherClass['classId']}/students", json={"name": "Чужой ученик"}).json()
 
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         ownClass = client.post("/v1/classes", json={"name": "8А"}).json()
         classPath = f"/v1/classes/{ownClass['classId']}"
         student = client.post(f"{classPath}/students", json={"name": "Саша Иванов"}).json()
@@ -681,7 +702,7 @@ def testOnlyOwnerCanReadMixedUploadProgress(
 
         assert client.delete("/v1/sessions/current").status_code == 204
         assert client.get(path).status_code == 401
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         forbidden = client.get(path)
         missing = client.get(f"/v1/uploads/{uuid.uuid4()}")
         assert forbidden.status_code == missing.status_code == 404
@@ -705,8 +726,8 @@ def testOnlyOwnerCanReadMixedUploadProgress(
 def testUploadCreatesAttemptsOnlyForUnambiguousMatches(
     cabinetSessions: sessionmaker[Session], clock: ManualClock, conflictingFilename: str, conflictingSignature: str,
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
-    addTeacher(cabinetSessions, "teacher.other")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     unsigned = assignmentDocx("Решение")
@@ -721,11 +742,11 @@ def testUploadCreatesAttemptsOnlyForUnambiguousMatches(
     )
 
     with TestClient(app, base_url="https://testserver") as client:
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         foreignClass = client.post("/v1/classes", json={"name": "8Б"}).json()["classId"]
         assert client.post(f"/v1/classes/{foreignClass}/students", json={"name": "Кузнецова Мария"}).status_code == 201
 
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
         classPath = f"/v1/classes/{classId}"
         students = []
@@ -795,15 +816,15 @@ def testUploadCreatesAttemptsOnlyForUnambiguousMatches(
 def testTeacherConfirmsStudentBindingOnce(
     cabinetSessions: sessionmaker[Session], clock: ManualClock,
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
-    addTeacher(cabinetSessions, "teacher.other")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     docx = assignmentDocx("Решение")
     archive = submissionZip(("choose.docx", docx), ("create.docx", docx))
 
     with TestClient(app, base_url="https://testserver") as client:
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
         otherClass = client.post("/v1/classes", json={"name": "8Б"}).json()["classId"]
         rosterPath = f"/v1/classes/{classId}/students"
@@ -831,9 +852,9 @@ def testTeacherConfirmsStudentBindingOnce(
         assert client.post(bindPath, json={**createBody, "studentId": chosen["studentId"]}).status_code == 422
         assert client.get(rosterPath).json() == [chosen]
 
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         assert client.post(bindPath, json=createBody).status_code == 404
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
 
         selected = client.post(bindPath, json=chosenBody)
         assert selected.status_code == 200, selected.text
@@ -883,14 +904,14 @@ def testTeacherConfirmsStudentBindingOnce(
 def testDuplicateAttemptsAreSharedAcrossConcurrentConfirmations(
     cabinetSessions: sessionmaker[Session], clock: ManualClock, duplicateFilename: str,
 ) -> None:
-    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     firstDocx = assignmentDocx("Первая сдача")
     revisedDocx = assignmentDocx("Исправленная сдача")
 
     with TestClient(app, base_url="https://testserver") as client:
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
         classPath = f"/v1/classes/{classId}"
         studentId = client.post(f"{classPath}/students", json={"name": "Иванов Иван"}).json()["studentId"]
@@ -985,7 +1006,7 @@ def testOnlyOwnerReadsCheckFromGrading(
     cabinetSessions: sessionmaker[Session], clock: ManualClock,
     contractExample: Callable[[str], dict[str, object]],
 ) -> None:
-    owner, other = "teacher.owner", "teacher.other"
+    owner, other = "teacher.owner@example.org", "teacher.other@example.org"
     addTeacher(cabinetSessions, owner)
     addTeacher(cabinetSessions, other)
     settings = replace(Settings.fromEnv(), gradingBaseUrl="http://grading:8000", gradingServiceToken="test-cabinet")
@@ -1061,8 +1082,8 @@ def testOnlyOwnerReadsCheckFromGrading(
 def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
     cabinetSessions: sessionmaker[Session], clock: ManualClock,
 ) -> None:
-    owner = addTeacher(cabinetSessions, "teacher.owner")
-    addTeacher(cabinetSessions, "teacher.other")
+    owner = addTeacher(cabinetSessions, "teacher.owner@example.org")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     classId, assignmentId = (str(uuid.uuid4()) for _ in range(2))
     with cabinetSessions.begin() as db:
         db.add(ClassRecord(classId=classId, teacherId=owner, name="8А"))
@@ -1102,11 +1123,11 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
     )
     with TestClient(app, base_url="https://testserver") as client:
         path = f"/v1/assignments/{assignmentId}/report?rev=1"
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         assert client.get(path).status_code == 404
         assert not requested
 
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         response = client.get(path)
         assert response.status_code == 200, response.text
         report = response.json()
@@ -1126,7 +1147,7 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
 
 @pytest.fixture
 def reviewedCheck(cabinetSessions: sessionmaker[Session], clock: ManualClock) -> tuple[str, str]:
-    owner = addTeacher(cabinetSessions, "teacher.owner")
+    owner = addTeacher(cabinetSessions, "teacher.owner@example.org")
     classId, studentId, assignmentId, attemptId, checkId = (str(uuid.uuid4()) for _ in range(5))
     with cabinetSessions.begin() as db:
         db.add(ClassRecord(classId=classId, teacherId=owner, name="8А"))
@@ -1196,7 +1217,7 @@ def testTeacherEditsPublishesAndDownloadsAnExplicitRevision(
             s3.create_bucket(Bucket=RESULTS_BUCKET)
         s3.put_object(Bucket=RESULTS_BUCKET, Key=key, Body=original)
         try:
-            assert login(client, "teacher.owner", PASSWORD)[0] == 200
+            assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
             path = f"/v1/checks/{checkId}"
             changed = client.patch(f"{path}/review", json=edit)
             assert changed.status_code == 200, changed.text
@@ -1223,7 +1244,7 @@ def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     checkId, _ = reviewedCheck
-    addTeacher(cabinetSessions, "teacher.other")
+    addTeacher(cabinetSessions, "teacher.other@example.org")
     with cabinetSessions() as db:
         attemptId = db.execute(select(CheckRecord.attemptId)).scalar_one()
     gradingCalls: list[Request] = []
@@ -1246,7 +1267,7 @@ def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
     edit = {"baseRev": 1, "editId": "edit", "changes": [{"type": "remove_issue", "issueId": "i1"}]}
     with TestClient(app, base_url="https://testserver") as client:
         path = f"/v1/checks/{checkId}"
-        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
         for method, suffix, body in (
             ("GET", "", None),
             ("PATCH", "/review", edit),
@@ -1262,7 +1283,7 @@ def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
             assert db.scalars(select(AttemptRecord.attemptId)).all() == [attemptId]
             assert db.scalars(select(OutboxRecord)).all() == []
 
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         assert client.patch(f"{path}/review", json={**edit, "actorId": "forged"}).status_code == 422
         assert not gradingCalls
         assert client.get(path).status_code == 200
@@ -1288,7 +1309,7 @@ def testFailedUploadRemovesItsObjectsAndPreservesActiveOriginal(
     with TestClient(app, base_url="https://testserver", raise_server_exceptions=False) as client, closing(
         buildS3Client(settings)
     ) as s3:
-        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
         live = client.post(path, data=rev, files={"file": ("Иванов Иван.docx", liveDocx)})
         assert live.status_code == 202, live.text
         liveId = live.json()["uploadId"]
@@ -1340,7 +1361,7 @@ def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
     class AbortUpload(Exception):
         pass
 
-    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
     settings = Settings.fromEnv()
     app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
     docx = assignmentDocx("Задание и работа")
@@ -1349,7 +1370,7 @@ def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
 
     with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(settings)) as s3:
         try:
-            assert login(client, "teacher.owner", PASSWORD)[0] == 200
+            assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
             classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
             classPath = f"/v1/classes/{classId}"
             studentId = client.post(f"{classPath}/students", json={"name": "Иванов Иван"}).json()["studentId"]

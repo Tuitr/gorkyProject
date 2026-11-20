@@ -33,11 +33,11 @@ def testRefusalExamplesUseTheFixedMessages(contractExample: Callable[[str], Any]
 
 
 def testPasswordIsHiddenFromRepr() -> None:
-    request = LoginRequest(login="teacher.demo", password="stand-only-password")
+    request = LoginRequest(email="teacher.demo@example.org", password="stand-only-password")
 
     assert "stand-only-password" not in repr(request)
     with pytest.raises(ValidationError):
-        LoginRequest.model_validate({"login": "teacher.demo", "password": "x", "teacherId": "t1"})
+        LoginRequest.model_validate({"email": "teacher.demo@example.org", "password": "x", "teacherId": "t1"})
 
     registration = TeacherRegistration(
         email="teacher.signup@example.org", displayName="Анна Петрова", password="synthetic-long-password",

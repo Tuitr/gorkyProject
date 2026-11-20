@@ -16,6 +16,9 @@ def testCabinetServesPublicAuthContract() -> None:
         schema = response.json()
         assert all(path.startswith("/v1/") for path in schema["paths"])
         login = schema["paths"]["/v1/sessions"]["post"]
+        loginFields = schema["components"]["schemas"]["LoginRequest"]
+        assert set(loginFields["required"]) == {"email", "password"}
+        assert loginFields["properties"]["email"]["format"] == "email"
         registration = schema["paths"]["/v1/teachers/register"]["post"]
         assert {"201", "409", "422"} <= registration["responses"].keys()
         assert schema["components"]["schemas"]["TeacherRegistration"]["properties"]["email"]["format"] == "email"
