@@ -21,7 +21,17 @@ function crc32(data: Uint8Array) {
   return (c ^ 0xffffffff) >>> 0
 }
 
-export type ZipEntry = { name: string; data: Uint8Array }
+/** altName — то же имя в CP437 (так его прочитает Python), если в архиве нет отметки UTF-8 */
+export type ZipEntry = { name: string; altName?: string; data: Uint8Array }
+
+/** CP437 (кодировка ZIP по умолчанию в Python) — в браузерном TextDecoder её нет. */
+const CP437_HIGH =
+  'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ '
+export function decodeCp437(bytes: Uint8Array) {
+  let s = ''
+  for (const b of bytes) s += b < 128 ? String.fromCharCode(b) : CP437_HIGH[b - 128]
+  return s
+}
 
 /** ZIP без сжатия (метод 0). Имена — UTF-8. */
 export function zipStore(entries: ZipEntry[]): Uint8Array<ArrayBuffer> {
@@ -118,16 +128,19 @@ export async function unzip(buf: ArrayBuffer): Promise<ZipEntry[]> {
     const commentLen = v.getUint16(p + 32, true)
     const localOffset = v.getUint32(p + 42, true)
     const rawName = bytes.subarray(p + 46, p + 46 + nameLen)
-    // имена без флага UTF-8 в архивах из Windows обычно в CP866
-    const name = (flags & 0x0800 ? utf8 : cp866).decode(rawName)
+    // имена без флага UTF-8 в архивах из Windows обычно в CP866;
+    // Python (кабинет) читает такие имена как CP437 — запоминаем и это прочтение, чтобы сопоставить файлы
+    const utf = !!(flags & 0x0800)
+    const name = (utf ? utf8 : cp866).decode(rawName)
+    const altName = utf ? undefined : decodeCp437(rawName)
     p += 46 + nameLen + extraLen + commentLen
     if (name.endsWith('/')) continue
     const lNameLen = v.getUint16(localOffset + 26, true)
     const lExtraLen = v.getUint16(localOffset + 28, true)
     const start = localOffset + 30 + lNameLen + lExtraLen
     const data = bytes.subarray(start, start + size)
-    if (method === 0) out.push({ name, data: data.slice() })
-    else if (method === 8) out.push({ name, data: await inflateRaw(data) })
+    if (method === 0) out.push({ name, altName, data: data.slice() })
+    else if (method === 8) out.push({ name, altName, data: await inflateRaw(data) })
   }
   return out
 }

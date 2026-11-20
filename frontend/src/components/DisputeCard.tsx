@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { askConfirm } from '../lib/confirm'
 import { REVIEW_LABEL, type ReviewItem, type State, type Submission } from '../domain'
-import { href } from '../router'
+import { go, href } from '../router'
 import { patch, useStore } from '../store'
 import { Badge, Crop } from '../ui'
 
@@ -34,9 +35,10 @@ export function DisputeCard({ r, compact }: { r: ReviewItem; compact?: boolean }
     })),
   })
 
-  const assignStudent = () => {
+  const assignStudent = async () => {
     const target = state.submissions.find((x) => x.assignmentId === a.id && x.studentId === choice && x.id !== s.id)
-    if (target && !confirm('У этого ученика уже есть сданная работа. Добавить страницы к ней?')) return
+    if (target && !(await askConfirm('У этого ученика уже есть сданная работа. Добавить страницы к ней?', { ok: 'Добавить' })))
+      return
     resolve((st) => {
       if (!target) return { ...st, submissions: patch(st.submissions, s.id, (x) => ({ ...x, studentId: choice })) }
       return {
@@ -47,6 +49,8 @@ export function DisputeCard({ r, compact }: { r: ReviewItem; compact?: boolean }
         review: st.review.map((x) => (x.submissionId === s.id ? { ...x, submissionId: target.id } : x)),
       }
     }, 'Ученик указан')
+    // эта сдача влилась в работу ученика — если открыта её страница проверки, переходим к его работе
+    if (target && location.hash.includes(s.id)) go('a', a.id, 'report', target.id)
   }
 
   const confirmReading = () =>
@@ -101,7 +105,7 @@ export function DisputeCard({ r, compact }: { r: ReviewItem; compact?: boolean }
           {!r.resolved && (
             <div className="qcard__actions">
               {r.kind === 'student' && (
-                <button className="btn btn--primary" disabled={!choice} onClick={assignStudent}>
+                <button className="btn btn--primary" disabled={!choice} onClick={() => void assignStudent()}>
                   Указать ученика
                 </button>
               )}

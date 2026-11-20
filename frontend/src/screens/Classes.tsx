@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { askConfirm } from '../lib/confirm'
 import { addStudent, createClass, isCabinet } from '../api/cabinet'
 import { uid, type ClassGroup } from '../domain'
 import { useRoute, go } from '../router'
@@ -105,10 +106,15 @@ export function Classes() {
                   {!cabinet && (
                     <button
                       className="link-btn link-btn--danger"
-                      onClick={() =>
-                        confirm(`Удалить класс ${current.name}? Сданные работы останутся в базе.`) &&
-                        update((s) => ({ ...s, classes: s.classes.filter((c) => c.id !== current.id) }))
-                      }
+                      onClick={async () => {
+                        if (
+                          await askConfirm(`Удалить класс ${current.name}? Сданные работы останутся в базе.`, {
+                            ok: 'Удалить',
+                            danger: true,
+                          })
+                        )
+                          update((s) => ({ ...s, classes: s.classes.filter((c) => c.id !== current.id) }))
+                      }}
                     >
                       Удалить класс
                     </button>

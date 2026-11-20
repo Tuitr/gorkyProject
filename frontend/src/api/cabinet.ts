@@ -28,16 +28,18 @@ export const isCabinet = () => mode === true
 
 /** Ошибка кабинета: { code, message, retryable, traceId } — сообщение переводим для учителя. */
 export class CabinetError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    /** номер запроса в логах кабинета — для разработчиков бэкенда */
-    public traceId?: string,
-    /** для 409 при правках: актуальная версия результата */
-    public resultRev?: number,
-  ) {
+  status: number
+  code: string
+  /** номер запроса в логах кабинета — для разработчиков бэкенда */
+  traceId?: string
+  /** для 409 при правках: актуальная версия результата */
+  resultRev?: number
+  constructor(status: number, code: string, message: string, traceId?: string, resultRev?: number) {
     super(message)
+    this.status = status
+    this.code = code
+    this.traceId = traceId
+    this.resultRev = resultRev
   }
 }
 

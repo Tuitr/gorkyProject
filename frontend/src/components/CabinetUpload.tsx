@@ -29,6 +29,21 @@ type Item = { record: CabinetUploadRecord; files: UploadFile[]; error?: string; 
 const baseName = (n: string) => n.split(/[\\/]/).pop() ?? n
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * Текст храним как data:-адрес: такие строки хранилище само уносит в IndexedDB (а не в localStorage),
+ * поэтому тексты десятков работ не съедают лимит браузера.
+ */
+const toStored = (text: string) => `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`
+const fromStored = (v: string | undefined) => {
+  if (!v) return ''
+  if (!v.startsWith('data:')) return v // старые записи — текст как есть
+  try {
+    return decodeURIComponent(v.slice(v.indexOf(',') + 1))
+  } catch {
+    return ''
+  }
+}
+
 /** Текст DOCX (без картинок) — для нашей проверки, пока в кабинете её нет. */
 async function docxText(buf: ArrayBuffer) {
   const mammoth = await import('mammoth')
@@ -50,7 +65,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
   /** Привязанный файл → сдача ученика в нашем состоянии (страница-текст) → проверка. */
   const attach = (record: CabinetUploadRecord, f: UploadFile) => {
     if (!f.studentId) return
-    const text = record.texts[baseName(f.originalName)] ?? ''
+    const text = fromStored(record.texts[baseName(f.originalName)])
     const lines = text
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -66,7 +81,11 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
       classId: cls.id,
       studentId: f.studentId,
       variantId: prev?.variantId ?? null,
-      pages: [{ id: uid('p'), image: '', hash: `cabinet:${f.fileId}`, kind: 'text', lines }],
+      // фото, сданные раньше, остаются; заменяется только прежняя страница-текст из документа
+      pages: [
+        ...(prev?.pages.filter((p) => p.kind !== 'text') ?? []),
+        { id: uid('p'), image: '', hash: `cabinet:${f.fileId}`, kind: 'text', lines },
+      ],
       status: 'submitted',
       results: [],
       approved: false,
@@ -123,8 +142,13 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
           const buf = await file.arrayBuffer()
           if (/\.zip$/i.test(file.name)) {
             for (const e of await unzip(buf))
-              if (/\.docx$/i.test(e.name)) texts[baseName(e.name)] = await docxText(e.data.slice().buffer as ArrayBuffer)
-          } else texts[file.name] = await docxText(buf)
+              if (/\.docx$/i.test(e.name)) {
+                const t = toStored(await docxText(e.data.slice().buffer as ArrayBuffer))
+                // имя так, как его прочитаем мы и как прочитает кабинет (архивы Windows без UTF-8)
+                texts[baseName(e.name)] = t
+                if (e.altName) texts[baseName(e.altName)] = t
+              }
+          } else texts[file.name] = toStored(await docxText(buf))
           const { uploadId } = await uploadWork(remote.assignmentId, remote.rev, file)
           const record: CabinetUploadRecord = {
             uploadId,
@@ -179,7 +203,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
   /** тот же файл этого ученика уже сдан раньше — кабинет вернул ту же попытку */
   const repeat = (f: UploadFile) =>
     !!f.attemptId &&
-    state.submissions.some((s) => s.remote?.attemptId === f.attemptId && s.remote.fileId !== f.fileId)
+    state.submissions.some((s) => s.remote?.attemptId === f.attemptId && s.remote?.fileId !== f.fileId)
 
   return (
     <Modal

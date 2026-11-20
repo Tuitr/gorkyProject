@@ -83,6 +83,39 @@ async function idbGet(key: string): Promise<string | undefined> {
   })
 }
 
+async function idbKeys(): Promise<string[]> {
+  const d = await db()
+  return new Promise((res, rej) => {
+    const req = d.transaction(DB_STORE).objectStore(DB_STORE).getAllKeys()
+    req.onsuccess = () => res(req.result.map(String))
+    req.onerror = () => rej(req.error)
+  })
+}
+async function idbDelete(keys: string[]) {
+  if (!keys.length) return
+  const d = await db()
+  await new Promise<void>((res, rej) => {
+    const tx = d.transaction(DB_STORE, 'readwrite')
+    for (const k of keys) tx.objectStore(DB_STORE).delete(k)
+    tx.oncomplete = () => res()
+    tx.onerror = () => rej(tx.error)
+  })
+}
+
+/**
+ * Уборка IndexedDB: удаляем фото и файлы, на которые не ссылается ни одно сохранённое состояние
+ * (у каждого учителя браузера — своё). Запускается при загрузке, до первых изменений.
+ */
+async function collectGarbage() {
+  const used = new Set<string>()
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (!k?.startsWith(LS_KEY)) continue
+    for (const m of (localStorage.getItem(k) ?? '').matchAll(/"(idb:[^"]+)"/g)) used.add(m[1])
+  }
+  await idbDelete((await idbKeys()).filter((k) => !used.has(k)))
+}
+
 /** Быстрый хэш строки (FNV-1a) — по нему ловим повторно загруженные страницы. */
 export function hashString(s: string) {
   let h = 0x811c9dc5
@@ -157,6 +190,9 @@ export function StoreProvider({
   const [jobs, setJobs] = useState<Record<string, Job>>({})
   const [toasts, setToasts] = useState<Toast[]>([])
   const running = useRef(new Set<string>())
+  const lastSaved = useRef<string | null>(null)
+  const saveErrorAt = useRef(0)
+  const toastRef = useRef<((text: string, kind?: Toast['kind']) => void) | null>(null)
   const stateRef = useRef<State | null>(null)
   useLayoutEffect(() => {
     stateRef.current = state
@@ -181,10 +217,24 @@ export function StoreProvider({
       /* хранилище недоступно — работаем на пустых/демо-данных */
     }
     if (!raw) return setState(fresh())
+    lastSaved.current = raw
     hydrate(raw)
       .then((s) => setState(s.version !== 1 ? fresh() : withoutDemo(user ? asTeacher(s, user) : s)))
       .catch(() => setState(fresh()))
+      .finally(() => void collectGarbage().catch(() => undefined))
   }, [initial, key, user])
+
+  // другая вкладка сохранила свои изменения — подхватываем их, а не затираем своим следующим сохранением
+  useEffect(() => {
+    if (initial) return
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== key || !e.newValue || e.newValue === lastSaved.current) return
+      lastSaved.current = e.newValue
+      void hydrate(e.newValue).then((s) => s.version === 1 && setState(s))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [initial, key])
 
   // сохранение с небольшой задержкой
   useEffect(() => {
@@ -192,9 +242,26 @@ export function StoreProvider({
     const t = setTimeout(() => {
       const pending = new Map<string, string>()
       const json = dehydrate(state, pending)
+      if (json === lastSaved.current) return // ничего не изменилось (или пришло из другой вкладки)
       Promise.all([...pending].map(([k, v]) => idbPut(k, v)))
-        .then(() => localStorage.setItem(key, json))
-        .catch((e) => console.warn('Не удалось сохранить состояние', e))
+        .then(() => {
+          localStorage.setItem(key, json)
+          lastSaved.current = json
+        })
+        .catch((e) => {
+          console.warn('Не удалось сохранить состояние', e)
+          // учителю — понятное сообщение (не чаще раза в минуту)
+          if (Date.now() - saveErrorAt.current > 60_000) {
+            saveErrorAt.current = Date.now()
+            const full = e instanceof DOMException && /quota/i.test(e.name + e.message)
+            toastRef.current?.(
+              full
+                ? 'Не удалось сохранить: в браузере закончилось место. Удалите ненужные работы.'
+                : 'Не удалось сохранить изменения в браузере.',
+              'err',
+            )
+          }
+        })
     }, 400)
     return () => clearTimeout(t)
   }, [state, key])
@@ -204,6 +271,9 @@ export function StoreProvider({
     setToasts((t) => [...t, { id, text, kind }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'err' ? 7000 : 3500)
   }, [])
+  useEffect(() => {
+    toastRef.current = toast
+  }, [toast])
 
   const runJob = useCallback<Store['runJob']>(async (id, kind, title, fn) => {
     if (running.current.has(id)) return

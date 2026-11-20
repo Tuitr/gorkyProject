@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { ConfirmHost } from './components/ConfirmHost'
 import { isCabinet } from './api/cabinet'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { pullClasses, withRemoteClasses } from './api/sync'
@@ -123,6 +124,7 @@ export default function App() {
           <Screen />
         </ErrorBoundary>
       </main>
+      <ConfirmHost />
     </div>
   )
 }

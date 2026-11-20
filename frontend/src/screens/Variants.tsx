@@ -1,4 +1,5 @@
 import { useActions } from '../actions'
+import { askConfirm } from '../lib/confirm'
 import { replaceTask } from '../api/generate'
 import type { Assignment, EquivFeature, Variant } from '../domain'
 import { href } from '../router'
@@ -83,8 +84,9 @@ export function Variants({ id }: { id: string }) {
             // варианты необязательны: без них утверждается одна общая работа по исходным заданиям
             disabled={a.variants.length > 0 && !ready}
             title={a.variants.length > 0 && !ready ? 'Сформируйте недостающие варианты' : undefined}
-            onClick={() => {
-              if (missingKeys && !confirm(`Заданий без ответа: ${missingKeys}. Утвердить работу?`)) return
+            onClick={async () => {
+              if (missingKeys && !(await askConfirm(`Заданий без ответа: ${missingKeys}. Утвердить работу?`, { ok: 'Утвердить' })))
+                return
               setA((x) => ({ ...x, status: 'approved' }))
               void publish(a.id) // режим кабинета: работа (новая ревизия) уходит на сервер
               toast(a.variants.length ? 'Работа утверждена. Доступны печать и сбор работ' : 'Работа утверждена: все ученики выполняют один общий вариант')

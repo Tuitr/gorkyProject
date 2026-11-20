@@ -13,11 +13,18 @@ export function useCabinetChecks(submissionIds: string[]) {
   useEffect(() => {
     if (!isCabinet() || !key) return
     let alive = true
+    let busy = false // прошлый круг ещё идёт (много работ, медленный сервер) — новый не начинаем
     const run = async () => {
-      for (const id of key.split(',')) {
-        const fn = await refreshCheck(getState(), id)
-        if (!alive) return
-        if (fn) update(fn)
+      if (busy) return
+      busy = true
+      try {
+        for (const id of key.split(',')) {
+          const fn = await refreshCheck(getState(), id)
+          if (!alive) return
+          if (fn) update(fn)
+        }
+      } finally {
+        busy = false
       }
     }
     void run()

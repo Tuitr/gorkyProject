@@ -1,4 +1,6 @@
 import { WORK_TYPE_LABEL } from '../domain'
+import { askConfirm } from '../lib/confirm'
+import { isCabinet } from '../api/cabinet'
 import { go, href } from '../router'
 import { useStore } from '../store'
 import { Badge } from '../ui'
@@ -20,41 +22,44 @@ export function Hub({ id }: { id: string }) {
   const tiles = [
     {
       to: href('a', a.id, 'collect', f),
-      icon: '📷',
+      icon: '01',
       title: 'Загрузить работы учеников',
       note: `Фото работ: сдано ${handed} из ${students}`,
       main: true,
     },
     {
       to: href('a', a.id, 'source', { ...f, add: '1' }),
-      icon: '＋',
+      icon: '02',
       title: 'Добавить задание',
       note: `Заданий: ${a.tasks.length}`,
     },
     {
       to: href('a', a.id, 'variants', f),
-      icon: '🗂',
+      icon: '03',
       title: 'Варианты',
       note: a.variants.length ? `Вариантов: ${a.variants.length} · ответы и печать` : 'Не сформированы (необязательно)',
     },
     {
       to: href('a', a.id, 'sheet', f),
-      icon: '📋',
+      icon: '04',
       title: 'Ведомость',
       note: `Проверено: ${processed}${queue ? ` · требует внимания: ${queue}` : ''}`,
     },
     {
       to: href('a', a.id, 'class-report', f),
-      icon: '📊',
+      icon: '05',
       title: 'Отчёт по классу',
       note: '',
     },
   ]
 
-  const remove = () => {
+  const remove = async () => {
     const extra = handed ? `
 Будут удалены также сданные работы учеников: ${handed}.` : ''
-    if (!confirm(`Удалить работу «${a.title}»? Действие нельзя отменить.${extra}`)) return
+    // в режиме кабинета удалить работу на сервере нельзя (нет такого маршрута) — предупреждаем
+    const server = isCabinet() && a.remote ? '\nВ кабинете на сервере работа останется: удалить её там нельзя.' : ''
+    if (!(await askConfirm(`Удалить работу «${a.title}»? Действие нельзя отменить.${extra}${server}`, { ok: 'Удалить', danger: true })))
+      return
     const subIds = new Set(subs.map((s) => s.id))
     update((s) => ({
       ...s,
@@ -74,7 +79,7 @@ export function Hub({ id }: { id: string }) {
           <a className="back-link" href="#/">
             ← Работы
           </a>
-          <button className="btn btn--danger" onClick={remove}>
+          <button className="btn btn--danger" onClick={() => void remove()}>
             Удалить работу
           </button>
         </div>

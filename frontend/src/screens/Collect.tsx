@@ -26,14 +26,14 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
   const { a, classes } = useAssignment(id)
   const [q, setQ] = useState('')
   const [cabinetOpen, setCabinetOpen] = useState(false)
-  // работы, загруженные через кабинет: состояние их проверки там
-  useCabinetChecks(
-    state.submissions
-      .filter((x) => x.assignmentId === id && x.classId === (classId ?? x.classId) && x.remote?.checkId)
-      .map((x) => x.id),
-  )
   const fileRef = useRef<HTMLInputElement>(null)
   const cls = classes.find((c) => c.id === classId) ?? classes[0]
+  // работы класса, загруженные через кабинет: состояние их проверки там
+  useCabinetChecks(
+    state.submissions
+      .filter((x) => x.assignmentId === id && x.classId === cls?.id && x.remote?.checkId)
+      .map((x) => x.id),
+  )
 
   const subs = useMemo(
     () => state.submissions.filter((s) => s.assignmentId === id && s.classId === cls?.id),

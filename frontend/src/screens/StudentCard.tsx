@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { askConfirm } from '../lib/confirm'
 import { useActions } from '../actions'
 import { CameraCapture } from '../components/CameraCapture'
 import { SUBMISSION_STATUS_LABEL, uid, type Page, type State, type Submission } from '../domain'
@@ -228,8 +229,9 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
                     className="icon-btn icon-btn--danger"
                     title="Удалить"
                     onClick={() =>
-                      confirm(`Удалить страницу ${i + 1}?`) &&
-                      setSub((s) => touched({ ...s, pages: s.pages.filter((x) => x.id !== p.id) }))
+                      void askConfirm(`Удалить страницу ${i + 1}?`, { ok: 'Удалить', danger: true }).then(
+                        (ok) => ok && setSub((s) => touched({ ...s, pages: s.pages.filter((x) => x.id !== p.id) })),
+                      )
                     }
                   >
                     🗑

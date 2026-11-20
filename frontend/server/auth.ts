@@ -40,6 +40,23 @@ const SESSION_DAYS = 30
 const DATA_DIR = join(process.cwd(), '.data')
 const USERS_FILE = join(DATA_DIR, 'users.json')
 const SECRET_FILE = join(DATA_DIR, 'auth-secret')
+const REVOKED_FILE = join(DATA_DIR, 'revoked.json')
+
+/** Отозванные при выходе сессии: номер сессии → когда она и так истекла бы (потом запись не нужна). */
+function loadRevoked(): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(REVOKED_FILE, 'utf8')) as Record<string, number>
+  } catch {
+    return {}
+  }
+}
+function revoke(sid: string, exp: number) {
+  const now = Date.now()
+  const list = Object.fromEntries(Object.entries(loadRevoked()).filter(([, e]) => e > now))
+  list[sid] = exp
+  ensureDir()
+  writeFileSync(REVOKED_FILE, JSON.stringify(list), 'utf8')
+}
 
 function ensureDir() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
@@ -147,11 +164,14 @@ export function authPlugin(env: Record<string, string>): Plugin {
   let secret = ''
   const sign = (payload: string) => createHmac('sha256', secret).update(payload).digest('base64url')
 
+  // у каждой сессии свой номер (s): при выходе он попадает в список отозванных
   const makeToken = (userId: string) => {
-    const payload = Buffer.from(JSON.stringify({ u: userId, e: Date.now() + SESSION_DAYS * 864e5 })).toString('base64url')
+    const payload = Buffer.from(
+      JSON.stringify({ u: userId, s: randomUUID(), e: Date.now() + SESSION_DAYS * 864e5 }),
+    ).toString('base64url')
     return `${payload}.${sign(payload)}`
   }
-  const readToken = (token: string | undefined): string | null => {
+  const parseToken = (token: string | undefined): { u: string; s?: string; e: number } | null => {
     if (!token) return null
     const [payload, sig] = token.split('.')
     if (!payload || !sig) return null
@@ -159,14 +179,16 @@ export function authPlugin(env: Record<string, string>): Plugin {
     const got = Buffer.from(sig)
     if (good.length !== got.length || !timingSafeEqual(good, got)) return null
     try {
-      const { u, e } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { u: string; e: number }
-      return e > Date.now() ? u : null
+      const t = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { u: string; s?: string; e: number }
+      if (t.e <= Date.now()) return null
+      if (t.s && loadRevoked()[t.s]) return null
+      return t
     } catch {
       return null
     }
   }
   const currentUser = (req: IncomingMessage) => {
-    const id = readToken(getCookie(req, COOKIE))
+    const id = parseToken(getCookie(req, COOKIE))?.u
     return id ? loadUsers().find((u) => u.id === id) ?? null : null
   }
 
@@ -178,6 +200,8 @@ export function authPlugin(env: Record<string, string>): Plugin {
 
   const handler = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const url = (req.url ?? '').split('?')[0]
+    // выход из кабинета идёт через наш прокси — сразу забываем подтверждённую сессию
+    if (url === '/v1/sessions/current' && req.method === 'DELETE' && req.headers.cookie) cabinetSessions.delete(req.headers.cookie)
     if (!url.startsWith('/api/')) return next()
     const send = (status: number, data: unknown) => {
       res.statusCode = status
@@ -204,6 +228,9 @@ export function authPlugin(env: Record<string, string>): Plugin {
         return u ? send(200, { user: publicUser(u) }) : send(401, { message: 'Вход не выполнен' })
       }
       if (url === '/api/auth/logout' && req.method === 'POST') {
+        // сессию отзываем на сервере — скопированная cookie после выхода тоже перестаёт работать
+        const t = parseToken(getCookie(req, COOKIE))
+        if (t?.s) revoke(t.s, t.e)
         setSession(res, null)
         return send(200, { ok: true })
       }

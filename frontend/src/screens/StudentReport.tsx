@@ -26,7 +26,8 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   // выбранная ошибка: номер и (если нажали на конкретную) сама ошибка; undefined — ещё не выбирали (открыта первая),
   // null — подсказку закрыли
   const [panel, setPanel] = useState<{ tid: string; mid?: string } | null | undefined>(undefined)
-  const [pageIdx, setPageIdx] = useState(0)
+  // страница фото: null — та, где открытая ошибка (переключается сама); число — выбрана кнопкой
+  const [pageSel, setPageSel] = useState<number | null>(null)
   const fromQueue = useRoute().query.get('from') === 'queue'
   const s = state.submissions.find((x) => x.id === submissionId)
   const cls = classes.find((c) => c.id === s?.classId)
@@ -39,7 +40,6 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   const student = cls.students.find((x) => x.id === s.studentId)
   const v = a.variants.find((x) => x.id === s.variantId)
   const total = submissionTotal(a, s)
-  const page = s.pages[pageIdx]
   // первая ошибка по порядку заданий — открыта по умолчанию
   const firstOf = (tid: string) => {
     const r = s.results.find((x) => x.taskId === tid)
@@ -62,6 +62,16 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
       : panel
   // открытая ошибка подсвечивается: в таблице и рамкой на фото
   const openKey = open ? `${open.tid}|${open.mid ?? firstOf(open.tid) ?? ''}` : ''
+  const openMistake = open
+    ? s.results.find((r) => r.taskId === open.tid)?.mistakes.find((m) => m.id === (open.mid ?? firstOf(open.tid)))
+    : undefined
+  const pageIdx = Math.min(pageSel ?? openMistake?.page ?? 0, Math.max(0, s.pages.length - 1))
+  const page = s.pages[pageIdx]
+  /** выбрать ошибку — фото переключается на её страницу */
+  const choose = (p: { tid: string; mid?: string } | null) => {
+    setPanel(p)
+    setPageSel(null)
+  }
   const allMarks = s.results.flatMap((r) =>
     activeMistakes(r)
       .filter((m) => m.page === pageIdx)
@@ -161,7 +171,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
             {s.pages.length > 1 && (
               <div className="segmented">
                 {s.pages.map((p, i) => (
-                  <button key={p.id} aria-selected={i === pageIdx} onClick={() => setPageIdx(i)}>
+                  <button key={p.id} aria-selected={i === pageIdx} onClick={() => setPageSel(i)}>
                     {i + 1}
                   </button>
                 ))}
@@ -170,7 +180,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
           </div>
           {page?.kind === 'text' ? <TextPage lines={page.lines} /> : page ? <Photo src={page.image} marks={allMarks} onMark={(key) => {
                 const [tid, mid] = key.split('|')
-                setPanel({ tid, mid })
+                choose({ tid, mid })
               }} /> : <p className="muted">Страницы не загружены</p>}
         </section>
         </div>
@@ -238,7 +248,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                               <button
                                 className={`link-btn link-btn--text${`${t.id}|${m.id}` === openKey ? ' is-open' : ''}`}
                                 aria-pressed={`${t.id}|${m.id}` === openKey}
-                                onClick={() => setPanel({ tid: t.id, mid: m.id })}
+                                onClick={() => choose({ tid: t.id, mid: m.id })}
                               >
                                 {m.title}
                               </button>{' '}
@@ -248,7 +258,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                         </ul>
                       )}
                       {disputedTask(t.id) && (
-                        <button className="dispute-tag no-print" onClick={() => setPanel({ tid: t.id })}>
+                        <button className="dispute-tag no-print" onClick={() => choose({ tid: t.id })}>
                           спорное место
                         </button>
                       )}
@@ -265,7 +275,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                       )}
                     </td>
                     <td>
-                      <button className="link-btn" onClick={() => setPanel({ tid: t.id })}>
+                      <button className="link-btn" onClick={() => choose({ tid: t.id })}>
                         {sc ?? '—'}/{t.max}
                       </button>
                     </td>

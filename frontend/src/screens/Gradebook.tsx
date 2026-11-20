@@ -1,4 +1,5 @@
 import { useActions } from '../actions'
+import { askConfirm } from '../lib/confirm'
 import { useState } from 'react'
 import { ErrorPanel } from '../components/ErrorPanel'
 import {
@@ -172,8 +173,12 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                     ) : (
                       <button
                         className="btn btn--sm"
-                        onClick={() => {
-                          if (total.preliminary && s.teacherTotal == null && !confirm('Есть задания на ручной проверке. Утвердить предварительный балл?'))
+                        onClick={async () => {
+                          if (
+                            total.preliminary &&
+                            s.teacherTotal == null &&
+                            !(await askConfirm('Есть задания на ручной проверке. Утвердить предварительный балл?', { ok: 'Утвердить' }))
+                          )
                             return
                           setSub(s.id, (x) => ({ ...x, approved: true }))
                           if (s.remote?.resultRev && s.remote.publishedRev !== s.remote.resultRev) void publishRemote(s.id)

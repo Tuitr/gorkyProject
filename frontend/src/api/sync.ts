@@ -1,4 +1,4 @@
-import { CATEGORIES, uid, type Assignment, type ClassGroup, type MistakeCategory, type ReviewItem, type State, type TaskResult, type Technique } from '../domain'
+import { CATEGORIES, uid, type Assignment, type ClassGroup, type MistakeCategory, type ReviewItem, type State, type Submission, type TaskResult, type Technique } from '../domain'
 import { CabinetError, listClasses, listStudents, readCheck, type RemoteCheck, type RemoteTaskResult } from './cabinet'
 import { normNum } from './process'
 
@@ -94,7 +94,8 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
   const a = st.assignments.find((x) => x.id === sub?.assignmentId)
   const checkId = sub?.remote?.checkId
   if (!sub || !a || !checkId) return null
-  const setRemote = (s: State, fn: (r: NonNullable<typeof sub.remote>) => NonNullable<typeof sub.remote>): State => ({
+  type Remote = NonNullable<Submission['remote']>
+  const setRemote = (s: State, fn: (r: Remote) => Remote): State => ({
     ...s,
     submissions: s.submissions.map((x) => (x.id === submissionId && x.remote ? { ...x, remote: fn(x.remote) } : x)),
   })

@@ -1,4 +1,5 @@
 import { analyzeClass, type Topic } from '../analytics'
+import { askConfirm } from '../lib/confirm'
 import { generatePractice, type PracticeTopicIn } from '../api/generate'
 import { uid, type Assignment, type ClassGroup, type Practice as PracticeT, type PracticeGroup, type PracticeMode } from '../domain'
 import { href } from '../router'
@@ -65,8 +66,13 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
 
   const setP = (fn: (x: PracticeT) => PracticeT) => update((st) => ({ ...st, practices: patch(st.practices, p!.id, fn) }))
 
-  const chooseMode = (mode: PracticeMode) => {
-    if (p && p.groups.some((g) => g.tasks.length) && !confirm('Сменить режим? Сформированные задания будут удалены.')) return
+  const chooseMode = async (mode: PracticeMode) => {
+    if (
+      p &&
+      p.groups.some((g) => g.tasks.length) &&
+      !(await askConfirm('Сменить режим? Сформированные задания будут удалены.', { ok: 'Сменить', danger: true }))
+    )
+      return
     const next: PracticeT = {
       id: p?.id ?? uid('pr'),
       assignmentId: a.id,

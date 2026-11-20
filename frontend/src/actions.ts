@@ -7,6 +7,9 @@ import { processSubmission } from './api/process'
 import type { Assignment, State, Submission } from './domain'
 import { patch, useStore } from './store'
 
+/** Идущие сохранения работ на сервере (общие для всех экранов). */
+const publishing = new Map<string, Promise<Assignment['remote']>>()
+
 /** Фоновые действия: обработка сдач (OCR → GigaChat) и генерация вариантов. */
 export function useActions() {
   const { update, getState, runJob, toast } = useStore()
@@ -90,7 +93,7 @@ export function useActions() {
    * Режим кабинета: сохранить работу на сервере (каждому классу; новая ревизия — если содержимое изменилось).
    * Возвращает серверные id сразу — состояние React обновится позже, читать его сразу после нельзя.
    */
-  const publish = useCallback(
+  const doPublish = useCallback(
     async (assignmentId: string): Promise<Assignment['remote']> => {
       if (!isCabinet()) return undefined
       let out: Assignment['remote']
@@ -109,6 +112,18 @@ export function useActions() {
       return out ?? getState().assignments.find((x) => x.id === assignmentId)?.remote
     },
     [getState, runJob, toast, update],
+  )
+
+  const publish = useCallback(
+    (assignmentId: string): Promise<Assignment['remote']> => {
+      // сохранение этой работы уже идёт (например, сразу после «Утвердить») — ждём его, а не возвращаем пусто
+      const inflight = publishing.get(assignmentId)
+      if (inflight) return inflight
+      const p = doPublish(assignmentId).finally(() => publishing.delete(assignmentId))
+      publishing.set(assignmentId, p)
+      return p
+    },
+    [doPublish],
   )
 
   /** Обновить сдачу из кабинета (после правки или конфликта версий). */

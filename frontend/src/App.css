@@ -17,7 +17,7 @@
   white-space: nowrap;
 }
 .btn:hover { background: var(--surface-2); }
-.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
 .btn--primary:hover { background: var(--accent); filter: brightness(1.08); }
 
 .icon-btn {

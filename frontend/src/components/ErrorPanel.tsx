@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { askConfirm } from '../lib/confirm'
 import { useActions } from '../actions'
 import { DisputeCard } from './DisputeCard'
 import type { ReviewChange } from '../api/cabinet'
@@ -142,7 +143,8 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
             </h3>
             <p>
               {m.where}
-              {m.lines.length > 0 && (
+              {/* ссылка ведёт к распознанным строкам — их показывает только выезжающая панель (ведомость) */}
+              {!inline && m.lines.length > 0 && (
                 <>
                   {' '}
                   <button
@@ -171,9 +173,11 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
             <div className="ep__meta">
               <label>
                 Категория{' '}
+                {/* у результата кабинета категорию задаёт кабинет: её правка туда не уходит */}
                 <select
                   className="input input--sm"
                   value={m.category}
+                  disabled={fromCabinet}
                   onChange={(e) => setMistake(m.id, { category: e.target.value as MistakeCategory })}
                 >
                   {CATEGORIES.map((c) => (
@@ -238,10 +242,15 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
                   <button
                     className="link-btn link-btn--danger"
                     disabled={saving}
-                    onClick={() =>
-                      confirm('Убрать замечание из результата? На сервере его нельзя будет вернуть.') &&
-                      void saveRemote([{ type: 'remove_issue', issueId: m.id }], 'Замечание убрано')
-                    }
+                    onClick={async () => {
+                      if (
+                        await askConfirm('Убрать замечание из результата? На сервере его нельзя будет вернуть.', {
+                          ok: 'Убрать',
+                          danger: true,
+                        })
+                      )
+                        void saveRemote([{ type: 'remove_issue', issueId: m.id }], 'Замечание убрано')
+                    }}
                   >
                     Не считать ошибкой
                   </button>
