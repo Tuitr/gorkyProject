@@ -49,7 +49,7 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
   const [password2, setPassword2] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  // в кабинете (бэкенд из main) регистрации нет, вход — по логину
+  // В режиме кабинета этот экран показывает форму входа.
   const cabinet = isCabinet()
   const isReg = mode === 'register' && !cabinet
 
@@ -130,10 +130,10 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
           </>
         )}
         <label className="field">
-          <span>{cabinet ? 'Логин' : 'Электронная почта'}</span>
+          <span>Электронная почта</span>
           <input
             className="input"
-            type={cabinet ? 'text' : 'email'}
+            type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete={cabinet ? 'username' : 'email'}

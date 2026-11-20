@@ -5,7 +5,7 @@ import type { AuthUser } from '../store'
  * Включается переменной CHECKER_CABINET_URL на сервере Vite: он пробрасывает /v1 в кабинет (vite.config.ts).
  * Без неё фронтенд работает сам — вход через server/auth.ts, данные в браузере.
  *
- * Что кабинет умеет сейчас: вход по логину, классы и ученики (чтение и создание), сохранение работы (DOCX
+ * Что кабинет умеет сейчас: вход по почте, классы и ученики (чтение и создание), сохранение работы (DOCX
  * + требования учителя, ревизии), загрузка работ учеников (DOCX или ZIP) с подбором ученика, чтение
  * статуса проверки. Проверки (сервиса grading) в main пока нет — результаты считает наш сервер (GigaChat).
  */
@@ -106,8 +106,8 @@ const toUser = (t: TeacherSession): AuthUser => ({
   email: '',
 })
 
-export const cabinetLogin = async (login: string, password: string) =>
-  toUser(await call<TeacherSession>('POST', '/sessions', { login, password }))
+export const cabinetLogin = async (email: string, password: string) =>
+  toUser(await call<TeacherSession>('POST', '/sessions', { email, password }))
 export async function cabinetMe(): Promise<AuthUser | null> {
   try {
     return toUser(await call<TeacherSession>('GET', '/sessions/current'))

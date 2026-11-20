@@ -25,7 +25,6 @@ export async function me(): Promise<AuthUser | null> {
   }
 }
 
-/** В режиме кабинета первое поле — логин кабинета, иначе почта. */
 export const login = (email: string, password: string) =>
   isCabinet() ? cabinetLogin(email, password) : call('login', { email, password })
 export const register = (fio: { lastName: string; firstName: string; middleName: string }, email: string, password: string) =>
