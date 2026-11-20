@@ -8,6 +8,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from contracts.v1.grading.checkresult import CheckOutcome
 from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
@@ -16,6 +17,7 @@ from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
 from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
+from grading.results import ResultStore
 from grading.review import PROMPT_VERSION, reviewTasks, sendReview
 from grading.stream import StreamConsumer, StreamDelivery
 from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
@@ -50,6 +52,7 @@ class GradingWorker:
         self.pendingIdleMs = pendingIdleMs
         self.jobs = JobQueue(engine, clock=clock)
         self.now = clock or (lambda: datetime.now(UTC))
+        self.results = ResultStore(engine, clock)
 
     def runBatch(self, *, count: int = 10, blockMs: int | None = None) -> list[SavedJob]:
         """Persist pending and fresh deliveries. A zero block uses a one-second poll."""
@@ -234,6 +237,21 @@ class GradingWorker:
         if prepared is None:
             return None
         return reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport, promptVersion)
+
+    def calculateCheck(
+        self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
+        overallReview: str, transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview,
+    ) -> CheckOutcome | None:
+        """Store the initial calculation exactly once so a retry can resume publication."""
+        if not isinstance(lease.key, str):
+            raise ValueError("expected a submission check job")
+        existing = self.results.findDraft(lease.key, "initial")
+        if existing is not None:
+            return existing
+        results = self.reviewCheck(lease, loadDocument, transport=transport)
+        if results is None:
+            return None
+        return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease)
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
         return self.parseSubmissionDetails(lease, loadDocument).steps

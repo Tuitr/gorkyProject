@@ -10,7 +10,11 @@ DEFAULT_DATABASE_URL = "postgresql+psycopg://gorky_grading:gorky_grading@127.0.0
 @dataclass(frozen=True)
 class Settings:
     databaseUrl: str = DEFAULT_DATABASE_URL
+    serviceTokensJson: str = "{}"
 
     @classmethod
     def fromEnv(cls) -> "Settings":
-        return cls(databaseUrl=os.environ.get("GRADING_DATABASE_URL", DEFAULT_DATABASE_URL))
+        return cls(
+            databaseUrl=os.environ.get("GRADING_DATABASE_URL", DEFAULT_DATABASE_URL),
+            serviceTokensJson=os.environ.get("GRADING_SERVICE_TOKENS", "{}"),
+        )

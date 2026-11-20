@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKeyConstraint, Text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKeyConstraint, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +50,21 @@ class CheckJob(JobProgress, Base):
     assignmentRev: Mapped[int] = mapped_column("assignment_rev", BigInteger)
     traceId: Mapped[str] = mapped_column("trace_id", Text)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB)
+
+
+class CheckResultRevision(Base):
+    __tablename__ = "check_result_revisions"
+    __table_args__ = (
+        CheckConstraint("result_rev >= 1", name="check_result_revisions_positive_rev"),
+        UniqueConstraint("check_id", "calculation_id", name="check_result_revisions_calculation"),
+        ForeignKeyConstraint(["check_id"], [f"{DB_SCHEMA}.check_jobs.check_id"]),
+    )
+
+    checkId: Mapped[str] = mapped_column("check_id", Text, primary_key=True)
+    resultRev: Mapped[int] = mapped_column("result_rev", BigInteger, primary_key=True)
+    calculationId: Mapped[str] = mapped_column("calculation_id", Text)
+    outcome: Mapped[dict[str, object]] = mapped_column(JSONB)
+    markdownRef: Mapped[dict[str, object] | None] = mapped_column("markdown_ref", JSONB(none_as_null=True))
 
 
 class InboxEntry(Base):
