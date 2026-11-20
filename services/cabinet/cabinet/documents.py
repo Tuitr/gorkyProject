@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+from contextlib import closing
 from io import BytesIO
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree
@@ -33,15 +34,20 @@ DOCUMENT_TAGS = {
 }
 
 
-def readDocx(upload: UploadFile) -> bytes:
+def readDocxBytes(upload: UploadFile) -> bytes:
     original = upload.file.read(MAX_DOCX_BYTES + 1)
     if len(original) > MAX_DOCX_BYTES:
         raise ApiProblem("file_too_large", "DOCX exceeds 20 MiB", status=413)
+    return original
+
+
+def readDocx(upload: UploadFile) -> bytes:
+    original = readDocxBytes(upload)
     validateDocx(original)
     return original
 
 
-def validateDocx(original: bytes) -> None:
+def validateDocx(original: bytes) -> ElementTree.Element:
     try:
         with ZipFile(BytesIO(original)) as archive:
             types = readXml(archive, "[Content_Types].xml")
@@ -51,7 +57,7 @@ def validateDocx(original: bytes) -> None:
                 for item in types.findall(f"{TYPES_NS}Override")
             )
             if mainType and document.tag in DOCUMENT_TAGS:
-                return
+                return document
     except (BadZipFile, ElementTree.ParseError, KeyError, RuntimeError, OSError, ValueError, EOFError, ZlibError):
         pass
     raise ApiProblem("invalid_input", "Expected a valid DOCX document")
@@ -97,3 +103,14 @@ def storeDocx(client: "S3Client", key: str, original: bytes) -> DocRef:
     except (ClientError, BotoCoreError) as error:
         raise ApiProblem("unavailable", "Document storage is unavailable") from error
     return DocRef(bucket=SOURCES_BUCKET, key=key, sha256=digest)
+
+
+def loadDocx(client: "S3Client", ref: DocRef) -> bytes:
+    try:
+        with closing(client.get_object(Bucket=ref.bucket, Key=ref.key)["Body"]) as body:
+            original = body.read(MAX_DOCX_BYTES + 1)
+    except (ClientError, BotoCoreError) as error:
+        raise ApiProblem("unavailable", "Document storage is unavailable") from error
+    if len(original) > MAX_DOCX_BYTES or hashlib.sha256(original).hexdigest() != ref.sha256:
+        raise ApiProblem("unavailable", "Stored document does not match its reference")
+    return original

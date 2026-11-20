@@ -8,7 +8,7 @@ from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.events.checks import NonEmptyStr
 
 
-UploadFileStatus = Literal["pending_binding", "needs_confirmation", "bound", "rejected"]
+UploadFileStatus = Literal["pending_binding", "needs_confirmation", "matched", "bound", "rejected"]
 
 
 class UploadAccepted(BaseModel):

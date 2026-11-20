@@ -228,8 +228,8 @@ def createApp(
         teacher: TeacherSession = Depends(currentTeacher),
     ) -> UploadAccepted:
         with sessionFactory.begin() as db:
-            requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
-            return storeUpload(db, settings, assignmentId, assignmentRev, readSubmission(file))
+            classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
+            return storeUpload(db, settings, assignmentId, assignmentRev, classId, readSubmission(file))
 
     @v1.get(
         "/uploads/{uploadId}",
@@ -237,8 +237,8 @@ def createApp(
         responses={401: {"model": ApiError}, 404: {"model": ApiError}},
     )
     def readUpload(uploadId: str, teacher: TeacherSession = Depends(currentTeacher)) -> UploadProgress:
-        with sessionFactory() as db:
-            return getUploadProgress(db, uploadId, teacher.teacherId)
+        with sessionFactory.begin() as db:
+            return getUploadProgress(db, settings, uploadId, teacher.teacherId)
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

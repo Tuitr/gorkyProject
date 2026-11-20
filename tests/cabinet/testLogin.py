@@ -291,9 +291,11 @@ def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions
     assert {student["studentId"] for student in client.get(roster).json()} == studentIds
 
 
-def assignmentDocx(title: str) -> bytes:
+def assignmentDocx(title: str, *signatures: str) -> bytes:
     document = Document()
     document.add_paragraph(title)
+    for signature in signatures:
+        document.add_paragraph(signature)
     output = BytesIO()
     document.save(output)
     return output.getvalue()
@@ -434,7 +436,7 @@ def testIndividualSubmissionUpload(
             assert (upload.uploadId, upload.assignmentId, upload.assignmentRev) == (uploadId, assignmentId, 1)
             assert stored.uploadId == uploadId
             assert stored.originalName == "Иванов.docx"
-            assert stored.status == "pending_binding"
+            assert stored.status == "needs_confirmation"
             assert stored.sha256 == hashlib.sha256(studentDoc).hexdigest()
             with closing(s3.get_object(Bucket=stored.bucket, Key=stored.objectKey)["Body"]) as body:
                 assert body.read() == studentDoc
@@ -510,7 +512,7 @@ def testArchiveSubmissionUpload(
                 assert len(records) == 2
                 assert {record.uploadId for record in records} == {upload.uploadId}
                 assert {record.originalName for record in records} == {"Иванов.docx"}
-                assert {record.status for record in records} == {"pending_binding"}
+                assert {record.status for record in records} == {"needs_confirmation"}
                 assert len({record.fileId for record in records}) == len({record.objectKey for record in records}) == 2
                 saved = set()
                 for record in records:
@@ -554,22 +556,24 @@ def testOnlyOwnerCanReadMixedUploadProgress(
         uploadId = accepted.json()["uploadId"]
         path = f"/v1/uploads/{uploadId}"
 
-        pending = client.get(path)
-        assert pending.status_code == 200, pending.text
-        assert pending.headers["cache-control"] == "no-store"
+        unmatched = client.get(path)
+        assert unmatched.status_code == 200, unmatched.text
+        assert unmatched.headers["cache-control"] == "no-store"
         assert all(
-            file["status"] == "pending_binding" and file["candidates"] == []
+            file["status"] == "needs_confirmation" and file["candidates"] == []
             and "attemptId" not in file and "checkId" not in file
-            for file in pending.json()["files"]
+            for file in unmatched.json()["files"]
         )
         attemptId, checkId = str(uuid.uuid4()), str(uuid.uuid4())
         with cabinetSessions.begin() as db:
             records = {file.originalName: file for file in db.scalars(select(UploadFileRecord))}
             records["bound.docx"].status = "bound"
+            records["bound.docx"].reason = None
             records["bound.docx"].studentId = student["studentId"]
             records["bound.docx"].attemptId = attemptId
             records["bound.docx"].checkId = checkId
             records["unclear.docx"].status = "needs_confirmation"
+            records["unclear.docx"].reason = None
             records["unclear.docx"].candidateStudentIds = [student["studentId"], foreign["studentId"]]
             records["rejected.docx"].status = "rejected"
             records["rejected.docx"].reason = "Документ не читается"
@@ -606,3 +610,83 @@ def testOnlyOwnerCanReadMixedUploadProgress(
             s3.delete_object(Bucket=uploadFile.bucket, Key=uploadFile.objectKey)
         for variant in db.scalars(select(AssignmentRecord)):
             s3.delete_object(Bucket=variant.bucket, Key=variant.objectKey)
+
+
+def testUploadMatchesStudentsWithoutStartingAttempts(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.other")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    unsigned = assignmentDocx("Решение")
+    archive = submissionZip(
+        ("ivanov-ivan.docx", assignmentDocx("Решение", "Ученик: Иванов Иван")),
+        ("Пётр Иванов.docx", unsigned),
+        ("Иванов Иван.docx", assignmentDocx("Решение", "Выполнил: Иванов Пётр")),
+        ("Иванов.docx", unsigned),
+        ("Ким Анна.docx", assignmentDocx("Решение", "ФИО: Анна Ким")),
+        ("Кузнецова Мария.docx", assignmentDocx("Решение", "Ученица: Кузнецова Мария")),
+        ("multiple.docx", assignmentDocx("Решение", "Ученик: Иванов Иван", "ФИО: Иванов Пётр")),
+    )
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        foreignClass = client.post("/v1/classes", json={"name": "8Б"}).json()["classId"]
+        assert client.post(f"/v1/classes/{foreignClass}/students", json={"name": "Кузнецова Мария"}).status_code == 201
+
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        classPath = f"/v1/classes/{classId}"
+        students = []
+        for name in ("Иванов Иван", "Иванов Пётр", "Анна Ким", "Ким Анна"):
+            student = client.post(f"{classPath}/students", json={"name": name})
+            assert student.status_code == 201
+            students.append(student.json()["studentId"])
+        ivan, petr, anna, secondAnna = students
+
+        assignment = client.post(
+            f"{classPath}/assignments", data={"requirements": "[]"}, files={"file": ("assignment.docx", unsigned)},
+        )
+        assert assignment.status_code == 201
+        assignmentId = assignment.json()["assignmentId"]
+        accepted = client.post(
+            f"/v1/assignments/{assignmentId}/uploads", data={"assignmentRev": "1"}, files={"file": ("class.zip", archive)},
+        )
+        assert accepted.status_code == 202, accepted.text
+        path = f"/v1/uploads/{accepted.json()['uploadId']}"
+        progress = client.get(path)
+        assert progress.status_code == 200, progress.text
+        files = {file["originalName"]: file for file in progress.json()["files"]}
+        assert len(files) == 7
+        assert all("attemptId" not in file and "checkId" not in file for file in files.values())
+        for filename, matchId in (("ivanov-ivan.docx", ivan), ("Пётр Иванов.docx", petr)):
+            assert files[filename]["studentId"] == matchId
+            assert files[filename]["status"] == "matched"
+        for filename, candidates in (
+            ("Иванов Иван.docx", {ivan, petr}), ("Иванов.docx", {ivan, petr}),
+            ("Ким Анна.docx", {anna, secondAnna}), ("Кузнецова Мария.docx", set()), ("multiple.docx", {ivan, petr}),
+        ):
+            file = files[filename]
+            assert file["status"] == "needs_confirmation", file
+            assert {candidate["studentId"] for candidate in file["candidates"]} == candidates
+            assert "studentId" not in file and file["reason"]
+
+        # A file persisted by A3.4 gets the same match when its owner first reads progress.
+        with cabinetSessions.begin() as db:
+            old = db.get(UploadFileRecord, files["ivanov-ivan.docx"]["fileId"])
+            assert old is not None
+            old.status = "pending_binding"
+            old.studentId = None
+            old.candidateStudentIds = []
+
+        saved = client.get(path)
+        assert saved.status_code == 200
+        rematched = next(file for file in saved.json()["files"] if file["originalName"] == "ivanov-ivan.docx")
+        assert rematched == files["ivanov-ivan.docx"]
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        for file in db.scalars(select(UploadFileRecord)):
+            s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
+        for record in db.scalars(select(AssignmentRecord)):
+            s3.delete_object(Bucket=record.bucket, Key=record.objectKey)

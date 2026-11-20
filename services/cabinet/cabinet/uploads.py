@@ -2,6 +2,7 @@
 
 import stat
 import uuid
+from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from os import SEEK_END
@@ -15,12 +16,14 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.assignments import AssignmentRecord
+from cabinet.bindings import matchStudent, signatureNames
 from cabinet.classes import ClassRecord, StudentRecord
 from cabinet.database import Base
-from cabinet.documents import MAX_DOCX_BYTES, buildS3Client, readDocx, storeDocx, validateDocx
+from cabinet.documents import MAX_DOCX_BYTES, buildS3Client, loadDocx, readDocxBytes, storeDocx, validateDocx
 from cabinet.settings import Settings
 from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
+from contracts.v1.events.checks import DocRef
 from shared.httperrors import ApiProblem
 
 
@@ -34,6 +37,7 @@ MAX_ZIP_ENTRIES = 200
 class SubmissionDocument:
     originalName: str
     content: bytes
+    signatures: tuple[str, ...]
 
 
 class UploadRecord(Base):
@@ -55,9 +59,10 @@ class UploadFileRecord(Base):
     __table_args__ = (
         UniqueConstraint("object_key"),
         CheckConstraint(
-            "status IN ('pending_binding', 'needs_confirmation', 'bound', 'rejected')",
+            "status IN ('pending_binding', 'needs_confirmation', 'matched', 'bound', 'rejected')",
             name="ck_upload_files_status",
         ),
+        CheckConstraint("status <> 'matched' OR student_id IS NOT NULL", name="ck_upload_files_match"),
         CheckConstraint(
             "(status = 'bound' AND student_id IS NOT NULL AND attempt_id IS NOT NULL AND check_id IS NOT NULL) "
             "OR (status <> 'bound' AND attempt_id IS NULL AND check_id IS NULL)",
@@ -91,7 +96,8 @@ def readSubmission(upload: UploadFile) -> list[SubmissionDocument]:
     filename = (upload.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     if filename.lower().endswith(".zip"):
         return readSubmissionZip(upload)
-    return [SubmissionDocument(submissionName(filename), readDocx(upload))]
+    original = readDocxBytes(upload)
+    return [SubmissionDocument(submissionName(filename), original, signatureNames(validateDocx(original)))]
 
 
 def zipMemberName(member: ZipInfo) -> str:
@@ -137,8 +143,7 @@ def readSubmissionZip(upload: UploadFile) -> list[SubmissionDocument]:
                     content = source.read(limit + 1)
                 if len(content) > limit:
                     raise ApiProblem("file_too_large", "ZIP exceeds the unpacked size limit", status=413)
-                validateDocx(content)
-                documents.append(SubmissionDocument(name, content))
+                documents.append(SubmissionDocument(name, content, signatureNames(validateDocx(content))))
                 remaining -= len(content)
     except (BadZipFile, RuntimeError, OSError, ValueError, EOFError, ZlibError) as error:
         raise ApiProblem("invalid_input", "Expected a valid ZIP archive") from error
@@ -153,25 +158,59 @@ def storeUpload(
     settings: Settings,
     assignmentId: str,
     assignmentRev: int,
+    classId: str,
     documents: list[SubmissionDocument],
 ) -> UploadAccepted:
     uploadId = str(uuid.uuid4())
     records = []
+    roster = db.scalars(select(StudentRecord).where(StudentRecord.classId == classId)).all()
     with closing(buildS3Client(settings)) as client:
         for document in documents:
             fileId = str(uuid.uuid4())
             docRef = storeDocx(client, f"uploads/{uploadId}/{fileId}.docx", document.content)
-            records.append(UploadFileRecord(
+            file = UploadFileRecord(
                 fileId=fileId, uploadId=uploadId, originalName=document.originalName,
                 bucket=docRef.bucket, objectKey=docRef.key, sha256=docRef.sha256,
-            ))
+            )
+            applyMatch(file, document.signatures, roster)
+            records.append(file)
     db.add(UploadRecord(uploadId=uploadId, assignmentId=assignmentId, assignmentRev=assignmentRev))
     db.flush()
     db.add_all(records)
     return UploadAccepted(uploadId=uploadId)
 
 
-def getUploadProgress(db: Session, uploadId: str, teacherId: str) -> UploadProgress:
+def applyMatch(file: UploadFileRecord, signatures: tuple[str, ...], roster: Sequence[StudentRecord]) -> None:
+    match = matchStudent(file.originalName, signatures, roster)
+    file.status = "matched" if match.studentId is not None else "needs_confirmation"
+    file.studentId = match.studentId
+    file.candidateStudentIds = match.candidateIds
+    file.reason = match.reason
+
+
+def matchPendingFiles(
+    db: Session, settings: Settings, classId: str, files: Sequence[UploadFileRecord],
+) -> None:
+    roster = db.scalars(select(StudentRecord).where(StudentRecord.classId == classId)).all()
+    with closing(buildS3Client(settings)) as client:
+        for file in files:
+            if file.status != "pending_binding":
+                continue
+            try:
+                original = loadDocx(client, DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256))
+            except ApiProblem:
+                # Leave the file pending so the next poll can retry a storage failure.
+                return
+            try:
+                signatures = signatureNames(validateDocx(original))
+            except ApiProblem:
+                file.status = "rejected"
+                file.reason = "Не удалось прочитать документ."
+            else:
+                applyMatch(file, signatures, roster)
+
+
+def getUploadProgress(db: Session, settings: Settings, uploadId: str, teacherId: str) -> UploadProgress:
     if len(uploadId) != 36 or "\x00" in uploadId:
         raise ApiProblem("not_found", "Upload not found")
     classId = db.scalar(
@@ -188,11 +227,17 @@ def getUploadProgress(db: Session, uploadId: str, teacherId: str) -> UploadProgr
     if classId is None:
         raise ApiProblem("not_found", "Upload not found")
 
-    files = db.scalars(
+    fileQuery = (
         select(UploadFileRecord)
         .where(UploadFileRecord.uploadId == uploadId)
         .order_by(UploadFileRecord.originalName, UploadFileRecord.fileId)
-    ).all()
+    )
+    files = db.scalars(fileQuery).all()
+    if any(file.status == "pending_binding" for file in files):
+        # Older uploads may not have been matched yet. Serialize the update for this upload.
+        files = db.scalars(fileQuery.with_for_update().execution_options(populate_existing=True)).all()
+        matchPendingFiles(db, settings, classId, files)
+
     candidateIds = {studentId for file in files for studentId in file.candidateStudentIds}
     candidates = {}
     if candidateIds:
@@ -212,7 +257,7 @@ def getUploadProgress(db: Session, uploadId: str, teacherId: str) -> UploadProgr
                 status=file.status,
                 candidates=[candidates[studentId] for studentId in file.candidateStudentIds if studentId in candidates],
                 reason=file.reason,
-                studentId=file.studentId if file.status == "bound" else None,
+                studentId=file.studentId if file.status in {"matched", "bound"} else None,
                 attemptId=file.attemptId,
                 checkId=file.checkId,
             )

@@ -83,10 +83,10 @@ def storeAssignment(
     return AssignmentVersion(assignmentId=assignmentId, assignmentRev=revision)
 
 
-def requireOwnedAssignment(db: Session, assignmentId: str, assignmentRev: int, teacherId: str) -> None:
+def requireOwnedAssignment(db: Session, assignmentId: str, assignmentRev: int, teacherId: str) -> str:
     if len(assignmentId) == 36 and "\x00" not in assignmentId:
-        owned = db.scalar(
-            select(AssignmentRecord.assignmentId)
+        classId = db.scalar(
+            select(AssignmentRecord.classId)
             .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
             .where(
                 AssignmentRecord.assignmentId == assignmentId,
@@ -94,6 +94,6 @@ def requireOwnedAssignment(db: Session, assignmentId: str, assignmentRev: int, t
                 ClassRecord.teacherId == teacherId,
             )
         )
-        if owned is not None:
-            return
+        if classId is not None:
+            return classId
     raise ApiProblem("not_found", "Assignment revision not found")
