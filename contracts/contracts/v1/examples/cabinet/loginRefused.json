@@ -1,0 +1,6 @@
+{
+  "code": "unauthorized",
+  "message": "Wrong login or password",
+  "retryable": false,
+  "traceId": "t-login-1"
+}
