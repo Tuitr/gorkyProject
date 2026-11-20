@@ -1149,6 +1149,57 @@ def testTeacherEditsPublishesAndDownloadsAnExplicitRevision(
             s3.delete_object(Bucket=RESULTS_BUCKET, Key=key)
 
 
+def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkId, _ = reviewedCheck
+    addTeacher(cabinetSessions, "teacher.other")
+    with cabinetSessions() as db:
+        attemptId = db.execute(select(CheckRecord.attemptId)).scalar_one()
+    gradingCalls: list[Request] = []
+
+    def grading(request: Request) -> Response:
+        gradingCalls.append(request)
+        assert request.method == "GET" and request.url.path == f"/internal/v1/checks/{checkId}"
+        return Response(200, json={
+            "checkId": checkId, "attemptId": attemptId, "state": "queued", "reason": "Ожидает проверки",
+        })
+
+    def unexpectedStorage(*args: object) -> bytes:
+        raise AssertionError("A refused download must not read S3")
+
+    monkeypatch.setattr("cabinet.main.loadMarkdown", unexpectedStorage)
+    app = createApp(
+        replace(Settings.fromEnv(), gradingServiceToken="test-cabinet"), sessionFactory=cabinetSessions,
+        passwords=Passwords(CountingHasher()), clock=clock, gradingTransport=MockTransport(grading),
+    )
+    edit = {"baseRev": 1, "editId": "edit", "changes": [{"type": "remove_issue", "issueId": "i1"}]}
+    with TestClient(app, base_url="https://testserver") as client:
+        path = f"/v1/checks/{checkId}"
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        for method, suffix, body in (
+            ("GET", "", None),
+            ("PATCH", "/review", edit),
+            ("POST", "/publish", {"resultRev": 1}),
+            ("GET", "/markdown?rev=1", None),
+        ):
+            refused = client.request(method, f"{path}{suffix}", json=body)
+            assert refused.status_code == 404, (method, suffix, refused.text)
+            assert refused.json()["code"] == "not_found"
+        assert not gradingCalls
+        with cabinetSessions() as db:
+            assert db.scalars(select(CheckRecord.checkId)).all() == [checkId]
+            assert db.scalars(select(AttemptRecord.attemptId)).all() == [attemptId]
+            assert db.scalars(select(OutboxRecord)).all() == []
+
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert client.patch(f"{path}/review", json={**edit, "actorId": "forged"}).status_code == 422
+        assert not gradingCalls
+        assert client.get(path).status_code == 200
+        assert len(gradingCalls) == 1
+
+
 def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
     cabinetSessions: sessionmaker[Session], clock: ManualClock,
 ) -> None:
