@@ -13,9 +13,9 @@ from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse, ReviewReference, ReviewStep
 from contracts.v1.references.reference import ReferenceReady, ReferenceResult
 from grading.assignment import AssignmentTask
-from grading.submission import SubmissionReading
+from grading.submission import SubmissionReading, TaskReading
 
-PROMPT_VERSION = "review.v1"
+PROMPT_VERSION = "review.v2"
 DOCUMENT_LABEL = re.compile(
     r"\b(?:фио|имя ученика|ученик|ученица|выполнил[аи]?|подпись|автор|имя файла|файл)\s*:",
     re.IGNORECASE,
@@ -57,6 +57,19 @@ def sendReview(request: ModelReviewRequest) -> ModelReviewResponse:
         connection.close()
 
 
+def validatedResult(request: ModelReviewRequest, result: TaskResult, reading: TaskReading) -> TaskResult:
+    if result.taskId != request.taskId:
+        return localResult(request.taskId, skipped=False, required=bool(request.rubric))
+    reasoning = "not_shown" if reading.status == "answerOnly" else result.reasoning
+    method = result.method if request.rubric else "optional"
+    if reading.status == "answerOnly" and request.rubric:
+        method = "unconfirmed"
+    return result.model_copy(update={
+        "reasoning": reasoning, "method": method,
+        "needsReview": result.needsReview or result.answer == "unreadable",
+    })
+
+
 def localResult(taskId: str, *, skipped: bool, required: bool) -> TaskResult:
     return TaskResult(taskId=taskId, answer="skipped" if skipped else "unreadable",
                       reasoning="not_shown" if skipped else "unknown", method="unconfirmed" if required else "optional",
@@ -83,8 +96,5 @@ def reviewTasks(checkId: str, tasks: tuple[AssignmentTask, ...], reading: Submis
         except DocumentMetadataInReview:
             results.append(localResult(task.taskId, skipped=False, required=bool(task.requirements)))
             continue
-        result = transport(request).taskResult
-        if result.taskId != task.taskId:
-            result = localResult(task.taskId, skipped=False, required=bool(task.requirements))
-        results.append(result)
+        results.append(validatedResult(request, transport(request).taskResult, item))
     return tuple(results)
