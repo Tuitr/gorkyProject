@@ -11,7 +11,7 @@
     },
     "body": {
       "requestId": "q-failInvalidJson",
-      "promptVersion": "review.v1",
+      "promptVersion": "review.v2",
       "taskId": "failInvalidJson",
       "statement": "Длина вектора (3; 4)",
       "rubric": [

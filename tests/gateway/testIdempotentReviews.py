@@ -107,7 +107,7 @@ def testRepeatAfterSuccessDoesNotCallTheModel(sessionFactory: sessionmaker[Sessi
     "changes",
     [
         {"steps": [{"stepId": "s1", "markdown": "Ответ: 7"}]},
-        {"promptVersion": "review.v2"},
+        {"promptVersion": "review.v1"},
         {"rubric": []},
         {"reference": {"referenceId": "r2", "schemaId": "scalar.v1", "value": {"exact": "5"}}},
     ],

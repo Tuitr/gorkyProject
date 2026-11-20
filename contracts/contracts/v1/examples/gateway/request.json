@@ -1,6 +1,6 @@
 {
   "requestId": "q1",
-  "promptVersion": "review.v1",
+  "promptVersion": "review.v2",
   "taskId": "t1",
   "statement": "Длина вектора (3; 4)",
   "rubric": ["Нужно показать вычисление по формуле длины вектора"],
