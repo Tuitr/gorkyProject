@@ -24,7 +24,7 @@ from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecor
 from cabinet.auth.throttle import LoginThrottle
 from cabinet.bindingconfirmation import confirmBinding
 from cabinet.checks import readGradingCheck, requireOwnedCheck
-from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
+from cabinet.classes import ClassRecord, StudentRecord, activeStudents, deleteClass, deleteStudent, requireOwnedClass
 from cabinet.cleanupuploads import tryCleanUpload
 from cabinet.documents import readDocx
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
@@ -179,7 +179,7 @@ def createApp(
     def listClasses(teacher: TeacherSession = Depends(currentTeacher)) -> list[ClassSummary]:
         with sessionFactory() as db:
             rows = db.scalars(
-                select(ClassRecord).where(ClassRecord.teacherId == teacher.teacherId)
+                select(ClassRecord).where(ClassRecord.teacherId == teacher.teacherId, ClassRecord.deletedAt.is_(None))
                 .order_by(ClassRecord.name, ClassRecord.classId)
             )
             return [ClassSummary(classId=row.classId, name=row.name) for row in rows]
@@ -194,12 +194,21 @@ def createApp(
             db.add(ClassRecord(classId=created.classId, teacherId=teacher.teacherId, name=created.name))
         return created
 
+    @v1.delete(
+        "/classes/{classId}", status_code=204,
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}},
+    )
+    def deleteTeacherClass(classId: str, teacher: TeacherSession = Depends(currentTeacher)) -> Response:
+        with sessionFactory.begin() as db:
+            deleteClass(db, classId, teacher.teacherId, sessionClock.now())
+        return Response(status_code=204)
+
     @v1.get("/classes/{classId}/students", responses={401: {"model": ApiError}, 404: {"model": ApiError}})
     def listStudents(classId: str, teacher: TeacherSession = Depends(currentTeacher)) -> list[StudentSummary]:
         with sessionFactory() as db:
             requireOwnedClass(db, classId, teacher.teacherId)
             rows = db.scalars(
-                select(StudentRecord).where(StudentRecord.classId == classId)
+                activeStudents(classId)
                 .order_by(StudentRecord.name, StudentRecord.studentId)
             )
             return [StudentSummary(studentId=row.studentId, name=row.name) for row in rows]
@@ -213,9 +222,18 @@ def createApp(
     ) -> StudentSummary:
         created = StudentSummary(studentId=str(uuid.uuid4()), name=body.name)
         with sessionFactory.begin() as db:
-            requireOwnedClass(db, classId, teacher.teacherId)
+            requireOwnedClass(db, classId, teacher.teacherId, lockForWrite=True)
             db.add(StudentRecord(studentId=created.studentId, classId=classId, name=created.name))
         return created
+
+    @v1.delete(
+        "/classes/{classId}/students/{studentId}", status_code=204,
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}},
+    )
+    def deleteClassStudent(classId: str, studentId: str, teacher: TeacherSession = Depends(currentTeacher)) -> Response:
+        with sessionFactory.begin() as db:
+            deleteStudent(db, classId, studentId, teacher.teacherId, sessionClock.now())
+        return Response(status_code=204)
 
     @v1.post(
         "/classes/{classId}/assignments",
@@ -235,7 +253,7 @@ def createApp(
         event: EventContext = Depends(eventContext),
     ) -> AssignmentVersion:
         with sessionFactory.begin() as db:
-            requireOwnedClass(db, classId, teacher.teacherId)
+            requireOwnedClass(db, classId, teacher.teacherId, lockForWrite=True)
             return storeAssignment(
                 db, settings, classId, assignmentId, assignmentDate or event.occurredAt.date(),
                 requirements, readDocx(file), event,
@@ -260,7 +278,7 @@ def createApp(
         uploadId = None
         try:
             with sessionFactory.begin() as db:
-                classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
+                classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId, lockForWrite=True)
                 documents = readSubmission(file)
                 uploadId = str(uuid.uuid4())
                 return storeUpload(db, settings, assignmentId, assignmentRev, classId, documents, event, uploadId=uploadId)

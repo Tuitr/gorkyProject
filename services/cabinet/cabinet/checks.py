@@ -26,7 +26,7 @@ def requireOwnedCheck(db: Session, checkId: str, teacherId: str) -> str:
             & (AssignmentRecord.assignmentRev == CheckRecord.assignmentRev),
         )
         .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
-        .where(CheckRecord.checkId == checkId, ClassRecord.teacherId == teacherId)
+        .where(CheckRecord.checkId == checkId, ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None))
     )
     if attemptId is None:
         raise ApiProblem("not_found", "Check not found")

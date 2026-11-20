@@ -1,6 +1,6 @@
 """Class rosters and submissions stay in the cabinet. Grading selects the results included in its summary."""
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from cabinet.attempts import AttemptRecord, CheckRecord
@@ -24,7 +24,7 @@ def readReportRoster(
     for student, checkId in db.execute(
         select(StudentRecord, submittedChecks.c.checkId)
         .outerjoin(submittedChecks, submittedChecks.c.studentId == StudentRecord.studentId)
-        .where(StudentRecord.classId == classId)
+        .where(StudentRecord.classId == classId, or_(StudentRecord.deletedAt.is_(None), submittedChecks.c.checkId.is_not(None)))
         .order_by(StudentRecord.name, StudentRecord.studentId)
     ):
         roster[student.studentId] = StudentSummary(studentId=student.studentId, name=student.name)

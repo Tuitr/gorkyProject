@@ -385,6 +385,10 @@ def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions
     assert client.get(path).json() == [second.json()]
     assert client.get(roster).status_code == 404
     assert client.post(roster, json={"name": "Новый ученик"}).status_code == 404
+    firstClassPath = f"{path}/{firstClass['classId']}"
+    targetStudent = students[0].json()["studentId"]
+    assert client.delete(firstClassPath).status_code == 404
+    assert client.delete(f"{roster}/{targetStudent}").status_code == 404
 
     assert login(client, "teacher.one@example.org", PASSWORD)[0] == 200
     assert client.get(path).json() == [firstClass]
@@ -392,6 +396,15 @@ def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions
     assert client.post(roster, json={"name": "   "}).status_code == 422
     assert client.post(roster, json={"name": "Саша", "classId": second.json()["classId"]}).status_code == 422
     assert {student["studentId"] for student in client.get(roster).json()} == studentIds
+    assert client.delete(f"{roster}/{targetStudent}", headers={"Origin": "https://other.example.org"}).status_code == 403
+    assert client.delete(f"{roster}/{targetStudent}").status_code == 204
+    assert client.delete(f"{roster}/{targetStudent}").status_code == 404
+    assert {student["studentId"] for student in client.get(roster).json()} == studentIds - {targetStudent}
+    assert client.delete(firstClassPath).status_code == 204
+    assert client.get(path).json() == []
+    assert client.get(roster).status_code == 404
+    assert client.post(roster, json={"name": "Новый ученик"}).status_code == 404
+    assert client.delete(firstClassPath).status_code == 404
 
 
 def assignmentDocx(title: str, *signatures: str) -> bytes:
@@ -1092,8 +1105,9 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
             assignmentId=assignmentId, assignmentRev=1, classId=classId, assignmentDate=clock.now().date(),
             requirements=[], bucket="sources", objectKey="test-variant", sha256="0" * 64,
         ))
-        for studentId in ("reviewed", "skipped", "waiting", "absent"):
-            db.add(StudentRecord(classId=classId, studentId=studentId, name=studentId))
+        for studentId in ("reviewed", "skipped", "waiting", "absent", "removed-without-work"):
+            deletedAt = clock.now() if studentId in {"reviewed", "removed-without-work"} else None
+            db.add(StudentRecord(classId=classId, studentId=studentId, name=studentId, deletedAt=deletedAt))
         db.flush()
         for checkId, studentId in (("old", "reviewed"), ("new", "reviewed"), ("skip", "skipped"), ("pending", "waiting")):
             db.add(AttemptRecord(
@@ -1165,6 +1179,73 @@ def reviewedCheck(cabinetSessions: sessionmaker[Session], clock: ManualClock) ->
         db.flush()
         db.add(CheckRecord(checkId=checkId, attemptId=attemptId, assignmentId=assignmentId, assignmentRev=1))
     return checkId, owner
+
+
+def testRemovingRosterEntriesKeepsHistoryAndPreventsNewBindings(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+) -> None:
+    checkId, _ = reviewedCheck
+    with cabinetSessions() as db:
+        check = db.get(CheckRecord, checkId)
+        assert check is not None
+        assignment = db.get(AssignmentRecord, (check.assignmentId, check.assignmentRev))
+        attempt = db.get(AttemptRecord, check.attemptId)
+        assert assignment is not None and attempt is not None
+        assignmentId, classId, attemptId, studentId = assignment.assignmentId, assignment.classId, attempt.attemptId, attempt.studentId
+    gradingCalls: list[Request] = []
+
+    def grading(request: Request) -> Response:
+        gradingCalls.append(request)
+        return Response(200, json={"checkId": checkId, "attemptId": attemptId, "state": "queued", "reason": "Ожидает проверки"})
+
+    settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
+    app = createApp(
+        settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock,
+        gradingTransport=MockTransport(grading),
+    )
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        classPath = f"/v1/classes/{classId}"
+        assert client.delete(f"{classPath}/students/{studentId}").status_code == 204
+        assert client.get(f"{classPath}/students").json() == []
+        assert client.get(f"/v1/checks/{checkId}").status_code == 200
+
+        uploadPath = f"/v1/assignments/{assignmentId}/uploads"
+        files = {"file": ("Иванов Иван.docx", assignmentDocx("Новая работа"))}
+        uploaded = client.post(uploadPath, data={"assignmentRev": "1"}, files=files)
+        assert uploaded.status_code == 202, uploaded.text
+        progressPath = f"/v1/uploads/{uploaded.json()['uploadId']}"
+        progress = client.get(progressPath).json()["files"][0]
+        assert (progress["status"], progress["candidates"]) == ("needs_confirmation", [])
+        assert client.post(f"{progressPath}/bindings", json={
+            "fileId": progress["fileId"], "studentId": studentId,
+        }).status_code == 404
+
+        with cabinetSessions.begin() as db:
+            file = db.get(UploadFileRecord, progress["fileId"])
+            assert file is not None
+            file.status = "matched"
+            file.studentId = studentId
+            file.candidateStudentIds = [studentId]
+            key = file.objectKey
+        try:
+            rematched = client.get(progressPath).json()["files"][0]
+            assert (rematched["status"], rematched["candidates"]) == ("needs_confirmation", [])
+            assert "checkId" not in rematched
+
+            assert client.delete(classPath).status_code == 204
+            assert client.get(progressPath).status_code == 404
+            assert client.get(f"/v1/checks/{checkId}").status_code == 404
+            assert client.get(f"/v1/assignments/{assignmentId}/report?rev=1").status_code == 404
+            assert client.post(uploadPath, data={"assignmentRev": "1"}, files=files).status_code == 404
+            assert len(gradingCalls) == 1
+            with cabinetSessions() as db:
+                assert db.scalars(select(AttemptRecord.attemptId)).all() == [attemptId]
+                assert db.scalars(select(CheckRecord.checkId)).all() == [checkId]
+                assert db.scalars(select(OutboxRecord)).all() == []
+        finally:
+            with closing(buildS3Client(settings)) as s3:
+                s3.delete_object(Bucket=SOURCES_BUCKET, Key=key)
 
 
 def testTeacherEditsPublishesAndDownloadsAnExplicitRevision(

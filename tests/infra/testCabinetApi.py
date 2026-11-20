@@ -22,6 +22,8 @@ def testCabinetServesPublicAuthContract() -> None:
         registration = schema["paths"]["/v1/teachers/register"]["post"]
         assert {"201", "409", "422"} <= registration["responses"].keys()
         assert schema["components"]["schemas"]["TeacherRegistration"]["properties"]["email"]["format"] == "email"
+        for path in ("/v1/classes/{classId}", "/v1/classes/{classId}/students/{studentId}"):
+            assert "204" in schema["paths"][path]["delete"]["responses"]
         checks = schema["paths"]["/v1/checks/{checkId}"]["get"]["responses"]
         assert checks["200"]["content"]["application/json"]["schema"]["discriminator"]["propertyName"] == "state"
         for status in ("401", "422", "429"):
