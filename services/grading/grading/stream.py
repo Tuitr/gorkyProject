@@ -34,6 +34,7 @@ class StreamConsumer:
         self.client = client
         self.consumerName = consumerName
         self.streamName = streamName
+        self.pendingCursor: WireString = "0-0"
         try:
             # A new group must also see events published before the worker started.
             self.client.xgroup_create(self.streamName, CONSUMER_GROUP, id="0-0", mkstream=True)
@@ -49,13 +50,26 @@ class StreamConsumer:
                 CONSUMER_GROUP, self.consumerName, {self.streamName: ">"}, count=count, block=blockMs
             ),
         )
+        return self._readEntries([entry for _, entries in batches for entry in entries])
+
+    def readPending(self, *, minIdleMs: int, count: int) -> list[StreamDelivery]:
+        """Claim idle deliveries from consumers that stopped before acknowledging them."""
+        cursor, entries, _ = cast(
+            tuple[WireString, StreamEntries, list[WireString]],
+            self.client.xautoclaim(
+                self.streamName, CONSUMER_GROUP, self.consumerName, minIdleMs, self.pendingCursor, count=count,
+            ),
+        )
+        self.pendingCursor = cursor
+        return self._readEntries(entries)
+
+    def _readEntries(self, entries: StreamEntries) -> list[StreamDelivery]:
         deliveries: list[StreamDelivery] = []
-        for _, entries in batches:
-            for rawId, fields in entries:
-                messageId = rawId.decode("ascii") if isinstance(rawId, bytes) else rawId
-                delivery = self._readEntry(messageId, fields)
-                if delivery is not None:
-                    deliveries.append(delivery)
+        for rawId, fields in entries:
+            messageId = rawId.decode("ascii") if isinstance(rawId, bytes) else rawId
+            delivery = self._readEntry(messageId, fields)
+            if delivery is not None:
+                deliveries.append(delivery)
         return deliveries
 
     def _readEntry(self, messageId: str, fields: StreamFields) -> StreamDelivery | None:

@@ -10,27 +10,46 @@ from grading.database import Base
 from grading.settings import DB_SCHEMA
 
 
-class AssignmentJob(Base):
+class JobProgress:
+    completedStage: Mapped[str | None] = mapped_column("completed_stage", Text)
+    stageData: Mapped[dict[str, object] | None] = mapped_column("stage_data", JSONB(none_as_null=True))
+    leaseUntil: Mapped[datetime | None] = mapped_column("lease_until", DateTime(timezone=True))
+    leaseVersion: Mapped[int] = mapped_column("lease_version", BigInteger, server_default="0")
+    nextAttemptAt: Mapped[datetime | None] = mapped_column("next_attempt_at", DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(Text, server_default="queued")
+
+
+class AssignmentJob(JobProgress, Base):
     __tablename__ = "assignment_jobs"
-    __table_args__ = (CheckConstraint("assignment_rev >= 1", name="assignment_jobs_positive_rev"),)
+    __table_args__ = (
+        CheckConstraint("assignment_rev >= 1", name="assignment_jobs_positive_rev"),
+        CheckConstraint(
+            "state IN ('queued', 'waiting_reference', 'running', 'ready', 'needs_review', 'failed')",
+            name="assignment_jobs_known_state",
+        ),
+    )
 
     assignmentId: Mapped[str] = mapped_column("assignment_id", Text, primary_key=True)
     assignmentRev: Mapped[int] = mapped_column("assignment_rev", BigInteger, primary_key=True)
     traceId: Mapped[str] = mapped_column("trace_id", Text)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB)
-    state: Mapped[str] = mapped_column(Text, server_default="queued")
 
 
-class CheckJob(Base):
+class CheckJob(JobProgress, Base):
     __tablename__ = "check_jobs"
-    __table_args__ = (CheckConstraint("assignment_rev >= 1", name="check_jobs_positive_rev"),)
+    __table_args__ = (
+        CheckConstraint("assignment_rev >= 1", name="check_jobs_positive_rev"),
+        CheckConstraint(
+            "state IN ('queued', 'waiting_reference', 'running', 'ready', 'needs_review', 'failed')",
+            name="check_jobs_known_state",
+        ),
+    )
 
     checkId: Mapped[str] = mapped_column("check_id", Text, primary_key=True)
     assignmentId: Mapped[str] = mapped_column("assignment_id", Text)
     assignmentRev: Mapped[int] = mapped_column("assignment_rev", BigInteger)
     traceId: Mapped[str] = mapped_column("trace_id", Text)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB)
-    state: Mapped[str] = mapped_column(Text, server_default="queued")
 
 
 class InboxEntry(Base):
