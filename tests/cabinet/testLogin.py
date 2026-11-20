@@ -49,7 +49,7 @@ def cabinetEngine(adminEngine: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def cabinetSessions(cabinetEngine: Engine) -> sessionmaker[Session]:
     with cabinetEngine.begin() as connection:
-        connection.execute(text(f'TRUNCATE "{DB_SCHEMA}".teachers, "{DB_SCHEMA}".login_throttle'))
+        connection.execute(text(f'TRUNCATE "{DB_SCHEMA}".teachers, "{DB_SCHEMA}".sessions, "{DB_SCHEMA}".login_throttle'))
     return sessionmaker(cabinetEngine, expire_on_commit=False)
 
 
@@ -65,7 +65,7 @@ def clock() -> ManualClock:
 
 @pytest.fixture
 def client(cabinetSessions: sessionmaker[Session], hasher: CountingHasher, clock: ManualClock) -> TestClient:
-    return TestClient(createApp(SETTINGS, sessionFactory=cabinetSessions, passwords=Passwords(hasher), clock=clock))
+    return TestClient(createApp(SETTINGS, sessionFactory=cabinetSessions, passwords=Passwords(hasher), clock=clock), base_url="https://testserver")
 
 
 def addTeacher(sessions: sessionmaker[Session], login: str, name: str = "Учитель Синтетический") -> str:
@@ -219,3 +219,21 @@ def testStandTeacherIsCreatedOnce(
     assert logins == [seedteacher.DEMO_LOGIN]
     output = capsys.readouterr().out
     assert "Created teacher" in output and "already exists" in output and PASSWORD not in output
+
+
+def testSessionLifetime(client: TestClient, cabinetSessions: sessionmaker[Session], clock: ManualClock) -> None:
+    teacherId = addTeacher(cabinetSessions, "teacher.one")
+    path = "/v1/sessions/current"
+    assert client.get(path).status_code == 401
+    status, _, headers = login(client, "teacher.one", PASSWORD)
+    assert status == 200
+    assert all(flag in headers["set-cookie"].lower() for flag in ("secure", "httponly", "samesite=strict"))
+    cookie = headers["set-cookie"].split(";", 1)[0]
+    assert client.get(path, params={"actorId": "other"}).json()["teacherId"] == teacherId
+    assert client.delete(path, headers={"Origin": "https://other.example"}).status_code == 403
+    assert client.delete(path).status_code == 204
+    assert client.get(path, headers={"Cookie": cookie}).status_code == 401
+    assert client.delete(path, headers={"Cookie": cookie}).status_code == 401
+    assert login(client, "teacher.one", PASSWORD)[0] == 200
+    clock.advance(8 * 3600)
+    assert client.get(path).status_code == 401

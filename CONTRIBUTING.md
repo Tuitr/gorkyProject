@@ -104,6 +104,10 @@ assert ApiError.model_validate_json(wire) == error
 ничего не меняет. Пароли хранятся только как хеш Argon2id. Неверный пароль и неизвестный логин дают один и тот
 же 401. После `CABINET_LOGIN_MAX_FAILURES` неудач логин блокируется на `CABINET_LOGIN_WINDOW_S` секунд.
 
+Cookie `__Host-cabinet` действует 8 часов. Используйте HTTPS (для локальной разработки — localhost).
+Кабинет и браузерный фронтенд работают через один origin. После входа `GET /v1/sessions/current`
+возвращает учителя, а `DELETE /v1/sessions/current` отзывает сессию и отвечает 204.
+
 ## Мини-набор
 
 Генератор `tools/dataset` по seed пишет варианты, работы учеников, ZIP с работами каждого варианта и

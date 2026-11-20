@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Integer, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from cabinet.database import Base
@@ -35,3 +35,11 @@ class LoginThrottleRecord(Base):
     failures: Mapped[int] = mapped_column("failures", Integer)
     windowStart: Mapped[datetime] = mapped_column("window_start", DateTime(timezone=True))
     blockedUntil: Mapped[datetime | None] = mapped_column("blocked_until", DateTime(timezone=True))
+
+
+class SessionRecord(Base):
+    __tablename__ = "sessions"
+
+    tokenHash: Mapped[str] = mapped_column("token_hash", String(64), primary_key=True)
+    teacherId: Mapped[str] = mapped_column("teacher_id", ForeignKey("cabinet.teachers.teacher_id", ondelete="CASCADE"))
+    expiresAt: Mapped[datetime] = mapped_column("expires_at", DateTime(timezone=True))
