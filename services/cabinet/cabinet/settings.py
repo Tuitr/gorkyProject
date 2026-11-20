@@ -26,6 +26,7 @@ class Settings:
     s3AccessKeyId: str = "gorky-cabinet"
     s3SecretAccessKey: str = "gorky-cabinet-secret"
     s3Region: str = "us-east-1"
+    redisUrl: str = "redis://127.0.0.1:16379/0"
 
     @classmethod
     def fromEnv(cls) -> "Settings":
@@ -38,4 +39,5 @@ class Settings:
             s3AccessKeyId=os.environ.get("CABINET_S3_ACCESS_KEY_ID", cls.s3AccessKeyId),
             s3SecretAccessKey=os.environ.get("CABINET_S3_SECRET_ACCESS_KEY", cls.s3SecretAccessKey),
             s3Region=os.environ.get("S3_REGION", cls.s3Region),
+            redisUrl=os.environ.get("REDIS_URL", cls.redisUrl),
         )

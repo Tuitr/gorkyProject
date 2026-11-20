@@ -46,7 +46,7 @@ assert ApiError.model_validate_json(wire) == error
 по именам `postgres:5432`, `redis:6379`, `seaweedfs:8333`. Ключи S3 задаются в `deploy/seaweedfs/s3.json`.
 
 - Запуск с ожиданием готовности (команда ждёт, пока каждый сервис начнёт принимать запросы): `docker compose -f deploy/compose.yaml up -d --wait`
-- Состояние: `docker compose -f deploy/compose.yaml ps`, у всех сервисов должно быть `healthy`.
+- Состояние: `docker compose -f deploy/compose.yaml ps`, PostgreSQL, Redis, SeaweedFS и кабинет должны быть `healthy`, `outbox-publisher` — `running`.
 - Проверка записи и чтения во всех трёх хранилищах: `uv run pytest tests/infra`
 - Остановка без потери данных: `docker compose -f deploy/compose.yaml down`. С флагом `-v` тома удаляются.
 
@@ -95,6 +95,15 @@ assert ApiError.model_validate_json(wire) == error
 ```
 
 Идентификатор также приходит в заголовке `X-Trace-Id`.
+
+### Публикация событий кабинета
+
+Compose запускает отдельный процесс `outbox-publisher`. Для локального запуска процесса вне Docker
+используйте `uv run python -m cabinet.outboxpublisher` после миграций кабинета. Адреса берутся из
+`CABINET_DATABASE_URL` и `REDIS_URL`.
+
+Процесс публикует конверт в поле `data` потока `checks.v1` и отмечает строку в PostgreSQL после подтверждения Redis.
+При сбое он повторяет передачу с прежним `eventId`. Потребитель использует этот идентификатор для дедупликации.
 
 ### Синтетический учитель
 

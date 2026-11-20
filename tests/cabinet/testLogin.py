@@ -911,7 +911,7 @@ def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
                 refs.update((row.bucket, row.objectKey) for row in db.scalars(select(UploadFileRecord)))
                 staged = list(db.scalars(select(OutboxRecord).order_by(OutboxRecord.sequence)))
                 assert [row.data["type"] for row in staged] == ["assignment.published", "attempt.submitted"]
-                assert all(row.data["traceId"] == "rollback-test" for row in staged)
+                assert all(row.data["traceId"] == "rollback-test" and row.publishedAt is None for row in staged)
                 raise AbortUpload()
 
             with cabinetSessions() as db:
@@ -939,7 +939,6 @@ def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
                 refs.update((row.bucket, row.objectKey) for row in db.scalars(select(UploadFileRecord)))
                 records = list(db.scalars(select(OutboxRecord).order_by(OutboxRecord.sequence)))
                 assert len(records) == 2
-                assert all(row.publishedAt is None for row in records)
                 events = [checksEventAdapter.validate_json(json.dumps(row.data)) for row in records]
                 published, submitted = events
                 assert isinstance(published, AssignmentPublishedEvent)
@@ -954,7 +953,7 @@ def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
 
             alembicConfig = buildAlembicConfig(settings.databaseUrl)
             command.downgrade(alembicConfig, "0011")
-            command.upgrade(alembicConfig, "0012")
+            command.upgrade(alembicConfig, "head")
             with cabinetSessions() as db:
                 backfilled = [
                     checksEventAdapter.validate_python(row.data)

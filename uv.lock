@@ -426,6 +426,7 @@ dependencies = [
     { name = "gorky-shared" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-multipart" },
+    { name = "redis" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
 ]
@@ -440,6 +441,7 @@ requires-dist = [
     { name = "gorky-shared", editable = "packages/shared" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "redis", specifier = ">=5.2" },
     { name = "sqlalchemy", specifier = ">=2.0.36" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]

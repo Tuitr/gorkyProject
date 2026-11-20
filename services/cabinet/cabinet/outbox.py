@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Identity, String
+from sqlalchemy import BigInteger, DateTime, Identity, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -19,6 +19,7 @@ class EventContext:
 
 class OutboxRecord(Base):
     __tablename__ = "outbox"
+    __table_args__ = (Index("ix_outbox_pending_sequence", "sequence", postgresql_where=text("published_at IS NULL")),)
 
     sequence: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     eventId: Mapped[str] = mapped_column("event_id", String(36), unique=True)

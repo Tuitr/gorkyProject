@@ -7,7 +7,7 @@ name: gorky
 
 services:
   cabinet:
-    build:
+    build: &cabinet-build
       context: ..
       dockerfile: deploy/cabinet.Dockerfile
     depends_on:
@@ -17,7 +17,7 @@ services:
         condition: service_completed_successfully
     environment:
       S3_ENDPOINT_URL: http://seaweedfs:8333
-      CABINET_DATABASE_URL: postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
+      CABINET_DATABASE_URL: &cabinet-db postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
     ports:
       - "127.0.0.1:${CABINET_PORT:-18080}:8000"
     healthcheck:
@@ -26,6 +26,17 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  outbox-publisher:
+    build: *cabinet-build
+    depends_on:
+      cabinet:
+        condition: service_healthy
+    environment:
+      CABINET_DATABASE_URL: *cabinet-db
+      REDIS_URL: redis://redis:6379/0
+    command: ["python", "-m", "cabinet.outboxpublisher"]
+    restart: on-failure
 
   postgres:
     image: postgres:16
