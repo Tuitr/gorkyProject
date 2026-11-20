@@ -6,6 +6,7 @@ Tests use a cheap Argon2id (time_cost=1, small memory) so they stay fast; the ty
 import hashlib
 import json
 import logging
+import uuid
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
@@ -521,3 +522,87 @@ def testArchiveSubmissionUpload(
                     s3.delete_object(Bucket=record.bucket, Key=record.objectKey)
                 for assignment in db.scalars(select(AssignmentRecord)):
                     s3.delete_object(Bucket=assignment.bucket, Key=assignment.objectKey)
+
+
+def testOnlyOwnerCanReadMixedUploadProgress(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.other")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    docx = assignmentDocx("Решение")
+    archive = submissionZip(("bound.docx", docx), ("unclear.docx", docx), ("rejected.docx", docx))
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        otherClass = client.post("/v1/classes", json={"name": "8Б"}).json()
+        foreign = client.post(f"/v1/classes/{otherClass['classId']}/students", json={"name": "Чужой ученик"}).json()
+
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        ownClass = client.post("/v1/classes", json={"name": "8А"}).json()
+        classPath = f"/v1/classes/{ownClass['classId']}"
+        student = client.post(f"{classPath}/students", json={"name": "Саша Иванов"}).json()
+        assignment = client.post(
+            f"{classPath}/assignments", data={"requirements": "[]"}, files={"file": ("assignment.docx", docx)},
+        )
+        accepted = client.post(
+            f"/v1/assignments/{assignment.json()['assignmentId']}/uploads", data={"assignmentRev": "1"},
+            files={"file": ("class.zip", archive)},
+        )
+        assert accepted.status_code == 202, accepted.text
+        uploadId = accepted.json()["uploadId"]
+        path = f"/v1/uploads/{uploadId}"
+
+        pending = client.get(path)
+        assert pending.status_code == 200, pending.text
+        assert pending.headers["cache-control"] == "no-store"
+        assert all(
+            file["status"] == "pending_binding" and file["candidates"] == []
+            and "attemptId" not in file and "checkId" not in file
+            for file in pending.json()["files"]
+        )
+        attemptId, checkId = str(uuid.uuid4()), str(uuid.uuid4())
+        with cabinetSessions.begin() as db:
+            records = {file.originalName: file for file in db.scalars(select(UploadFileRecord))}
+            records["bound.docx"].status = "bound"
+            records["bound.docx"].studentId = student["studentId"]
+            records["bound.docx"].attemptId = attemptId
+            records["bound.docx"].checkId = checkId
+            records["unclear.docx"].status = "needs_confirmation"
+            records["unclear.docx"].candidateStudentIds = [student["studentId"], foreign["studentId"]]
+            records["rejected.docx"].status = "rejected"
+            records["rejected.docx"].reason = "Документ не читается"
+
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["uploadId"] == uploadId
+        files = {item["originalName"]: item for item in payload["files"]}
+        assert len(files) == 3
+        assert files["bound.docx"] == {
+            "fileId": records["bound.docx"].fileId, "originalName": "bound.docx", "status": "bound",
+            "candidates": [], "studentId": student["studentId"], "attemptId": attemptId, "checkId": checkId,
+        }
+        assert files["unclear.docx"] == {
+            "fileId": records["unclear.docx"].fileId, "originalName": "unclear.docx",
+            "status": "needs_confirmation", "candidates": [student],
+        }
+        assert files["rejected.docx"] == {
+            "fileId": records["rejected.docx"].fileId, "originalName": "rejected.docx",
+            "status": "rejected", "candidates": [], "reason": "Документ не читается",
+        }
+
+        assert client.delete("/v1/sessions/current").status_code == 204
+        assert client.get(path).status_code == 401
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        forbidden = client.get(path)
+        missing = client.get(f"/v1/uploads/{uuid.uuid4()}")
+        assert forbidden.status_code == missing.status_code == 404
+        assert forbidden.json()["code"] == missing.json()["code"] == "not_found"
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        for uploadFile in db.scalars(select(UploadFileRecord)):
+            s3.delete_object(Bucket=uploadFile.bucket, Key=uploadFile.objectKey)
+        for variant in db.scalars(select(AssignmentRecord)):
+            s3.delete_object(Bucket=variant.bucket, Key=variant.objectKey)

@@ -10,13 +10,17 @@ from zlib import error as ZlibError
 
 from fastapi import UploadFile
 
-from sqlalchemy import ForeignKey, ForeignKeyConstraint, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from cabinet.assignments import AssignmentRecord
+from cabinet.classes import ClassRecord, StudentRecord
 from cabinet.database import Base
 from cabinet.documents import MAX_DOCX_BYTES, buildS3Client, readDocx, storeDocx, validateDocx
 from cabinet.settings import Settings
-from contracts.v1.cabinet.uploads import UploadAccepted
+from contracts.v1.cabinet.classes import StudentSummary
+from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
 from shared.httperrors import ApiProblem
 
 
@@ -48,7 +52,18 @@ class UploadRecord(Base):
 
 class UploadFileRecord(Base):
     __tablename__ = "upload_files"
-    __table_args__ = (UniqueConstraint("object_key"),)
+    __table_args__ = (
+        UniqueConstraint("object_key"),
+        CheckConstraint(
+            "status IN ('pending_binding', 'needs_confirmation', 'bound', 'rejected')",
+            name="ck_upload_files_status",
+        ),
+        CheckConstraint(
+            "(status = 'bound' AND student_id IS NOT NULL AND attempt_id IS NOT NULL AND check_id IS NOT NULL) "
+            "OR (status <> 'bound' AND attempt_id IS NULL AND check_id IS NULL)",
+            name="ck_upload_files_attempt",
+        ),
+    )
 
     fileId: Mapped[str] = mapped_column("file_id", String(36), primary_key=True)
     uploadId: Mapped[str] = mapped_column(
@@ -58,7 +73,12 @@ class UploadFileRecord(Base):
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     sha256: Mapped[str] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(32), server_default="pending_binding")
+    status: Mapped[UploadFileStatus] = mapped_column(String(32), server_default="pending_binding")
+    candidateStudentIds: Mapped[list[str]] = mapped_column("candidate_student_ids", ARRAY(String(36)), server_default="{}")
+    reason: Mapped[str | None] = mapped_column(String(255))
+    studentId: Mapped[str | None] = mapped_column("student_id", ForeignKey("cabinet.students.student_id"))
+    attemptId: Mapped[str | None] = mapped_column("attempt_id", String(36))
+    checkId: Mapped[str | None] = mapped_column("check_id", String(36))
 
 
 def submissionName(filename: str) -> str:
@@ -149,3 +169,53 @@ def storeUpload(
     db.flush()
     db.add_all(records)
     return UploadAccepted(uploadId=uploadId)
+
+
+def getUploadProgress(db: Session, uploadId: str, teacherId: str) -> UploadProgress:
+    if len(uploadId) != 36 or "\x00" in uploadId:
+        raise ApiProblem("not_found", "Upload not found")
+    classId = db.scalar(
+        select(AssignmentRecord.classId)
+        .select_from(UploadRecord)
+        .join(
+            AssignmentRecord,
+            (AssignmentRecord.assignmentId == UploadRecord.assignmentId)
+            & (AssignmentRecord.assignmentRev == UploadRecord.assignmentRev),
+        )
+        .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
+        .where(UploadRecord.uploadId == uploadId, ClassRecord.teacherId == teacherId)
+    )
+    if classId is None:
+        raise ApiProblem("not_found", "Upload not found")
+
+    files = db.scalars(
+        select(UploadFileRecord)
+        .where(UploadFileRecord.uploadId == uploadId)
+        .order_by(UploadFileRecord.originalName, UploadFileRecord.fileId)
+    ).all()
+    candidateIds = {studentId for file in files for studentId in file.candidateStudentIds}
+    candidates = {}
+    if candidateIds:
+        students = db.scalars(
+            select(StudentRecord).where(StudentRecord.classId == classId, StudentRecord.studentId.in_(candidateIds))
+        )
+        candidates = {
+            student.studentId: StudentSummary(studentId=student.studentId, name=student.name) for student in students
+        }
+
+    return UploadProgress(
+        uploadId=uploadId,
+        files=[
+            UploadFileProgress(
+                fileId=file.fileId,
+                originalName=file.originalName,
+                status=file.status,
+                candidates=[candidates[studentId] for studentId in file.candidateStudentIds if studentId in candidates],
+                reason=file.reason,
+                studentId=file.studentId if file.status == "bound" else None,
+                attemptId=file.attemptId,
+                checkId=file.checkId,
+            )
+            for file in files
+        ],
+    )

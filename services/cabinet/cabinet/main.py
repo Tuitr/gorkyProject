@@ -24,11 +24,11 @@ from cabinet.auth.throttle import LoginThrottle
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.documents import readDocx
 from cabinet.settings import Settings
-from cabinet.uploads import UploadFileRecord, UploadRecord, readSubmission, storeUpload
+from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
-from contracts.v1.cabinet.uploads import UploadAccepted
+from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import TeacherRequirement
 from shared.clock import Clock, SystemClock
@@ -230,6 +230,15 @@ def createApp(
         with sessionFactory.begin() as db:
             requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
             return storeUpload(db, settings, assignmentId, assignmentRev, readSubmission(file))
+
+    @v1.get(
+        "/uploads/{uploadId}",
+        response_model_exclude_none=True,
+        responses={401: {"model": ApiError}, 404: {"model": ApiError}},
+    )
+    def readUpload(uploadId: str, teacher: TeacherSession = Depends(currentTeacher)) -> UploadProgress:
+        with sessionFactory() as db:
+            return getUploadProgress(db, uploadId, teacher.teacherId)
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:
