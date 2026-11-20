@@ -2,7 +2,6 @@
 
 import base64
 import hashlib
-import uuid
 from contextlib import closing
 from io import BytesIO
 from typing import TYPE_CHECKING
@@ -78,8 +77,7 @@ def buildS3Client(settings: Settings) -> "S3Client":
     )
 
 
-def storeAssignmentDocument(settings: Settings, assignmentId: str, revision: int, original: bytes) -> DocRef:
-    key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}.docx"
+def storeDocx(settings: Settings, key: str, original: bytes) -> DocRef:
     digest = hashlib.sha256(original).hexdigest()
     checksum = base64.b64encode(bytes.fromhex(digest)).decode("ascii")
     try:

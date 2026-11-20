@@ -21,6 +21,7 @@ def allMetadata() -> MetaData:
     import cabinet.auth.tables  # noqa: F401  (registers the tables on Base)
 
     import cabinet.classes  # noqa: F401
+    import cabinet.uploads  # noqa: F401
 
     return Base.metadata
 

@@ -6,7 +6,7 @@
 | Стык | Где | Поставщик | Потребитель | Статус |
 |---|---|---|---|---|
 | Ошибка HTTP `{code, message, retryable, traceId}` | `common/errors.py` | № 1 | все | готово |
-| Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта |
+| Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает отдельный DOCX |
 | События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | готово |
 | Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | готово; генератор `tools/dataset` (A6.2), выпуск версии — A6.3 |
 | Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
@@ -54,3 +54,9 @@
 Поле `assignmentDate` необязательно. Формат даты — `YYYY-MM-DD`, по умолчанию используется дата загрузки в UTC.
 Чтобы сохранить новую ревизию, повторите запрос с тем же `assignmentId` и передайте DOCX и полный список требований.
 Ответ `201` содержит `assignmentId` и `assignmentRev`. Каждая ревизия сохраняет свою дату, требования и DOCX.
+
+### Загрузка работы ученика
+
+`POST /v1/assignments/{assignmentId}/uploads` принимает `multipart/form-data`.
+Поле `file` содержит один DOCX размером до 20 МиБ, поле `assignmentRev` — номер ревизии варианта.
+Ответ `202` содержит `uploadId`. Учитель может загрузить работу только к ревизии варианта своего класса.

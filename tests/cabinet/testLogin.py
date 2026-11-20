@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from cabinet import documents
 from cabinet.assignments import AssignmentRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
@@ -29,6 +30,7 @@ from cabinet.database import allMetadata
 from cabinet.documents import buildS3Client
 from cabinet.main import buildAccounts, createApp
 from cabinet.settings import DB_SCHEMA, Settings
+from cabinet.uploads import UploadFileRecord, UploadRecord
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE
 from shared.clock import ManualClock
 
@@ -58,7 +60,7 @@ def cabinetEngine(adminEngine: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def cabinetSessions(cabinetEngine: Engine) -> sessionmaker[Session]:
     with cabinetEngine.begin() as connection:
-        tables = ("teachers", "sessions", "login_throttle", "classes", "students", "assignments")
+        tables = ("teachers", "sessions", "login_throttle", "classes", "students", "assignments", "uploads", "upload_files")
         qualified = ", ".join(f'"{DB_SCHEMA}".{table}' for table in tables)
         connection.execute(text(f"TRUNCATE {qualified}"))
     return sessionmaker(cabinetEngine, expire_on_commit=False)
@@ -366,3 +368,74 @@ def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session
         finally:
             for version in versions:
                 s3.delete_object(Bucket=version.bucket, Key=version.objectKey)
+
+
+def testIndividualSubmissionUpload(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.other")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    assignmentDoc = assignmentDocx("Задание")
+    studentDoc = assignmentDocx("Решение")
+    uploadPart = ("Иванов.docx", studentDoc)
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        created = client.post("/v1/classes", json={"name": "8А"})
+        classPath = f"/v1/classes/{created.json()['classId']}/assignments"
+        first = client.post(classPath, data={"requirements": "[]"}, files={"file": ("assignment.docx", assignmentDoc)})
+        assert first.status_code == 201, first.text
+        assignmentId = first.json()["assignmentId"]
+        second = client.post(
+            classPath, data={"requirements": "[]", "assignmentId": assignmentId},
+            files={"file": ("assignment.docx", assignmentDoc)},
+        )
+        assert second.status_code == 201, second.text
+
+        path = f"/v1/assignments/{assignmentId}/uploads"
+        form = {"assignmentRev": "1"}
+        assert client.post(path, data=form, files={"file": ("bad.docx", b"broken")}).status_code == 422
+        assert client.post(path, data=form, files=[("file", uploadPart), ("file", uploadPart)]).status_code == 422
+        assert client.post(path, data={"assignmentRev": "3"}, files={"file": uploadPart}).status_code == 404
+        with monkeypatch.context() as limits:
+            limits.setattr(documents, "MAX_DOCX_BYTES", len(studentDoc) - 1)
+            assert client.post(path, data=form, files={"file": uploadPart}).status_code == 413
+
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert client.post(path, data=form, files={"file": uploadPart}).status_code == 404
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        assert client.delete("/v1/sessions/current").status_code == 204
+        assert client.post(path, data=form, files={"file": uploadPart}).status_code == 401
+
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        failingApp = createApp(
+            replace(settings, s3AccessKeyId="unrecognized-test-credential"), sessionFactory=cabinetSessions,
+            passwords=Passwords(CountingHasher()), clock=clock,
+        )
+        with TestClient(failingApp, base_url="https://testserver", cookies=client.cookies) as failingClient:
+            assert failingClient.post(path, data=form, files={"file": uploadPart}).status_code == 503
+        with cabinetSessions() as db:
+            assert db.scalars(select(UploadRecord)).all() == []
+            assert db.scalars(select(UploadFileRecord)).all() == []
+
+        accepted = client.post(path, data=form, files={"file": uploadPart})
+        assert accepted.status_code == 202, accepted.text
+        uploadId = accepted.json()["uploadId"]
+        assert accepted.json() == {"uploadId": uploadId}
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        upload = db.scalars(select(UploadRecord)).one()
+        stored = db.scalars(select(UploadFileRecord)).one()
+        try:
+            assert (upload.uploadId, upload.assignmentId, upload.assignmentRev) == (uploadId, assignmentId, 1)
+            assert stored.uploadId == uploadId
+            assert stored.originalName == "Иванов.docx"
+            assert stored.sha256 == hashlib.sha256(studentDoc).hexdigest()
+            with closing(s3.get_object(Bucket=stored.bucket, Key=stored.objectKey)["Body"]) as body:
+                assert body.read() == studentDoc
+        finally:
+            s3.delete_object(Bucket=stored.bucket, Key=stored.objectKey)
+            for assignment in db.scalars(select(AssignmentRecord)):
+                s3.delete_object(Bucket=assignment.bucket, Key=assignment.objectKey)

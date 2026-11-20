@@ -7,8 +7,9 @@ from sqlalchemy import Date, ForeignKey, String, UniqueConstraint, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from cabinet.classes import ClassRecord
 from cabinet.database import Base
-from cabinet.documents import storeAssignmentDocument
+from cabinet.documents import storeDocx
 from cabinet.settings import Settings
 from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.events.checks import TeacherRequirement
@@ -65,7 +66,8 @@ def storeAssignment(
         assert latest is not None
         revision = latest + 1
 
-    docRef = storeAssignmentDocument(settings, assignmentId, revision, original)
+    key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}.docx"
+    docRef = storeDocx(settings, key, original)
     db.add(AssignmentRecord(
         assignmentId=assignmentId,
         assignmentRev=revision,
@@ -77,3 +79,19 @@ def storeAssignment(
         sha256=docRef.sha256,
     ))
     return AssignmentVersion(assignmentId=assignmentId, assignmentRev=revision)
+
+
+def requireOwnedAssignment(db: Session, assignmentId: str, assignmentRev: int, teacherId: str) -> None:
+    if len(assignmentId) == 36 and "\x00" not in assignmentId:
+        owned = db.scalar(
+            select(AssignmentRecord.assignmentId)
+            .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
+            .where(
+                AssignmentRecord.assignmentId == assignmentId,
+                AssignmentRecord.assignmentRev == assignmentRev,
+                ClassRecord.teacherId == teacherId,
+            )
+        )
+        if owned is not None:
+            return
+    raise ApiProblem("not_found", "Assignment revision not found")
