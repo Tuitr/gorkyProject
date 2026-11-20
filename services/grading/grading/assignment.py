@@ -4,14 +4,11 @@ import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from io import BytesIO
 from typing import Protocol
-from xml.etree import ElementTree as ET
-from zipfile import BadZipFile, ZipFile
 
 from grading.intake import AssignmentPublishedInput
+from grading.word import W, WordReadError, documentBody, paragraphText
 
-W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 # A6.2 prints numbers in the main document. Require a boundary so 2.5 stays a number.
 TASK_HEADER = re.compile(r"^(?:Задание\s+)?([1-9][0-9]*)[.)](?:\s+|$)", re.IGNORECASE)
 
@@ -27,24 +24,13 @@ class AssignmentTextReader(Protocol):
 class DocxTextReader:
     def paragraphs(self, document: bytes) -> Iterable[str]:
         try:
-            with ZipFile(BytesIO(document)) as archive, archive.open("word/document.xml") as part:
-                body = ET.parse(part).getroot().find(W + "body")
-        except (BadZipFile, KeyError, ET.ParseError) as error:
-            raise AssignmentReadError("cannot read the DOCX main document") from error
-        if body is None:
-            raise AssignmentReadError("missing DOCX body")
+            body = documentBody(document)
+        except WordReadError as error:
+            raise AssignmentReadError(str(error)) from error
         for paragraph in body.iter(W + "p"):
             if paragraph.find(f"{W}pPr/{W}numPr") is not None:
                 raise AssignmentReadError("expected task numbers printed as text")
-            fragments = []
-            for node in paragraph.iter():
-                if node.tag == W + "t":
-                    fragments.append(node.text or "")
-                elif node.tag == W + "tab":
-                    fragments.append("\t")
-                elif node.tag in (W + "br", W + "cr"):
-                    fragments.append("\n")
-            yield "".join(fragments)
+            yield paragraphText(paragraph)
 
 
 @dataclass(frozen=True)

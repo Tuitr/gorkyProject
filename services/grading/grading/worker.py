@@ -10,11 +10,14 @@ from sqlalchemy.orm import Session
 
 from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextReader, readAssignment
 from grading.inbox import SavedJob, saveEvent
-from grading.intake import AssignmentPublishedInput, IncomingDocRef
+from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
 from grading.stream import StreamConsumer, StreamDelivery
+from grading.submission import SolutionStep, readSubmission
+from grading.tables import AssignmentJob
 
 parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
+solutionStepsAdapter: TypeAdapter[tuple[SolutionStep, ...]] = TypeAdapter(tuple[SolutionStep, ...])
 
 
 class GradingWorker:
@@ -62,3 +65,21 @@ class GradingWorker:
         if not self.jobs.checkpoint(lease, "assignment_parsed", {"tasks": [asdict(task) for task in tasks]}):
             raise RuntimeError("assignment lease expired before the parse could be saved")
         return tasks
+
+    def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
+        if not isinstance(lease.key, str):
+            raise ValueError("expected a submission check job")
+        if lease.completedStage == "submission_parsed" and lease.stageData is not None:
+            return solutionStepsAdapter.validate_python(lease.stageData["steps"])
+        if lease.completedStage is not None:
+            raise ValueError("unexpected checkpoint for submission parsing")
+        submitted = AttemptSubmittedInput.model_validate(lease.payload)
+        with Session(self.engine) as session:
+            assignment = session.get(AssignmentJob, (submitted.assignmentId, submitted.assignmentRev))
+            if assignment is None or assignment.stageData is None or "tasks" not in assignment.stageData:
+                raise ValueError("parsed tasks are unavailable for the submitted assignment revision")
+            tasks = parsedTasksAdapter.validate_python(assignment.stageData["tasks"])
+        steps = readSubmission(submitted, loadDocument(submitted.docRef), tasks)
+        if not self.jobs.checkpoint(lease, "submission_parsed", {"steps": solutionStepsAdapter.dump_python(steps, mode="json")}):
+            raise RuntimeError("check lease expired before the submission parse could be saved")
+        return steps
