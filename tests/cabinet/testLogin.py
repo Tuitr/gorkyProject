@@ -610,6 +610,18 @@ def submissionZip(*entries: tuple[str | ZipInfo, bytes]) -> bytes:
     return output.getvalue()
 
 
+def declaredSize(archive: bytes, name: str, size: int) -> bytes:
+    """The archive with a false uncompressed size for one entry in both its local and central headers."""
+    data, encoded = bytearray(archive), name.encode()
+    for signature, sizeAt, nameAt in ((b"PK\x03\x04", 22, 30), (b"PK\x01\x02", 24, 46)):
+        start = data.find(signature)
+        while start != -1:
+            if data[start + nameAt:start + nameAt + len(encoded)] == encoded:
+                data[start + sizeAt:start + sizeAt + 4] = size.to_bytes(4, "little")
+            start = data.find(signature, start + 4)
+    return bytes(data)
+
+
 def testArchiveSubmissionUpload(
     cabinetSessions: sessionmaker[Session], clock: ManualClock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -631,6 +643,9 @@ def testArchiveSubmissionUpload(
         submissionZip(("ok.docx", one), ("nested.docx", good)),
         submissionZip(("ok.docx", one), ("bad.docx", b"broken")),
         submissionZip(("only-folder/", b"")),
+        submissionZip(("readme.txt", b"no documents here"), ("scan.jpg", b"\xff\xd8")),
+        # The headers promise 64 bytes, the stream inflates to a whole DOCX: the real size decides.
+        declaredSize(submissionZip(("ok.docx", one), ("big.docx", two)), "big.docx", 64),
     ]
 
     with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(settings)) as s3:
@@ -657,6 +672,8 @@ def testArchiveSubmissionUpload(
         with cabinetSessions() as db:
             assert db.scalars(select(UploadRecord)).all() == []
             assert db.scalars(select(UploadFileRecord)).all() == []
+            assert db.scalars(select(AttemptRecord)).all() == [], "a refused archive gets no attemptId"
+            assert [row.data["type"] for row in db.scalars(select(OutboxRecord))] == ["assignment.published"]
 
         accepted = client.post(path, data=form, files={"file": ("class.zip", good)})
         assert accepted.status_code == 202, accepted.text
