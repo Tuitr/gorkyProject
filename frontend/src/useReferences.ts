@@ -10,7 +10,7 @@ import type { Assignment } from './domain'
 
 const DONE = new Set<AssignmentReferences['state']>(['ready', 'needs_review', 'failed'])
 const POLL_MS = 5000
-const POLL_LIMIT = 60
+const POLL_LIMIT = 200 // ~16 минут: сборка солвера ГигаЧатом ограничена 15 минутами (SOLVER_BUILD_DEADLINE_S)
 
 export type References = {
   data: AssignmentReferences | null

@@ -1,4 +1,4 @@
-import type { AssignmentReferences, TaskReference } from '../api/cabinet'
+import { reasonText, type AssignmentReferences, type TaskReference } from '../api/cabinet'
 import { Badge, type Tone } from '../ui'
 import type { References } from '../useReferences'
 
@@ -6,7 +6,7 @@ import type { References } from '../useReferences'
 
 const STATE: Record<TaskReference['state'], [string, Tone]> = {
   ready: ['эталон готов', 'ok'],
-  pending: ['готовится', 'muted'],
+  pending: ['солвер готовится', 'muted'],
   missing: ['эталона нет', 'warn'],
   unsupported: ['решатель не поддерживает', 'warn'],
   validation_failed: ['эталон не прошёл проверку', 'err'],
@@ -15,7 +15,7 @@ const STATE: Record<TaskReference['state'], [string, Tone]> = {
 const PREPARATION: Record<AssignmentReferences['state'], string> = {
   queued: 'Вариант ждёт разбора.',
   running: 'Вариант разбирается.',
-  waiting_reference: 'Готовятся эталонные ответы.',
+  waiting_reference: 'Готовятся эталонные ответы: ГигаЧат пишет солверы, это занимает несколько минут.',
   ready: '',
   needs_review: 'Для части заданий эталона нет: их проверяет учитель.',
   failed: 'Не удалось разобрать вариант: задания не найдены. Проверьте нумерацию «1.», «2.» в DOCX.',
@@ -33,7 +33,10 @@ export function ReferenceLine({ refs, num }: { refs: References; num: string }) 
           Эталонный ответ: <b>{t.answer}</b>
         </>
       ) : (
-        <Badge tone={tone}>{label}</Badge>
+        <>
+          <Badge tone={tone}>{label}</Badge>
+          {t.reasonCode && t.state !== 'pending' ? <span className="muted small"> {reasonText(t.reasonCode)}</span> : null}
+        </>
       )}
     </p>
   )
