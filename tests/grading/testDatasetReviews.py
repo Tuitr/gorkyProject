@@ -15,6 +15,7 @@ from grading.review import reviewTasks
 from grading.submission import readSubmissionDetails
 from references.gateway.prompts import PromptCatalog
 from references.gateway.sanitize import buildModelCall
+from references.gateway.transports.base import ReviewData
 from references.gateway.transports.fixture import FixtureTransport, ReviewFixture
 from references.gateway.validation import toResponse
 
@@ -102,6 +103,7 @@ def testOpenDatasetReviewMatchesTheManifest(reviewDataset: GeneratedDataset, cas
 
     def review(request: ModelReviewRequest) -> ModelReviewResponse:
         call = buildModelCall(request, prompts)
+        assert isinstance(call.data, ReviewData)
         assert call.data.rubric == task.requirements
         return toResponse(request, transport.complete(call))
 

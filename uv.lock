@@ -533,6 +533,7 @@ version = "0.1.0"
 source = { editable = "services/references" }
 dependencies = [
     { name = "alembic" },
+    { name = "boto3" },
     { name = "fastapi" },
     { name = "gorky-contracts" },
     { name = "gorky-shared" },
@@ -545,6 +546,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "boto3", specifier = ">=1.35" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "gorky-contracts", editable = "contracts" },
     { name = "gorky-shared", editable = "packages/shared" },

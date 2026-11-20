@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult, referenceResultAdapter
 from references.providers.base import ReferenceProvider
 from references.providers.fixture import FixtureProvider
+from references.providers.generating import GeneratingProvider
 from references.registry.service import ReferenceService
 from references.registry.store import ReferenceStore
 from references.settings import Settings
@@ -38,11 +39,16 @@ def createApp(
     if sessionFactory is None:
         sessionFactory = sessionmaker(create_engine(settings.databaseUrl), expire_on_commit=False)
     if provider is None:
-        provider = (
+        fixtures = (
             FixtureProvider.fromFile()
             if settings.fixturesPath is None
             else FixtureProvider.fromFile(Path(settings.fixturesPath))
         )
+        provider = fixtures
+        if settings.provider == "generating":
+            provider = GeneratingProvider(
+                fixtures, sessionFactory, clock, buildDeadlineS=settings.buildDeadlineS, pollS=settings.buildPollS
+            )
     service = ReferenceService(ReferenceStore(sessionFactory), provider, clock)
 
     app = FastAPI(title="Reference API", version="1.0.0")

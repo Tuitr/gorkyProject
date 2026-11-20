@@ -35,6 +35,23 @@ class ReviewData(BaseModel):
     reference: ProviderReference
 
 
+AuthorApproach = Literal["direct", "independent", "tiebreak"]
+"""How the author should solve: each independent solver of one task is asked for a different approach."""
+
+
+class AuthorData(BaseModel):
+    """What the solver author (references/solvers) may see: the task and its own previous failure. No student work."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    statement: NonEmptyStr
+    constraints: dict[str, JsonValue]
+    approach: AuthorApproach
+    previousCode: str | None = None
+    previousError: str | None = None
+    """Why the previous attempt of this author failed in the sandbox; None on the first attempt."""
+
+
 class ModelCall(BaseModel):
     """requestId, promptVersion and taskId are for tracing and fixture lookup; only instructions and data go out."""
 
@@ -44,13 +61,15 @@ class ModelCall(BaseModel):
     promptVersion: NonEmptyStr
     taskId: NonEmptyStr
     instructions: NonEmptyStr
-    data: ReviewData
+    data: ReviewData | AuthorData
     deadline: datetime | None = None
     """End of the request budget (GATEWAY_REQUEST_BUDGET_S): no wait and no provider call may run past it."""
 
     @property
     def allowedStepIds(self) -> frozenset[str]:
-        """The stepIds the model saw; an issue may point only to these."""
+        """The stepIds the model saw; an issue may point only to these. A solver author sees none."""
+        if not isinstance(self.data, ReviewData):
+            return frozenset()
         return frozenset(step.stepId for step in self.data.steps)
 
 

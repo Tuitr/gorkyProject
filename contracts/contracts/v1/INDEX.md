@@ -16,7 +16,7 @@
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/`; обмены для № 2 (ready, pending → ready, unsupported, validation_failed) — `examples/references/exchanges/` | № 3 | № 2 | готово |
 | Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py`, `openapi/gateway.json`, `examples/gateway/`; ответы по известным stepId мини-набора — `examples/gateway/exchanges/` | № 3 | № 2 | готово |
 | Управляемые отказы шлюза: 429 и успех, 429 до конца, таймаут, не JSON | `examples/gateway/failures/` (запрос, ответы, число вызовов) | № 3 | № 2 | готово; включаются только `GATEWAY_TRANSPORT=fixture` и `GATEWAY_FAILURE_SCENARIOS=1` |
-| Метаданные версии солвера в S3 `references/solvers/<solverVersion>/` | `references/solverartifact.py`, `examples/solvers/` | № 3 (пишет один раз при публикации) | № 3 (читает); № 2 видит только `solverVersion` | зарезервировано, солверов пока нет |
+| Метаданные версии солвера в S3 `references/solvers/<solverVersion>/` | `references/solverartifact.py`, `examples/solvers/` | № 3 (пишет один раз при публикации) | № 3 (читает); № 2 видит только `solverVersion` | пишет `solver-builder` при `REFERENCES_PROVIDER=generating` (C6.3) |
 
 **`taskResult` существует в одном месте.** Конверт ответа шлюза (№ 3) ссылается на `grading/taskresult.py` (№ 2)
 и не заводит свою копию полей `answer`, `reasoning`, `method`, `issues`.

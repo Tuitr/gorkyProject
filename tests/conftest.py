@@ -39,7 +39,7 @@ ROLES_SQL = Path(__file__).parents[1] / "deploy" / "postgres" / "init" / "10-rol
 ADMIN_DATABASE_URL = "postgresql+psycopg://gorky:gorky@127.0.0.1:15432/gorky?connect_timeout=3"
 START_HINT = "Run: docker compose -f deploy/compose.yaml up -d --wait"
 SERVICE_SCHEMAS = (cabinet.settings.DB_SCHEMA, grading.settings.DB_SCHEMA, references.settings.DB_SCHEMA)
-TABLES = ("reference_records", "review_calls", "provider_slots")
+TABLES = ("reference_records", "review_calls", "provider_slots", "solver_builds", "solver_versions")
 
 
 def loadContractExample(relativePath: str) -> Any:

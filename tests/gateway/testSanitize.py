@@ -13,7 +13,7 @@ from contracts.v1 import openapi
 from contracts.v1.references.modelreview import ModelReviewRequest
 from references.gateway.prompts import PROMPTS_DIR, PromptCatalog
 from references.gateway.sanitize import buildModelCall
-from references.gateway.transports.base import ModelCall, ModelReply, RequestRefused
+from references.gateway.transports.base import ModelCall, ModelReply, RequestRefused, ReviewData
 from references.gateway.transports.gigachat import GigaChatSettings, GigaChatTransport
 from shared.clock import ManualClock
 
@@ -106,6 +106,7 @@ def testSignatureStepIsRemovedAndNotOffered(caplog: pytest.LogCaptureFixture) ->
     call = buildModelCall(request, PromptCatalog())
     body = captureOutgoingBody(call)
 
+    assert isinstance(call.data, ReviewData)
     assert [step.stepId for step in call.data.steps] == ["s2", "s3"]
     assert call.allowedStepIds == {"s2", "s3"}
     assert MARKER not in body

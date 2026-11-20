@@ -1,0 +1,50 @@
+[
+  {
+    "fixtureId": "quadratic-1-direct",
+    "statement": "Решите уравнение x² − 5x + 6 = 0.",
+    "approach": "direct",
+    "content": {
+      "code": "from fractions import Fraction\nimport math\n\n\ndef solve(task):\n    a, b, c = 1, -5, 6\n    d = b * b - 4 * a * c\n    if d < 0:\n        return {\"exact\": \"нет решений\"}\n    r = math.isqrt(d)\n    if r * r != d:\n        raise ValueError(\"irrational roots are not expected here\")\n    roots = sorted({Fraction(-b - r, 2 * a), Fraction(-b + r, 2 * a)})\n    return {\"exact\": \"; \".join(str(x) for x in roots)}\n"
+    }
+  },
+  {
+    "fixtureId": "quadratic-1-independent",
+    "statement": "Решите уравнение x² − 5x + 6 = 0.",
+    "approach": "independent",
+    "content": {
+      "code": "from fractions import Fraction\n\n\ndef solve(task):\n    a, b, c = 1, -5, 6\n    roots = set()\n    for q in range(1, 13):\n        for p in range(-240, 241):\n            x = Fraction(p, q)\n            if a * x * x + b * x + c == 0:\n                roots.add(x)\n    if not roots:\n        return {\"exact\": \"нет решений\"}\n    return {\"exact\": \"; \".join(str(x) for x in sorted(roots))}\n"
+    }
+  },
+  {
+    "fixtureId": "quadratic-2-direct",
+    "statement": "Решите уравнение 2x² + 3x − 2 = 0.",
+    "approach": "direct",
+    "content": {
+      "code": "from fractions import Fraction\nimport math\n\n\ndef solve(task):\n    a, b, c = 2, 3, -2\n    d = b * b - 4 * a * c\n    if d < 0:\n        return {\"exact\": \"нет решений\"}\n    r = math.isqrt(d)\n    if r * r != d:\n        raise ValueError(\"irrational roots are not expected here\")\n    roots = sorted({Fraction(-b - r, 2 * a), Fraction(-b + r, 2 * a)})\n    return {\"exact\": \"; \".join(str(x) for x in roots)}\n"
+    }
+  },
+  {
+    "fixtureId": "quadratic-2-independent",
+    "statement": "Решите уравнение 2x² + 3x − 2 = 0.",
+    "approach": "independent",
+    "content": {
+      "code": "from fractions import Fraction\n\n\ndef solve(task):\n    a, b, c = 2, 3, -2\n    roots = set()\n    for q in range(1, 13):\n        for p in range(-240, 241):\n            x = Fraction(p, q)\n            if a * x * x + b * x + c == 0:\n                roots.add(x)\n    if not roots:\n        return {\"exact\": \"нет решений\"}\n    return {\"exact\": \"; \".join(str(x) for x in sorted(roots))}\n"
+    }
+  },
+  {
+    "fixtureId": "quadratic-3-direct",
+    "statement": "Решите уравнение x² − 6x + 9 = 0.",
+    "approach": "direct",
+    "content": {
+      "code": "from fractions import Fraction\nimport math\n\n\ndef solve(task):\n    a, b, c = 1, -6, 9\n    d = b * b - 4 * a * c\n    if d < 0:\n        return {\"exact\": \"нет решений\"}\n    r = math.isqrt(d)\n    if r * r != d:\n        raise ValueError(\"irrational roots are not expected here\")\n    roots = sorted({Fraction(-b - r, 2 * a), Fraction(-b + r, 2 * a)})\n    return {\"exact\": \"; \".join(str(x) for x in roots)}\n"
+    }
+  },
+  {
+    "fixtureId": "quadratic-3-independent",
+    "statement": "Решите уравнение x² − 6x + 9 = 0.",
+    "approach": "independent",
+    "content": {
+      "code": "from fractions import Fraction\n\n\ndef solve(task):\n    a, b, c = 1, -6, 9\n    roots = set()\n    for q in range(1, 13):\n        for p in range(-240, 241):\n            x = Fraction(p, q)\n            if a * x * x + b * x + c == 0:\n                roots.add(x)\n    if not roots:\n        return {\"exact\": \"нет решений\"}\n    return {\"exact\": \"; \".join(str(x) for x in sorted(roots))}\n"
+    }
+  }
+]

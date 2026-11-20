@@ -16,7 +16,7 @@ from typing import Any, Literal, Self
 
 import httpx
 
-from references.gateway.transports.base import ConfigError, ModelCall, ModelReply, ReviewData, TransportError
+from references.gateway.transports.base import AuthorData, ConfigError, ModelCall, ModelReply, ReviewData, TransportError
 from shared.clock import Clock, SystemClock
 
 DEFAULT_AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
@@ -62,8 +62,8 @@ def parseTimeout(value: str) -> float:
     return timeoutS
 
 
-def renderData(data: ReviewData) -> str:
-    """The user message: the task as JSON data, kept apart from developer 2's instructions."""
+def renderData(data: ReviewData | AuthorData) -> str:
+    """The user message: the task as JSON data, kept apart from the instructions."""
     return json.dumps(data.model_dump(mode="json"), ensure_ascii=False)
 
 

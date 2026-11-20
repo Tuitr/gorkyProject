@@ -1,9 +1,9 @@
 """Metadata of one published solver version: what it solves, where its code and tests are, how it was made.
 
-Owner: developer 3. Reserved for the future generation step; no solver exists yet and the service still answers
-from fixtures only (source=fixture, solverVersion=null).
+Owner: developer 3. Written by solver-builder (services/references/references/solvers) when REFERENCES_PROVIDER is
+generating; fixtures have no artifact (source=fixture, solverVersion=null).
 
-Writes: only the reference service (developer 3), once, when a candidate has passed its independent tests.
+Writes: only the reference service (developer 3), once, when a candidate has passed its independent cross-check.
 The metadata object and the objects it points to are never overwritten; a fix is a new solverVersion.
 Reads: the reference service, to compute a reference and to explain an old check by its solverVersion.
 Developer 2 sees only solverVersion in ReferenceReady and never reads these objects in S3.

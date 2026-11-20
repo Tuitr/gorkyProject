@@ -8,6 +8,9 @@ A fixture may also script provider failures (C5.3): the first calls of each requ
 then the recorded content comes back. Without content the last failure repeats on every later call.
 Counting is per requestId inside this transport object, so the sequence never depends on timers,
 other requests or test order. Failure fixtures live in their own file, loaded only in test configuration.
+
+Solver author calls (references/solvers) match an AuthorFixture by statement, approach and whether the call
+repeats a failed attempt; they live in fixtures/solverAuthors.json.
 """
 
 import json
@@ -18,11 +21,20 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from contracts.v1.references.modelreview import ReviewStep
-from references.gateway.transports.base import ModelCall, ModelReply, NonEmptyStr, TransportError
+from references.gateway.transports.base import (
+    AuthorApproach,
+    AuthorData,
+    ModelCall,
+    ModelReply,
+    NonEmptyStr,
+    ReviewData,
+    TransportError,
+)
 
 FIXTURES_DIR = Path(__file__).parents[2] / "fixtures"
 DEFAULT_REVIEWS_PATH = FIXTURES_DIR / "reviews.json"
 FAILURE_SCENARIOS_PATH = FIXTURES_DIR / "reviewFailures.json"
+DEFAULT_AUTHORS_PATH = FIXTURES_DIR / "solverAuthors.json"
 FIXTURE_MODEL_ID = "fixture"
 NO_FIXTURE = "internal_error"
 
@@ -63,7 +75,10 @@ class ReviewFixture(BaseModel):
 
     def matches(self, call: ModelCall) -> bool:
         return (
-            self.taskId == call.taskId and self.statement == call.data.statement and self.steps == call.data.steps
+            isinstance(call.data, ReviewData)
+            and self.taskId == call.taskId
+            and self.statement == call.data.statement
+            and self.steps == call.data.steps
         )
 
     def answer(self, callNo: int) -> ModelReply:
@@ -76,11 +91,39 @@ class ReviewFixture(BaseModel):
         return ModelReply(content=content, modelId=self.modelId, providerRequestId=self.providerRequestId)
 
 
+class AuthorFixture(BaseModel):
+    """A recorded answer of the solver author: the code it wrote for one statement and approach."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fixtureId: NonEmptyStr
+    statement: NonEmptyStr
+    approach: AuthorApproach
+    retry: bool = False
+    """False answers the first attempt, True a repeat after a failure in the sandbox."""
+    content: dict[str, JsonValue] | str
+    modelId: NonEmptyStr = FIXTURE_MODEL_ID
+
+    def matches(self, call: ModelCall) -> bool:
+        data = call.data
+        return (
+            isinstance(data, AuthorData)
+            and self.statement == data.statement
+            and self.approach == data.approach
+            and self.retry == (data.previousError is not None)
+        )
+
+    def answer(self) -> ModelReply:
+        content = self.content if isinstance(self.content, str) else json.dumps(self.content, ensure_ascii=False)
+        return ModelReply(content=content, modelId=self.modelId)
+
+
 class FixtureTransport:
     name: Literal["fixture"] = "fixture"
 
-    def __init__(self, fixtures: list[ReviewFixture]) -> None:
-        ids = [fixture.fixtureId for fixture in fixtures]
+    def __init__(self, fixtures: list[ReviewFixture], authors: list[AuthorFixture] | None = None) -> None:
+        self.authors = authors if authors is not None else []
+        ids = [fixture.fixtureId for fixture in fixtures] + [author.fixtureId for author in self.authors]
         if len(ids) != len(set(ids)):
             raise ValueError("fixtureId values must be unique")
         self.fixtures = fixtures
@@ -88,13 +131,23 @@ class FixtureTransport:
         self.callsPerRequest: Counter[tuple[str, str]] = Counter()
 
     @classmethod
-    def fromFile(cls, *paths: Path) -> Self:
-        """One or more fixture files; fixtureId must be unique across all of them."""
+    def fromFile(cls, *paths: Path, authorsPath: Path | None = DEFAULT_AUTHORS_PATH) -> Self:
+        """One or more review fixture files and the author fixtures; fixtureId must be unique across all of them."""
         entries = [entry for path in paths or (DEFAULT_REVIEWS_PATH,) for entry in readEntries(path)]
-        return cls([ReviewFixture.model_validate(entry) for entry in entries])
+        authors = [] if authorsPath is None else [AuthorFixture.model_validate(e) for e in readEntries(authorsPath)]
+        return cls([ReviewFixture.model_validate(entry) for entry in entries], authors)
 
     def complete(self, call: ModelCall) -> ModelReply:
         self.calls.append(call)
+        if isinstance(call.data, AuthorData):
+            for author in self.authors:
+                if author.matches(call):
+                    return author.answer()
+            raise TransportError(
+                NO_FIXTURE,
+                f"fixture transport has no recorded solver for approach {call.data.approach!r} "
+                f"(requestId {call.requestId!r}); no external call was made",
+            )
         for fixture in self.fixtures:
             if fixture.matches(call):
                 key = (fixture.fixtureId, call.requestId)

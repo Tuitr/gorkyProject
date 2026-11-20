@@ -1,6 +1,6 @@
 """PostgreSQL schema `refs` shared by the registry and the model gateway (developer 3 only).
 
-Both table modules register on one Base, so Alembic and the drift test see every table.
+All table modules (registry, gateway, solvers) register on one Base, so Alembic and the drift test see every table.
 """
 
 from pathlib import Path
@@ -22,6 +22,7 @@ def allMetadata() -> MetaData:
     """Base.metadata after importing every table module."""
     import references.gateway.tables  # noqa: F401
     import references.registry.tables  # noqa: F401
+    import references.solvers.tables  # noqa: F401
 
     return Base.metadata
 

@@ -258,6 +258,7 @@ def testMissingFixtureIsLocalErrorWithoutExternalCalls(networkAttempts: list[str
 
 def testOtherStudentStepsDoNotMatchTheFixture() -> None:
     call = buildCall()
+    assert isinstance(call.data, ReviewData)
     otherSteps = call.data.steps[0].model_copy(update={"markdown": "Ответ: 7"})
 
     with pytest.raises(TransportError):
