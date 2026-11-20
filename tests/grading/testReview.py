@@ -9,11 +9,12 @@ import pytest
 import uvicorn
 from sqlalchemy.orm import Session, sessionmaker
 
+from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ReviewStep
 from contracts.v1.references.reference import ReferenceReady
 from grading.assignment import AssignmentTask
 from grading.intake import IncomingDocRef
-from grading.review import buildReviewRequest, reviewTasks
+from grading.review import buildReviewRequest, reviewTasks, validatedResult
 from grading.submission import SolutionStep, SourceAnchor, SubmissionReading, TaskReading
 from references.gateway.main import createApp
 from references.gateway.settings import GatewaySettings
@@ -81,3 +82,23 @@ def testEmbeddedSignatureGoesToTeacherBeforeTransport() -> None:
     reading = SubmissionReading((line,), (TaskReading("t1", "answerOnly"),), ())
     result, = reviewTasks("check", (TASK,), reading, {"t1": REF}, lambda _: pytest.fail("unexpected model call"))
     assert result.needsReview and not result.issues
+
+
+def issue(issueId: str, stepId: str, category: str, cause: str | None = None) -> Issue:
+    return Issue(issueId=issueId, stepId=stepId, category=category, comment="Ошибка в записи",
+                 correction="Сверьте формулу", causedByIssueId=cause)
+
+
+@pytest.mark.parametrize("invalid", [
+    [], [issue("bad", "foreign", "formula"), issue("linked", "s3", "answer", "bad")],
+    [issue("bad", "s1", "sign", "missing")], [issue("bad", "s1", "sign"), issue("bad", "s2", "formula")],
+    [issue("a", "s1", "sign", "b"), issue("b", "s2", "formula", "a")],
+])
+def testKeepsIndependentErrorsAndOnlyAnchoredConsequences(invalid: list[Issue]) -> None:
+    request = buildReviewRequest("check", TASK, STEPS, REF)
+    valid = [issue("i1", "s1", "sign"), issue("i2", "s2", "formula"), issue("i3", "s3", "answer", "i2")]
+    reply = TaskResult(taskId="t1", answer="incorrect", reasoning="invalid", method="optional",
+                       issues=valid + invalid, needsReview=False)
+    checked = validatedResult(request, reply, TaskReading("t1", "hasSteps"))
+    assert checked.issues == valid
+    assert checked.needsReview == bool(invalid)

@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Mapping
 from http.client import HTTPConnection, HTTPSConnection
 from urllib.parse import urlsplit
@@ -60,14 +60,30 @@ def sendReview(request: ModelReviewRequest) -> ModelReviewResponse:
 def validatedResult(request: ModelReviewRequest, result: TaskResult, reading: TaskReading) -> TaskResult:
     if result.taskId != request.taskId:
         return localResult(request.taskId, skipped=False, required=bool(request.rubric))
+    stepIds = {step.stepId for step in request.steps}
+    counts = Counter(issue.issueId for issue in result.issues)
+    children: dict[str, list[str]] = defaultdict(list)
+    roots: deque[str] = deque()
+    for issue in result.issues:
+        if counts[issue.issueId] != 1 or issue.stepId not in stepIds:
+            continue
+        if issue.causedByIssueId is None:
+            roots.append(issue.issueId)
+        else:
+            children[issue.causedByIssueId].append(issue.issueId)
+    # Only chains reachable from an unambiguous, anchored root are safe to publish.
+    accepted = set()
+    while roots:
+        issueId = roots.popleft()
+        accepted.add(issueId)
+        roots.extend(children[issueId])
+    issues = [issue for issue in result.issues if issue.issueId in accepted]
     reasoning = "not_shown" if reading.status == "answerOnly" else result.reasoning
     method = result.method if request.rubric else "optional"
     if reading.status == "answerOnly" and request.rubric:
         method = "unconfirmed"
-    return result.model_copy(update={
-        "reasoning": reasoning, "method": method,
-        "needsReview": result.needsReview or result.answer == "unreadable",
-    })
+    return result.model_copy(update={"issues": issues, "reasoning": reasoning, "method": method,
+                                     "needsReview": result.needsReview or result.answer == "unreadable" or len(issues) != len(result.issues)})
 
 
 def localResult(taskId: str, *, skipped: bool, required: bool) -> TaskResult:
