@@ -72,6 +72,14 @@ export const api = {
   classes: () => call<ClassItem[]>('GET', '/v1/classes'),
   students: (classId: string) => call<Student[]>('GET', `/v1/classes/${e(classId)}/students`),
   assignments: (classId: string) => call<Assignment[]>('GET', `/v1/classes/${e(classId)}/assignments`),
+  // Задание (вариант контрольной) — POST /v1/classes/{classId}/assignments, без доп. требований.
+  uploadTask: (classId: string, file: File, subject: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('requirements', '[]')
+    fd.append('subject', subject)
+    return call<{ assignmentId: string; assignmentRev: number }>('POST', `/v1/classes/${e(classId)}/assignments`, fd)
+  },
   uploadWork: (a: Assignment, file: File) => {
     const fd = new FormData()
     fd.append('file', file)

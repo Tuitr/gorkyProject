@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { api, type Assignment, type Report } from './api'
 
-// Статистика выбранного класса: отчёт кабинета по каждому варианту (с учётом выбранного предмета).
-export function ClassStats(props: { assignments: Assignment[]; subject: '' | 'math' | 'physics'; refreshKey: number }) {
-  const shown = props.assignments.filter((a) => !props.subject || a.subject === props.subject)
+// Статистика выбранного класса: отчёт кабинета по каждому варианту.
+export function ClassStats(props: { assignments: Assignment[]; refreshKey: number }) {
+  const shown = props.assignments
   const [reports, setReports] = useState<Record<string, Report>>({})
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
@@ -38,7 +38,7 @@ export function ClassStats(props: { assignments: Assignment[]; subject: '' | 'ma
   }, [ids, props.refreshKey])
 
   if (shown.length === 0)
-    return <p style={st.muted}>Выберите класс{props.subject ? ' — в нём нет вариантов по этому предмету' : ''}.</p>
+    return <p style={st.muted}>В классе пока нет заданий — загрузите задание через «Загрузить файлы».</p>
 
   return (
     <div>

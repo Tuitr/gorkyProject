@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { ClassStats } from './ClassStats'
+import { prepare } from './convert'
+import { UploadDialog, type Subject, type UploadKind } from './UploadDialog'
 import { api, type Assignment, type ClassItem, type Student, type Upload, type UploadFile } from './api'
 
 // Строка в списке работ: файл ещё отправляется, не ушёл, или уже принят кабинетом (uploadId).
-type Work = { key: string; name: string; state: 'sending' | 'failed' | 'sent'; error?: string; uploadId?: string }
+type Work = { key: string; name: string; state: 'sending' | 'failed' | 'sent' | 'task'; error?: string; uploadId?: string }
 
 const STATUS: Record<UploadFile['status'], [string, string]> = {
   pending_binding: ['Определяем ученика…', '#2563eb'],
@@ -15,21 +17,20 @@ const STATUS: Record<UploadFile['status'], [string, string]> = {
 const PENDING = new Set(['pending_binding', 'matched'])
 
 export function App() {
-  const fileInput = useRef<HTMLInputElement>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [logoOk, setLogoOk] = useState(true)
 
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [classId, setClassId] = useState('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [subject, setSubject] = useState<'' | 'math' | 'physics'>('')
   const [students, setStudents] = useState<Student[]>([])
   const [error, setError] = useState<string>()
 
   const [works, setWorks] = useState<Work[]>([])
   const [uploads, setUploads] = useState<Record<string, Upload>>({})
 
-  // Работы уходят в последний вариант класса по выбранному предмету (кабинет отдаёт варианты от новых к старым).
-  const assignment = subject ? assignments.find((a) => a.subject === subject) : undefined
+  // Решения уходят в последний вариант класса по предмету (кабинет отдаёт варианты от новых к старым).
+  const latestTask = (subj: Subject) => assignments.find((a) => a.subject === subj)
 
   // классы
   useEffect(() => {
@@ -69,18 +70,38 @@ export function App() {
     return () => window.clearTimeout(t)
   }, [works, uploads])
 
-  const send = async (files: File[]) => {
-    if (!assignment) return
-    for (const file of files) {
-      const key = crypto.randomUUID()
-      setWorks((prev) => [{ key, name: file.name, state: 'sending' }, ...prev])
-      try {
-        const { uploadId } = await api.uploadWork(assignment, file)
-        setWorks((prev) => prev.map((w) => (w.key === key ? { ...w, state: 'sent', uploadId } : w)))
-      } catch (e) {
-        setWorks((prev) => prev.map((w) => (w.key === key ? { ...w, state: 'failed', error: (e as Error).message } : w)))
-      }
+  const loadAssignments = () =>
+    api.assignments(classId).then(
+      (list) => setAssignments(list),
+      (e) => setError(e.message),
+    )
+
+  const track = async (name: string, job: () => Promise<Partial<Work>>) => {
+    const key = crypto.randomUUID()
+    setWorks((prev) => [{ key, name, state: 'sending' }, ...prev])
+    try {
+      const patch = await job()
+      setWorks((prev) => prev.map((w) => (w.key === key ? { ...w, ...patch } : w)))
+    } catch (e) {
+      setWorks((prev) => prev.map((w) => (w.key === key ? { ...w, state: 'failed', error: (e as Error).message } : w)))
     }
+  }
+
+  const submit = async ({ subject: subj, kind, files }: { subject: Subject; kind: UploadKind; files: File[] }) => {
+    setDialogOpen(false)
+    if (kind === 'task') {
+      for (const file of files)
+        await track(file.name, async () => {
+          await api.uploadTask(classId, await prepare(file), subj)
+          return { state: 'task' }
+        })
+      await loadAssignments()
+      return
+    }
+    const task = latestTask(subj)
+    if (!task) return setError('В этом классе нет задания по этому предмету — сначала загрузите задание')
+    for (const file of files)
+      await track(file.name, async () => ({ state: 'sent', uploadId: (await api.uploadWork(task, await prepare(file))).uploadId }))
   }
 
   const bind = async (uploadId: string, fileId: string, studentId: string) => {
@@ -112,33 +133,24 @@ export function App() {
               </option>
             ))}
           </select>
-          <select value={subject} onChange={(e) => setSubject(e.target.value as typeof subject)} style={s.input} disabled={!classId}>
-            <option value="">Предмет…</option>
-            <option value="math">Математика</option>
-            <option value="physics">Физика</option>
-          </select>
-          {classId && subject && !assignment && <span style={s.error}>В этом классе нет варианта по этому предмету</span>}
           <button
-            onClick={() => fileInput.current?.click()}
-            disabled={!assignment}
-            title={assignment ? '' : 'Сначала выберите класс и предмет'}
+            onClick={() => setDialogOpen(true)}
+            disabled={!classId}
+            title={classId ? '' : 'Сначала выберите класс'}
             style={s.button}
           >
             Загрузить файлы
           </button>
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            accept=".docx,.zip,.jpg,.jpeg,.png,.webp"
-            onChange={(e) => {
-              send(Array.from(e.target.files ?? []))
-              e.target.value = ''
-            }}
-          />
         </div>
       </header>
+
+      {dialogOpen && (
+        <UploadDialog
+          hasTask={(subj) => latestTask(subj) !== undefined}
+          onSubmit={submit}
+          onClose={() => setDialogOpen(false)}
+        />
+      )}
 
       {error && (
         <div style={{ ...s.error, padding: '8px 16px', background: '#fef2f2' }} onClick={() => setError(undefined)}>
@@ -151,7 +163,7 @@ export function App() {
           <h2 style={s.h2}>Работы учеников</h2>
           {works.length === 0 && (
             <p style={s.muted}>
-              Выберите класс и предмет, затем нажмите «Загрузить файлы» (DOCX, ZIP или фото).
+              Выберите класс и нажмите «Загрузить файлы»: сначала задание, затем решения учеников.
             </p>
           )}
           <ul style={s.list}>
@@ -159,7 +171,13 @@ export function App() {
               w.state !== 'sent' ? (
                 <li key={w.key} style={s.item}>
                   <span style={s.name}>{w.name}</span>
-                  {w.state === 'sending' ? <span style={s.muted}>Отправляем…</span> : <span style={s.error}>{w.error}</span>}
+                  {w.state === 'sending' ? (
+                    <span style={s.muted}>Отправляем…</span>
+                  ) : w.state === 'task' ? (
+                    <span style={{ color: '#15803d', fontSize: 13 }}>Задание загружено</span>
+                  ) : (
+                    <span style={s.error}>{w.error}</span>
+                  )}
                 </li>
               ) : (
                 (uploads[w.uploadId!]?.files ?? [{ fileId: w.key, originalName: w.name, status: 'pending_binding', candidates: [] } as UploadFile]).map((f) => (
@@ -196,7 +214,7 @@ export function App() {
         <section style={s.half}>
           <h2 style={s.h2}>Статистика класса</h2>
           {classId ? (
-            <ClassStats assignments={assignments} subject={subject} refreshKey={boundCount} />
+            <ClassStats assignments={assignments} refreshKey={boundCount} />
           ) : (
             <p style={s.muted}>Выберите класс, чтобы увидеть статистику.</p>
           )}
