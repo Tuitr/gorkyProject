@@ -12,7 +12,7 @@ from zlib import error as ZlibError
 
 from fastapi import UploadFile
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, select
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -166,6 +166,11 @@ def readSubmissionZip(upload: UploadFile) -> list[SubmissionDocument]:
     return documents
 
 
+def lockUploadStorage(db: Session, uploadId: str) -> None:
+    """Hold the same lock while writing or cleaning an upload's S3 prefix."""
+    db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(f"cabinet.uploads/{uploadId}", 0))))
+
+
 def storeUpload(
     db: Session,
     settings: Settings,
@@ -174,8 +179,11 @@ def storeUpload(
     classId: str,
     documents: list[SubmissionDocument],
     eventContext: EventContext,
+    *,
+    uploadId: str | None = None,
 ) -> UploadAccepted:
-    uploadId = str(uuid.uuid4())
+    uploadId = uploadId if uploadId is not None else str(uuid.uuid4())
+    lockUploadStorage(db, uploadId)
     records = []
     roster = db.scalars(select(StudentRecord).where(StudentRecord.classId == classId)).all()
     with closing(buildS3Client(settings)) as client:

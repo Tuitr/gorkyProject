@@ -26,7 +26,8 @@ from argon2 import PasswordHasher, Type
 from docx import Document
 from fastapi.testclient import TestClient
 from httpx import MockTransport, Request, Response
-from sqlalchemy import Engine, create_engine, select, text
+from sqlalchemy import Engine, create_engine, event as sqlEvent, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet import documents, uploads
@@ -35,6 +36,7 @@ from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
 from cabinet.classes import ClassRecord, StudentRecord
+from cabinet.cleanupuploads import cleanUpload
 from cabinet.database import allMetadata, buildAlembicConfig
 from cabinet.documents import buildS3Client
 from cabinet.main import buildAccounts, createApp
@@ -43,7 +45,7 @@ from cabinet.settings import DB_SCHEMA, Settings
 from cabinet.uploads import SubmissionDocument, UploadFileRecord, UploadRecord, storeUpload
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE
 from contracts.v1.events.checks import AssignmentPublishedEvent, AttemptSubmittedEvent, TeacherRequirement, checksEventAdapter
-from shared.buckets import RESULTS_BUCKET
+from shared.buckets import RESULTS_BUCKET, SOURCES_BUCKET
 from shared.clock import ManualClock
 
 PASSWORD = "correct horse battery staple"
@@ -1198,6 +1200,71 @@ def testOtherTeacherCannotReadEditPublishOrDownloadACheck(
         assert not gradingCalls
         assert client.get(path).status_code == 200
         assert len(gradingCalls) == 1
+
+
+def testFailedUploadRemovesItsObjectsAndPreservesActiveOriginal(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+) -> None:
+    checkId, _ = reviewedCheck
+    with cabinetSessions() as db:
+        assignmentId = db.execute(select(CheckRecord.assignmentId).where(CheckRecord.checkId == checkId)).scalar_one()
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    liveDocx = assignmentDocx("Действующая работа")
+    interrupted = submissionZip(
+        ("Иванов Иван.docx", assignmentDocx("Новая работа")), ("неизвестно.docx", assignmentDocx("Другая работа")),
+    )
+    failedUploads: list[str] = []
+    path = f"/v1/assignments/{assignmentId}/uploads"
+    rev = {"assignmentRev": "1"}
+
+    with TestClient(app, base_url="https://testserver", raise_server_exceptions=False) as client, closing(
+        buildS3Client(settings)
+    ) as s3:
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        live = client.post(path, data=rev, files={"file": ("Иванов Иван.docx", liveDocx)})
+        assert live.status_code == 202, live.text
+        liveId = live.json()["uploadId"]
+        with cabinetSessions() as db:
+            originalKey = db.execute(select(UploadFileRecord.objectKey)).scalar_one()
+
+        def failCommit(db: Session) -> None:
+            if failedUploads:
+                return
+            db.flush()
+            uploadId = db.execute(select(UploadRecord.uploadId).where(UploadRecord.uploadId != liveId)).scalar_one()
+            failedUploads.append(uploadId)
+            staged = s3.list_objects_v2(Bucket=SOURCES_BUCKET, Prefix=f"uploads/{uploadId}/")
+            assert len(staged.get("Contents", [])) == 2
+            raise SQLAlchemyError("simulated failure before commit")
+
+        strayKey = f"uploads/{liveId}/{uuid.uuid4()}.docx"
+        try:
+            sqlEvent.listen(cabinetSessions, "before_commit", failCommit)
+            try:
+                failed = client.post(path, data=rev, files={"file": ("class.zip", interrupted)})
+            finally:
+                sqlEvent.remove(cabinetSessions, "before_commit", failCommit)
+
+            assert failed.status_code == 500 and "uploadId" not in failed.json()
+            assert len(failedUploads) == 1
+            failedPrefix = f"uploads/{failedUploads[0]}/"
+            assert not s3.list_objects_v2(Bucket=SOURCES_BUCKET, Prefix=failedPrefix).get("Contents")
+            with cabinetSessions() as db:
+                assert db.scalars(select(UploadRecord.uploadId)).all() == [liveId]
+                assert db.scalars(select(UploadFileRecord.objectKey)).all() == [originalKey]
+                assert len(db.scalars(select(AttemptRecord)).all()) == 2
+                assert len(db.scalars(select(CheckRecord)).all()) == 2
+                assert len(db.scalars(select(OutboxRecord)).all()) == 1
+
+            s3.put_object(Bucket=SOURCES_BUCKET, Key=strayKey, Body=b"unused test object")
+            assert cleanUpload(cabinetSessions, settings, liveId) == 1
+            assert cleanUpload(cabinetSessions, settings, liveId) == 0
+            with closing(s3.get_object(Bucket=SOURCES_BUCKET, Key=originalKey)["Body"]) as stored:
+                assert stored.read() == liveDocx
+        finally:
+            s3.delete_object(Bucket=SOURCES_BUCKET, Key=strayKey)
+            s3.delete_object(Bucket=SOURCES_BUCKET, Key=originalKey)
 
 
 def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(

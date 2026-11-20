@@ -25,6 +25,7 @@ from cabinet.auth.throttle import LoginThrottle
 from cabinet.bindingconfirmation import confirmBinding
 from cabinet.checks import readGradingCheck, requireOwnedCheck
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
+from cabinet.cleanupuploads import tryCleanUpload
 from cabinet.documents import readDocx
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
@@ -245,11 +246,17 @@ def createApp(
         teacher: TeacherSession = Depends(currentTeacher),
         event: EventContext = Depends(eventContext),
     ) -> UploadAccepted:
-        with sessionFactory.begin() as db:
-            classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
-            return storeUpload(
-                db, settings, assignmentId, assignmentRev, classId, readSubmission(file), event,
-            )
+        uploadId = None
+        try:
+            with sessionFactory.begin() as db:
+                classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId)
+                documents = readSubmission(file)
+                uploadId = str(uuid.uuid4())
+                return storeUpload(db, settings, assignmentId, assignmentRev, classId, documents, event, uploadId=uploadId)
+        except Exception:
+            if uploadId is not None:
+                tryCleanUpload(sessionFactory, settings, uploadId)
+            raise
 
     @v1.get(
         "/uploads/{uploadId}",
