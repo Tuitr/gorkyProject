@@ -1,5 +1,8 @@
-# Local stand. For now only PostgreSQL for the reference registry (developer 3);
-# developer 1 extends it with Redis, SeaweedFS and the services (A1.1).
+# Local stand: PostgreSQL, Redis Streams and S3-compatible SeaweedFS (A1.1).
+# Start and wait until every service accepts requests:
+#   docker compose -f deploy/compose.yaml up -d --wait
+# Ports bind to 127.0.0.1 only and stay below 49152: Windows/Hyper-V often reserves dynamic ports.
+# Addresses and test credentials for clients: .env.example in the repository root. Test credentials only.
 name: gorky
 
 services:
@@ -10,7 +13,6 @@ services:
       POSTGRES_PASSWORD: gorky
       POSTGRES_DB: gorky
     ports:
-      # Below 49152: Windows/Hyper-V often reserves dynamic ports and refuses to bind them.
       - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -20,5 +22,43 @@ services:
       timeout: 3s
       retries: 30
 
+  redis:
+    image: redis:7.4-alpine
+    # Append-only file: stream messages survive a restart of the stand.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.97
+    # Master, volume, filer and S3 gateway in one process; S3 keys come from seaweedfs/s3.json.
+    command:
+      - server
+      - -dir=/data
+      - -ip=seaweedfs
+      - -ip.bind=0.0.0.0
+      - -s3
+      - -s3.port=8333
+      - -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "127.0.0.1:${S3_PORT:-18333}:8333"
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
 volumes:
   postgres-data:
+  redis-data:
+  seaweedfs-data:

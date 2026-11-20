@@ -30,6 +30,28 @@ wire = error.model_dump_json()
 assert ApiError.model_validate_json(wire) == error
 ```
 
+## Стенд
+
+`deploy/compose.yaml` поднимает PostgreSQL, Redis Streams и S3-совместимый SeaweedFS. Данные лежат в именованных
+томах и переживают перезапуск.
+
+| Что | Адрес по умолчанию | Переменная порта |
+|---|---|---|
+| PostgreSQL | `127.0.0.1:15432`, пользователь, пароль и база `gorky` | `POSTGRES_PORT` |
+| Redis | `redis://127.0.0.1:16379/0` | `REDIS_PORT` |
+| S3 (SeaweedFS) | `http://127.0.0.1:18333`, ключ `gorky-dev` / `gorky-dev-secret` | `S3_PORT` |
+
+Адреса и тестовые учётные данные для клиентов перечислены в `.env.example`. Внутри сети Compose сервисы доступны
+по именам `postgres:5432`, `redis:6379`, `seaweedfs:8333`. Ключи S3 задаются в `deploy/seaweedfs/s3.json`.
+
+- Запуск с ожиданием готовности (команда ждёт, пока каждый сервис начнёт принимать запросы): `docker compose -f deploy/compose.yaml up -d --wait`
+- Состояние: `docker compose -f deploy/compose.yaml ps`, у всех сервисов должно быть `healthy`.
+- Проверка записи и чтения во всех трёх хранилищах: `uv run pytest tests/infra`
+- Остановка без потери данных: `docker compose -f deploy/compose.yaml down`. С флагом `-v` тома удаляются.
+
+Если в Windows включён системный прокси (например, VPN-клиент), HTTP-клиенты Python отправляют через него и
+запросы на `127.0.0.1`. Клиенты стенда должны отключать прокси явно, как это сделано в `tests/infra/testStand.py`.
+
 ## Тесты
 
 - Все тесты собираются одной командой из корня: `uv run pytest`. Проверить состав: `uv run pytest --collect-only -q`.
