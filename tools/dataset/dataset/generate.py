@@ -192,16 +192,22 @@ def buildCase(
     )
 
 
-def generateDataset(seed: int = DEFAULT_SEED) -> GeneratedDataset:
+def generateDataset(
+    seed: int = DEFAULT_SEED, *, openOnly: bool = False, closedSeed: int | None = None
+) -> GeneratedDataset:
     draws = SeededDraws(seed)
+    closedDraws = draws if closedSeed is None else SeededDraws(closedSeed)
     names = iter(draws.shuffled("names", NAMES))
     usedSources: set[str] = set()
     files: dict[str, bytes] = {}
     cases: list[DatasetCase] = []
     bundles: list[BundleRef] = []
     for variant in PLAN:
+        if openOnly and variant.split == "closed":
+            continue
+        variantDraws = closedDraws if variant.split == "closed" else draws
         tasks = [
-            drawTask(draws, f"{variant.variantId}/task{number}", family, usedSources)
+            drawTask(variantDraws, f"{variant.variantId}/task{number}", family, usedSources)
             for number, family in enumerate(variant.families, 1)
         ]
         assignmentFile = f"assignments/{variant.variantId}.docx"
@@ -255,13 +261,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m dataset.generate", description="Generate the mini dataset.")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help=f"default {DEFAULT_SEED}")
     parser.add_argument("--out", type=Path, required=True, help="an empty or missing directory")
+    splitOptions = parser.add_mutually_exclusive_group()
+    splitOptions.add_argument("--open-only", action="store_true", help="write only the demo and E2E splits")
+    splitOptions.add_argument("--closed-seed", type=int, help="use a separate seed for the closed split")
     args = parser.parse_args(argv)
     seed: int = args.seed
+    closedSeed: int | None = args.closed_seed
     outDir: Path = args.out
     if seed < 0:
         parser.error("--seed must not be negative")
+    if closedSeed is not None and closedSeed < 0:
+        parser.error("--closed-seed must not be negative")
     try:
-        written = writeDataset(generateDataset(seed), outDir)
+        written = writeDataset(generateDataset(seed, openOnly=args.open_only, closedSeed=closedSeed), outDir)
     except FileExistsError as error:
         parser.error(str(error))
     print(f"{DATASET_VERSION}, seed {seed}: {len(written)} files in {outDir}")

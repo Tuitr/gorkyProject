@@ -19,6 +19,8 @@ from dataset.archive import FIXED_TIME, UNIX, storedZip
 from dataset.generate import DEFAULT_SEED, GeneratedDataset, generateDataset, main, writeDataset
 from dataset.tasks import MINUS
 
+RELEASE_DIR = Path(__file__).resolve().parents[2] / "tools" / "dataset" / "releases" / "mini.v1"
+
 KEY_WORDS = ("caseId", "expected", "sourceTaskId", "schemaId", "split", "manifest")
 """Manifest keys that must never appear inside a DOCX or a ZIP."""
 
@@ -232,6 +234,36 @@ def testVariantsNeverShareASourceTask(dataset: GeneratedDataset) -> None:
         variantsOf.setdefault(case.assignmentRef.sourceTaskId, set()).add(case.assignmentRef.file)
 
     assert [source for source, variants in variantsOf.items() if len(variants) > 1] == []
+
+
+def testOpenReleaseIsReproducibleAndContainsOnlyReferencedOpenFiles(tmp_path: Path) -> None:
+    release = contentsOf(RELEASE_DIR)
+    manifest = DatasetManifest.model_validate_json(release["manifest.json"])
+
+    assert main(["--open-only", "--seed", str(manifest.seed), "--out", str(tmp_path)]) == 0
+    assert contentsOf(tmp_path) == release
+    assert {case.split for case in manifest.cases} == {"demo", "e2e"}
+    referenced = {case.assignmentRef.file for case in manifest.cases}
+    referenced.update(case.submissionRef.file for case in manifest.cases)
+    referenced.update(bundle.file for bundle in manifest.bundles)
+    assert set(release) == referenced | {"manifest.json"}
+
+
+def testSeparateClosedSeedPreservesOpenCasesAndFiles() -> None:
+    openDataset = generateDataset(DEFAULT_SEED, openOnly=True)
+    first = generateDataset(DEFAULT_SEED, closedSeed=7)
+    second = generateDataset(DEFAULT_SEED, closedSeed=8)
+
+    for privateDataset in (first, second):
+        openCases = [case for case in privateDataset.manifest.cases if case.split != "closed"]
+        closedSources = {
+            case.assignmentRef.sourceTaskId for case in privateDataset.manifest.cases if case.split == "closed"
+        }
+        assert openCases == openDataset.manifest.cases
+        assert closedSources.isdisjoint(case.assignmentRef.sourceTaskId for case in openCases)
+        assert {name: privateDataset.files[name] for name in openDataset.files} == openDataset.files
+
+    assert first.manifest.cases != second.manifest.cases
 
 
 def testGeneratorRefusesADirectoryWithOtherFiles(tmp_path: Path, dataset: GeneratedDataset) -> None:
