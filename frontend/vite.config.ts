@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
 import { authPlugin } from './server/auth.ts'
 import { gigachatPlugin } from './server/gigachat.ts'
+import { solverPlugin } from './server/solver.ts'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -41,7 +42,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     // authPlugin — первым: без входа остальные /api/* отвечают 401
-    plugins: [authPlugin(env), react(), gigachatPlugin(env)],
+    plugins: [authPlugin(env), react(), gigachatPlugin(env), solverPlugin(env)],
     server: { proxy: ocrProxy },
     preview: { proxy: ocrProxy },
   }

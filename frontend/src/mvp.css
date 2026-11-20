@@ -818,3 +818,6 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .toast { background: #0c1838; color: var(--on-bg); border: 1px solid var(--on-bg-line); }
 /* счётчик спорных мест в шапке (на тёмном фоне) — яркий жёлтый, как в макете */
 .shell__nav .count { background: #fde047; color: #1a1200; }
+/* эталон солвера под условием задания */
+.src-task__answer { margin: 6px 2px 0; font-size: 13px; color: var(--muted); }
+.src-task__answer b { color: var(--success); font-family: var(--font-mono); font-weight: 600; }

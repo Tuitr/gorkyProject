@@ -11,6 +11,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
 import { latexToText } from './latexToText.ts'
+import { withSolvedAnswers } from './solver.ts'
 
 const OAUTH_URL = 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth'
 const CHAT_URL = 'https://gigachat.devices.sberbank.ru/api/v1/chat/completions'
@@ -41,6 +42,7 @@ const SYSTEM_PROMPT = `Ты помогаешь учителю проверять
 Вход: текст фото работы после OCR, по строке на строку, формат «номер|текст». Формулы уже переведены в обычный текст (√, ², ₁, /, ·).
 OCR ошибается в символах (векторы, скобки, похожие буквы и цифры) — восстанавливай смысл по контексту, дефект распознавания не считай ошибкой ученика.
 Если дан текст задания — сверяйся с ним. Сам реши каждое задание и сравни с решением ученика.
+«Ответ (посчитан точно)» у номера — эталон, вычисленный программой: сверяй ответ ученика с ним и не пересчитывай. Равные по значению записи (1/2 и 0,5, корни в другом порядке, равносильная запись дроби) — верный ответ.
 Ошибка — неверный ответ, неверный шаг решения или пропущенное задание.
 
 Правила:
@@ -186,11 +188,13 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function checkWork(creds: Creds, lines: string[], task?: string, notes?: string) {
+async function checkWork(env: Record<string, string>, creds: Creds, lines: string[], task?: string, notes?: string) {
   // OCR отдаёт LaTeX — переводим в обычный текст: модель читает и цитирует его как есть, токенов меньше.
   const numbered = lines.map((l, i) => `${i}|${latexToText(l)}`).join('\n')
+  // у заданий без ответа — точный эталон от солвера (sympy), чтобы модель не считала сама
+  const brief = task ? await withSolvedAnswers(env, latexToText(task)) : ''
   const user =
-    (task ? `Задание:\n${latexToText(task)}\n\n` : '') +
+    (brief ? `Задание:\n${brief}\n\n` : '') +
     (notes ? `Заметки учителя (как проверять):\n${notes}\n\n` : '') +
     `Работа:\n${numbered}`
   return withRetry(() => chatJson(creds, SYSTEM_PROMPT, user))
@@ -318,6 +322,7 @@ export function gigachatPlugin(env: Record<string, string>): Plugin {
       const { lines, task, notes } = body
       if (!Array.isArray(lines) || lines.length === 0) return send(400, { message: 'Нет текста работы' })
       const result = await checkWork(
+        env,
         creds,
         lines.map(String).slice(0, 400),
         typeof task === 'string' ? task : undefined,

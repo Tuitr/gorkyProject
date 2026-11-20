@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useActions } from '../actions'
 import { splitTasksAi } from '../api/generate'
+import { useSolvedAnswers } from '../api/solve'
 import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
 import { go, href, useRoute } from '../router'
@@ -42,6 +43,9 @@ export function SourceReview({ id }: { id: string }) {
       last?.focus()
     }, 50)
   }, [wantAdd, a, id, update, query])
+
+  // точные ответы солвера под условиями — учитель видит эталон, с которым будет сверяться проверка
+  const solved = useSolvedAnswers(a?.tasks.map((t) => t.text) ?? [])
 
   if (!a) return <NotFound />
 
@@ -244,6 +248,11 @@ export function SourceReview({ id }: { id: string }) {
                   onChange={(e) => setTask(t.id, { text: e.target.value })}
                   aria-label={`Условие задания №${t.num}`}
                 />
+                {solved.get(t.text) && (
+                  <p className="src-task__answer" title="Посчитано программой точно; проверка сверяет ответ ученика с ним">
+                    Ответ (посчитан): <b>{solved.get(t.text)}</b>
+                  </p>
+                )}
                 {!t.text.trim() && (
                   <button className="btn" onClick={() => pickPhoto(t.id)} disabled={!!photoBusy}>
                     {photoBusy === t.id ? (
