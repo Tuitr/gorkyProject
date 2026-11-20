@@ -2,11 +2,11 @@
 
 import base64
 import hashlib
-from contextlib import closing
 from io import BytesIO
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
+from zlib import error as ZlibError
 
 import boto3
 from botocore.config import Config
@@ -37,6 +37,11 @@ def readDocx(upload: UploadFile) -> bytes:
     original = upload.file.read(MAX_DOCX_BYTES + 1)
     if len(original) > MAX_DOCX_BYTES:
         raise ApiProblem("file_too_large", "DOCX exceeds 20 MiB", status=413)
+    validateDocx(original)
+    return original
+
+
+def validateDocx(original: bytes) -> None:
     try:
         with ZipFile(BytesIO(original)) as archive:
             types = readXml(archive, "[Content_Types].xml")
@@ -46,8 +51,8 @@ def readDocx(upload: UploadFile) -> bytes:
                 for item in types.findall(f"{TYPES_NS}Override")
             )
             if mainType and document.tag in DOCUMENT_TAGS:
-                return original
-    except (BadZipFile, ElementTree.ParseError, KeyError, RuntimeError, OSError, ValueError):
+                return
+    except (BadZipFile, ElementTree.ParseError, KeyError, RuntimeError, OSError, ValueError, EOFError, ZlibError):
         pass
     raise ApiProblem("invalid_input", "Expected a valid DOCX document")
 
@@ -77,19 +82,18 @@ def buildS3Client(settings: Settings) -> "S3Client":
     )
 
 
-def storeDocx(settings: Settings, key: str, original: bytes) -> DocRef:
+def storeDocx(client: "S3Client", key: str, original: bytes) -> DocRef:
     digest = hashlib.sha256(original).hexdigest()
     checksum = base64.b64encode(bytes.fromhex(digest)).decode("ascii")
     try:
-        with closing(buildS3Client(settings)) as client:
-            client.put_object(
-                Bucket=SOURCES_BUCKET,
-                Key=key,
-                Body=original,
-                ContentType=DOCX_MEDIA_TYPE,
-                IfNoneMatch="*",
-                ChecksumSHA256=checksum,
-            )
+        client.put_object(
+            Bucket=SOURCES_BUCKET,
+            Key=key,
+            Body=original,
+            ContentType=DOCX_MEDIA_TYPE,
+            IfNoneMatch="*",
+            ChecksumSHA256=checksum,
+        )
     except (ClientError, BotoCoreError) as error:
         raise ApiProblem("unavailable", "Document storage is unavailable") from error
     return DocRef(bucket=SOURCES_BUCKET, key=key, sha256=digest)

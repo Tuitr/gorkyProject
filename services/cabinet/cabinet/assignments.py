@@ -1,6 +1,7 @@
 """Immutable assignment revisions and their source documents."""
 
 import uuid
+from contextlib import closing
 from datetime import date
 
 from sqlalchemy import Date, ForeignKey, String, UniqueConstraint, func, select
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.classes import ClassRecord
 from cabinet.database import Base
-from cabinet.documents import storeDocx
+from cabinet.documents import buildS3Client, storeDocx
 from cabinet.settings import Settings
 from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.events.checks import TeacherRequirement
@@ -67,7 +68,8 @@ def storeAssignment(
         revision = latest + 1
 
     key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}.docx"
-    docRef = storeDocx(settings, key, original)
+    with closing(buildS3Client(settings)) as client:
+        docRef = storeDocx(client, key, original)
     db.add(AssignmentRecord(
         assignmentId=assignmentId,
         assignmentRev=revision,

@@ -12,6 +12,7 @@ from dataclasses import replace
 from datetime import date
 from io import BytesIO
 from typing import Literal
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pytest
 from alembic.autogenerate import compare_metadata
@@ -22,7 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from cabinet import documents
+from cabinet import documents, uploads
 from cabinet.assignments import AssignmentRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
@@ -432,6 +433,7 @@ def testIndividualSubmissionUpload(
             assert (upload.uploadId, upload.assignmentId, upload.assignmentRev) == (uploadId, assignmentId, 1)
             assert stored.uploadId == uploadId
             assert stored.originalName == "Иванов.docx"
+            assert stored.status == "pending_binding"
             assert stored.sha256 == hashlib.sha256(studentDoc).hexdigest()
             with closing(s3.get_object(Bucket=stored.bucket, Key=stored.objectKey)["Body"]) as body:
                 assert body.read() == studentDoc
@@ -439,3 +441,83 @@ def testIndividualSubmissionUpload(
             s3.delete_object(Bucket=stored.bucket, Key=stored.objectKey)
             for assignment in db.scalars(select(AssignmentRecord)):
                 s3.delete_object(Bucket=assignment.bucket, Key=assignment.objectKey)
+
+
+def submissionZip(*entries: tuple[str | ZipInfo, bytes]) -> bytes:
+    output = BytesIO()
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in entries:
+            archive.writestr(name, content)
+    return output.getvalue()
+
+
+def testArchiveSubmissionUpload(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    one = assignmentDocx("Первое решение")
+    two = assignmentDocx("Второе решение")
+    good = submissionZip(("8А/", b""), ("8А/Иванов.docx", one), ("8Б/Иванов.docx", two))
+    symlink = ZipInfo("link.docx")
+    symlink.create_system = 3
+    symlink.external_attr = 0o120777 << 16
+    invalidArchives = [
+        submissionZip(("ok.docx", one), (name, two))
+        for name in ("../escaped.docx", "/absolute.docx", "C:/drive.docx", "folder\\escape.docx", symlink)
+    ]
+    invalidArchives += [
+        submissionZip(("ok.docx", one), ("nested.zip", good)),
+        submissionZip(("ok.docx", one), ("nested.docx", good)),
+        submissionZip(("ok.docx", one), ("bad.docx", b"broken")),
+        submissionZip(("only-folder/", b"")),
+    ]
+
+    with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(settings)) as s3:
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        created = client.post("/v1/classes", json={"name": "8А"})
+        classPath = f"/v1/classes/{created.json()['classId']}/assignments"
+        initial = client.post(classPath, data={"requirements": "[]"}, files={"file": ("assignment.docx", one)})
+        assert initial.status_code == 201, initial.text
+        path = f"/v1/assignments/{initial.json()['assignmentId']}/uploads"
+        form = {"assignmentRev": "1"}
+        storedBefore = s3.list_objects_v2(Bucket="sources", Prefix="uploads/").get("Contents", [])
+
+        for invalid in invalidArchives:
+            refused = client.post(path, data=form, files={"file": ("class.zip", invalid)})
+            assert refused.status_code == 422, refused.text
+        with monkeypatch.context() as limits:
+            limits.setattr(uploads, "MAX_UNPACKED_BYTES", len(one) + len(two) - 1)
+            assert client.post(path, data=form, files={"file": ("class.zip", good)}).status_code == 413
+        with monkeypatch.context() as limits:
+            limits.setattr(uploads, "MAX_DOCX_FILES", 1)
+            assert client.post(path, data=form, files={"file": ("class.zip", good)}).status_code == 413
+
+        assert s3.list_objects_v2(Bucket="sources", Prefix="uploads/").get("Contents", []) == storedBefore
+        with cabinetSessions() as db:
+            assert db.scalars(select(UploadRecord)).all() == []
+            assert db.scalars(select(UploadFileRecord)).all() == []
+
+        accepted = client.post(path, data=form, files={"file": ("class.zip", good)})
+        assert accepted.status_code == 202, accepted.text
+        with cabinetSessions() as db:
+            upload = db.scalars(select(UploadRecord)).one()
+            records = db.scalars(select(UploadFileRecord)).all()
+            try:
+                assert upload.uploadId == accepted.json()["uploadId"]
+                assert len(records) == 2
+                assert {record.uploadId for record in records} == {upload.uploadId}
+                assert {record.originalName for record in records} == {"Иванов.docx"}
+                assert {record.status for record in records} == {"pending_binding"}
+                assert len({record.fileId for record in records}) == len({record.objectKey for record in records}) == 2
+                saved = set()
+                for record in records:
+                    with closing(s3.get_object(Bucket=record.bucket, Key=record.objectKey)["Body"]) as body:
+                        saved.add(body.read())
+                assert saved == {one, two}
+            finally:
+                for record in records:
+                    s3.delete_object(Bucket=record.bucket, Key=record.objectKey)
+                for assignment in db.scalars(select(AssignmentRecord)):
+                    s3.delete_object(Bucket=assignment.bucket, Key=assignment.objectKey)
