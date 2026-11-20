@@ -462,9 +462,16 @@ def testIndividualSubmissionUpload(
 
 
 def submissionZip(*entries: tuple[str | ZipInfo, bytes]) -> bytes:
+    """Entry names are written as given: on Windows ZipInfo(name) would turn a backslash into "/"."""
     output = BytesIO()
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         for name, content in entries:
+            if isinstance(name, str) and "\\" in name:
+                info = ZipInfo(name)
+                info.filename = name
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = 0o600 << 16
+                name = info
             archive.writestr(name, content)
     return output.getvalue()
 
