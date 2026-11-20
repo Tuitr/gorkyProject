@@ -13,6 +13,7 @@ from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextReader, readAssignment
+from grading.feedback import composeOverallReview
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
@@ -240,7 +241,7 @@ class GradingWorker:
 
     def calculateCheck(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
-        overallReview: str, transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview,
+        overallReview: str | None = None, transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview,
     ) -> CheckOutcome | None:
         """Store the initial calculation exactly once so a retry can resume publication."""
         if not isinstance(lease.key, str):
@@ -248,9 +249,12 @@ class GradingWorker:
         existing = self.results.findDraft(lease.key, "initial")
         if existing is not None:
             return existing
-        results = self.reviewCheck(lease, loadDocument, transport=transport)
-        if results is None:
+        prepared = self.prepareCheck(lease, loadDocument)
+        if prepared is None:
             return None
+        results = reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport)
+        if overallReview is None:
+            overallReview = composeOverallReview(prepared.tasks, prepared.reading, results, prepared.references)
         return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease)
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:

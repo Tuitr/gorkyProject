@@ -90,8 +90,9 @@ def testRecoversDraftAndReadsPublishedRevisions(
         assert request.taskId == "t1"
         return ModelReviewResponse(schemaVersion="taskResult.v1", taskResult=result, modelId="fixture")
 
-    draft = worker.calculateCheck(lease, lambda _: submission, overallReview="Верный ответ.", transport=assess)
+    draft = worker.calculateCheck(lease, lambda _: submission, transport=assess)
     assert draft is not None and draft.resultRev == 1 and draft.taskResults == [result]
+    assert "Ответ верный." in draft.overallReview and "Покажите, как вы его получили." in draft.overallReview
     assert api.get(url, headers=headers).json() == {"checkId": "c1", "state": "running", "reason": "awaiting_artifact"}
 
     clock.advance(61)
