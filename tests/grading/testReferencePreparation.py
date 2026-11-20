@@ -27,10 +27,15 @@ from shared.clock import ManualClock
 
 
 @pytest.fixture
-def liveRegistry(sessionFactory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def registryClock() -> ManualClock:
+    return ManualClock()
+
+
+@pytest.fixture
+def liveRegistry(sessionFactory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch, registryClock: ManualClock) -> Iterator[None]:
     token = "test-grading"
     rights = json.dumps({token: {"serviceName": "grading", "rights": ["references.request"]}})
-    app = createApp(Settings(databaseUrl="", serviceTokensJson=rights), sessionFactory=sessionFactory)
+    app = createApp(Settings(databaseUrl="", serviceTokensJson=rights), sessionFactory=sessionFactory, clock=registryClock)
     server = uvicorn.Server(uvicorn.Config(app, ws="none", log_config=None, access_log=False))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -45,6 +50,39 @@ def liveRegistry(sessionFactory: sessionmaker[Session], monkeypatch: pytest.Monk
             server.should_exit = True
             thread.join(timeout=5)
             assert not thread.is_alive()
+
+
+def testPendingReferenceResumesByGetAfterRestart(
+    gradingEngine: Engine, gradingStream: tuple[Redis, str], contractExample: Callable[[str], Any],
+    liveRegistry: None, registryClock: ManualClock,
+) -> None:
+    client, stream = gradingStream
+    worker = GradingWorker(StreamConsumer(client, "initial", streamName=stream), gradingEngine, clock=registryClock.now)
+    document = buildDocx("Variant", [Paragraph("1. Длина вектора (6; 8)")])
+    event = contractExample("events/assignmentPublished.json")
+    event["payload"].update(requirements=[])
+    event["payload"]["docRef"]["sha256"] = hashlib.sha256(document).hexdigest()
+    client.xadd(stream, {DATA_FIELD: json.dumps(event)})
+    worker.runBatch()
+    lease = worker.jobs.claimAssignment()
+    assert lease is not None
+    pending = worker.prepareAssignment(lease, lambda _: document)["t1"]
+    assert pending.state == "pending" and pending.retryAfterS == 10
+    restarted = GradingWorker(StreamConsumer(client, "restarted", streamName=stream), gradingEngine, clock=registryClock.now)
+    registryClock.advance(9)
+    assert restarted.jobs.claimAssignment() is None
+    client.xadd(stream, {DATA_FIELD: json.dumps(contractExample("events/attemptSubmitted.json"))})
+    restarted.runBatch()
+    assert restarted.jobs.claimCheck() is not None
+    registryClock.advance(1)
+    due = restarted.jobs.claimAssignment()
+    assert due is not None
+
+    def noPost(task: ReferenceRequest) -> ReferenceResult:
+        raise AssertionError("pending reference must resume by GET")
+
+    ready = restarted.prepareAssignment(due, lambda _: b"", requestReference=noPost)["t1"]
+    assert ready.state == "ready" and ready.referenceId == pending.referenceId and ready.value == {"exact": "10"}
 
 
 def testEarlyAttemptsShareOnlyTheReferencesOfTheirRevision(

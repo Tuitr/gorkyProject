@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from pydantic import TypeAdapter
 from sqlalchemy import Engine
@@ -21,6 +21,7 @@ from grading.tables import AssignmentJob
 parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
 submissionReadingAdapter = TypeAdapter(SubmissionReading)
 referencesAdapter: TypeAdapter[dict[str, ReferenceResult]] = TypeAdapter(dict[str, ReferenceResult])
+deadlinesAdapter: TypeAdapter[dict[str, datetime]] = TypeAdapter(dict[str, datetime])
 SUBMISSION_PARSE_VERSION = 3
 ASSIGNMENT_RECHECK_DELAY = timedelta(seconds=5)
 
@@ -40,6 +41,7 @@ class GradingWorker:
         self.engine = engine
         self.pendingIdleMs = pendingIdleMs
         self.jobs = JobQueue(engine, clock=clock)
+        self.now = clock or (lambda: datetime.now(UTC))
 
     def runBatch(self, *, count: int = 10, blockMs: int | None = None) -> list[SavedJob]:
         """Persist pending and fresh deliveries. A zero block uses a one-second poll."""
@@ -80,6 +82,7 @@ class GradingWorker:
     def prepareAssignment(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
         requestReference: Callable[[ReferenceRequest], ReferenceResult] | None = None,
+        getReference: Callable[[str], ReferenceResult] | None = None,
     ) -> dict[str, ReferenceResult]:
         """Register tasks once per published revision and retain partial progress on restart."""
         if isinstance(lease.key, str):
@@ -87,26 +90,40 @@ class GradingWorker:
         tasks = self.parseAssignment(lease, loadDocument)
         saved = lease.stageData or {}
         references = referencesAdapter.validate_python(saved.get("references", {}))
+        deadlines = deadlinesAdapter.validate_python(saved.get("nextPollAt", {}))
         data: dict[str, object] = {"tasks": [asdict(task) for task in tasks]}
         for task in tasks:
-            if task.taskId in references:
-                continue
-            if requestReference is None:
-                requestReference = ReferenceClient.fromEnv().request
-            request = ReferenceRequest(
-                assignmentId=lease.key[0], assignmentRev=lease.key[1], taskId=task.taskId,
-                statement=task.statement, constraints=task.constraints,
-            )
-            references[task.taskId] = requestReference(request)
+            previous = references.get(task.taskId)
+            if previous is None:
+                if requestReference is None:
+                    requestReference = ReferenceClient.fromEnv().request
+                result = requestReference(ReferenceRequest(
+                    assignmentId=lease.key[0], assignmentRev=lease.key[1], taskId=task.taskId,
+                    statement=task.statement, constraints=task.constraints,
+                ))
+            else:
+                if previous.state != "pending" or (task.taskId in deadlines and deadlines[task.taskId] > self.now()):
+                    continue
+                if getReference is None:
+                    getReference = ReferenceClient.fromEnv().get
+                result = getReference(previous.referenceId)
+                if result.referenceId != previous.referenceId:
+                    raise ValueError("reference registry returned a different referenceId on GET")
+            references[task.taskId] = result
+            if result.state == "pending":
+                deadlines[task.taskId] = self.now() + timedelta(seconds=max(1, result.retryAfterS))
+            else:
+                deadlines.pop(task.taskId, None)
+            data["nextPollAt"] = deadlinesAdapter.dump_python(deadlines, mode="json")
             data["references"] = referencesAdapter.dump_python(references, mode="json")
             if not self.jobs.checkpoint(lease, "requesting_references", data):
                 raise RuntimeError("assignment lease expired before the reference could be saved")
 
         data["references"] = referencesAdapter.dump_python(references, mode="json")
-        delays = [result.retryAfterS for result in references.values() if result.state == "pending"]
-        if delays:
-            savedProgress = self.jobs.checkpoint(lease, "references_requested", data) and self.jobs.waitForReference(
-                lease, timedelta(seconds=max(1, min(delays))),
+        data["nextPollAt"] = deadlinesAdapter.dump_python(deadlines, mode="json")
+        if deadlines:
+            savedProgress = self.jobs.checkpoint(lease, "references_requested", data) and self.jobs.reschedule(
+                lease, "waiting_reference", min(deadlines.values()),
             )
         else:
             ready = all(result.state == "ready" for result in references.values())
