@@ -30,7 +30,7 @@ export function Queue({ assignmentId }: { assignmentId?: string }) {
       {a ? (
         <AssignmentHeader a={a} step="queue" />
       ) : (
-        <PageHead title="Очередь просмотра" sub="Места, где ИИ не уверен и нужен учитель" />
+        <PageHead title="Спорные места" sub="Фрагменты работ, в которых автоматическая проверка требует решения учителя" />
       )}
       <div className="toolbar">
         <Tabs
@@ -43,14 +43,14 @@ export function Queue({ assignmentId }: { assignmentId?: string }) {
           ]}
         />
         <label className="toggle">
-          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Показать решённые
+          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Показать рассмотренные
         </label>
       </div>
 
       {!list.length ? (
         <div className="empty">
-          <h2>{open.length ? 'Здесь пусто' : 'Очередь пуста ✓'}</h2>
-          <p className="muted">Все спорные места разобраны.</p>
+          <h2>{open.length ? 'Записей нет' : 'Спорных мест нет'}</h2>
+          <p className="muted">Все спорные места рассмотрены.</p>
         </div>
       ) : (
         <ul className="queue">
@@ -73,7 +73,7 @@ function QueueCard({ r }: { r: ReviewItem }) {
   const page = s.pages[r.page] ?? s.pages[0]
   const [choice, setChoice] = useState(r.chosen ?? '')
 
-  const resolve = (fn?: (st: State) => State, msg = 'Готово') => {
+  const resolve = (fn?: (st: State) => State, msg = 'Рассмотрено') => {
     update((st) => {
       const next = fn ? fn(st) : st
       return { ...next, review: patch(next.review, r.id, (x) => ({ ...x, resolved: true, chosen: choice || x.chosen, auto: false })) }
@@ -90,7 +90,7 @@ function QueueCard({ r }: { r: ReviewItem }) {
 
   const assignStudent = () => {
     const target = state.submissions.find((x) => x.assignmentId === a.id && x.studentId === choice && x.id !== s.id)
-    if (target && !confirm('У этого ученика уже есть сдача. Добавить страницы к ней?')) return
+    if (target && !confirm('У этого ученика уже есть сданная работа. Добавить страницы к ней?')) return
     resolve((st) => {
       if (!target) return { ...st, submissions: patch(st.submissions, s.id, (x) => ({ ...x, studentId: choice })) }
       return {
@@ -110,18 +110,18 @@ function QueueCard({ r }: { r: ReviewItem }) {
           choice === r.chosen
             ? { ...res, autoReading: undefined }
             : // прочтение изменилось — балл ИИ больше не действителен, оценит учитель
-              { ...res, autoReading: undefined, status: 'manual', aiScore: undefined, scoreComment: `Прочтение изменено учителем: «${choice}»` },
+              { ...res, autoReading: undefined, status: 'manual', aiScore: undefined, scoreComment: `Распознавание исправлено учителем: «${choice}»` },
         ),
-      choice === r.chosen ? 'Прочтение подтверждено' : 'Прочтение изменено — номер ждёт вашей оценки в ведомости',
+      choice === r.chosen ? 'Распознавание подтверждено' : 'Распознавание исправлено. Задание ожидает оценки учителя в ведомости',
     )
 
   return (
     <li className={`qcard${r.resolved ? ' is-done' : ''}`}>
       <div className="qcard__head">
         <Badge tone={r.kind === 'student' || r.kind === 'reshoot' ? 'err' : 'warn'}>
-          {r.kind === 'sign' && task ? `Уточнить знак в №${task.num}` : REVIEW_LABEL[r.kind]}
+          {r.kind === 'sign' && task ? `Уточнить распознанный символ в задании №${task.num}` : REVIEW_LABEL[r.kind]}
         </Badge>
-        {r.resolved && <Badge tone="ok">решено</Badge>}
+        {r.resolved && <Badge tone="ok">рассмотрено</Badge>}
         <span className="spacer" />
         <span className="muted small">
           {a.title} · {cls?.name}
@@ -140,13 +140,13 @@ function QueueCard({ r }: { r: ReviewItem }) {
 
           {r.kind === 'sign' && (
             <>
-              {r.auto && !r.resolved && <div className="auto-mark">⚠ прочтение выбрано автоматически</div>}
-              <div className="readings" role="radiogroup" aria-label="Варианты прочтения">
+              {r.auto && !r.resolved && <div className="auto-mark">⚠ вариант распознавания выбран автоматически</div>}
+              <div className="readings" role="radiogroup" aria-label="Варианты распознавания">
                 {r.readings.map((v) => (
                   <label key={v} className={`reading${choice === v ? ' is-on' : ''}`}>
                     <input type="radio" checked={choice === v} onChange={() => setChoice(v)} disabled={r.resolved} />
                     <code>{v}</code>
-                    {v === r.chosen && <span className="muted small"> (выбрал ИИ)</span>}
+                    {v === r.chosen && <span className="muted small"> (выбран автоматически)</span>}
                   </label>
                 ))}
               </div>
@@ -155,19 +155,19 @@ function QueueCard({ r }: { r: ReviewItem }) {
 
           {r.kind === 'student' && (
             <label className="field">
-              <span>Чья это работа?</span>
+              <span>Укажите ученика</span>
               <select className="input" value={choice} onChange={(e) => setChoice(e.target.value)} disabled={r.resolved}>
                 <option value="">— выберите ученика —</option>
                 {cls?.students.map((st) => (
                   <option key={st.id} value={st.id}>
                     {st.name}
                     {state.submissions.some((x) => x.assignmentId === a.id && x.studentId === st.id && x.pages.length)
-                      ? ' (уже сдавал)'
+                      ? ' (работа уже сдана)'
                       : ''}
                   </option>
                 ))}
               </select>
-              {r.auto && !r.resolved && <span className="auto-mark">⚠ ученик подобран автоматически по подписи</span>}
+              {r.auto && !r.resolved && <span className="auto-mark">⚠ ученик определён автоматически по подписи на листе</span>}
             </label>
           )}
 
@@ -180,7 +180,7 @@ function QueueCard({ r }: { r: ReviewItem }) {
               )}
               {r.kind === 'sign' && (
                 <button className="btn btn--primary" disabled={!choice} onClick={confirmReading}>
-                  {choice === r.chosen ? 'Подтвердить прочтение' : 'Выбрать это прочтение'}
+                  {choice === r.chosen ? 'Подтвердить распознавание' : 'Выбрать этот вариант'}
                 </button>
               )}
               {r.kind === 'method' && (
@@ -203,13 +203,13 @@ function QueueCard({ r }: { r: ReviewItem }) {
                       )
                     }
                   >
-                    Засчитать способ
+                    Засчитать способ решения
                   </button>
-                  <button className="btn" onClick={() => resolve(undefined, 'Оценка ИИ оставлена')}>
-                    Оставить как есть
+                  <button className="btn" onClick={() => resolve(undefined, 'Автоматическая оценка сохранена')}>
+                    Сохранить автоматическую оценку
                   </button>
                   <a className="link-btn" href={href('a', a.id, 'report', s.id)}>
-                    Посмотреть другой способ
+                    Проверить другой способ решения
                   </a>
                 </>
               )}
@@ -217,7 +217,7 @@ function QueueCard({ r }: { r: ReviewItem }) {
                 <>
                   {s.studentId && (
                     <a className="btn btn--primary" href={href('a', a.id, 's', s.classId, s.studentId)}>
-                      Переснять / добавить
+                      Заменить или добавить фото
                     </a>
                   )}
                   <button className="btn" onClick={() => resolve(undefined, 'Отмечено')}>

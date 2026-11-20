@@ -26,8 +26,8 @@ export function Home() {
       )}
       {!list.length ? (
         <div className="empty">
-          <h2>Работ пока нет</h2>
-          <p>Загрузите DOCX или PDF с заданиями — номера разберутся автоматически.</p>
+          <h2>Работы отсутствуют</h2>
+          <p>Загрузите файл DOCX или PDF с заданиями: задания будут выделены автоматически.</p>
           <a className="btn btn--primary" href="#/new">
             Добавить работу
           </a>
@@ -50,9 +50,9 @@ export function Home() {
                   <a href={main}>{a.title}</a>
                 </h3>
                 <div className="card__meta">
-                  <span>{a.tasks.length} номеров</span>
-                  <span>{a.variants.length || a.variantCount} вар.</span>
-                  {q > 0 && <Badge tone="warn">требует внимания: {q}</Badge>}
+                  <span>Заданий: {a.tasks.length}</span>
+                  <span>Вариантов: {a.variants.length || a.variantCount}</span>
+                  {q > 0 && <Badge tone="warn">требует проверки учителем: {q}</Badge>}
                 </div>
                 <div className="card__classes">
                   {a.classIds.map((cid) => {
@@ -72,17 +72,6 @@ export function Home() {
                   })}
                 </div>
                 <div className="card__foot">
-                  <div className="card__actions">
-                    <a className="link-btn" href={href('a', a.id, 'variants', { f: '1' })}>
-                      Варианты
-                    </a>
-                    <a className="link-btn" href={href('a', a.id, 'sheet', { f: '1' })}>
-                      Ведомость
-                    </a>
-                    <a className="link-btn" href={href('a', a.id, 'class-report', { f: '1' })}>
-                      Отчёт
-                    </a>
-                  </div>
                   <a className="card__open" href={main}>
                     Открыть →
                   </a>

@@ -11,7 +11,7 @@ export type Pipeline =
 /** Распознанный LaTeX с кнопкой «Копировать». */
 export function LatexBlock({ latex }: { latex: string }) {
   const [copied, setCopied] = useState(false)
-  if (!latex) return <p className="muted">Текст на фото не найден.</p>
+  if (!latex) return <p className="muted">Текст на фотографии не обнаружен.</p>
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(latex)
@@ -40,14 +40,14 @@ export function OcrPanel({ pipeline, onRetry }: Props) {
     <aside className="report">
       <ol className="steps">
         <li className={!pipeline || pipeline.stage === 'ocr' ? 'is-now' : ocr ? 'is-done' : 'is-err'}>
-          Распознавание фото (Yandex OCR)
+          Распознавание текста
         </li>
         <li
           className={
             pipeline?.stage === 'check' ? 'is-now' : pipeline?.stage === 'error' && ocr ? 'is-err' : ''
           }
         >
-          Проверка решения (GigaChat)
+          Проверка решения
         </li>
       </ol>
 
@@ -61,7 +61,7 @@ export function OcrPanel({ pipeline, onRetry }: Props) {
       ) : (
         <div className="report__empty report__empty--row">
           <div className="spinner" aria-hidden="true" />
-          <p>{pipeline?.stage === 'check' ? 'GigaChat проверяет работу — обычно 10–40 секунд…' : 'Распознаём фото…'}</p>
+          <p>{pipeline?.stage === 'check' ? 'Выполняется проверка работы. Обычно она занимает 10–40 секунд…' : 'Выполняется распознавание…'}</p>
         </div>
       )}
 

@@ -52,7 +52,7 @@ export function QuickCheck() {
         set({ stage: 'ocr' })
         ocr = await recognize(work.image)
       }
-      if (!ocr.lines.length) throw new Error('На фото не найден текст — переснимите работу ближе и ровнее.')
+      if (!ocr.lines.length) throw new Error('Текст на фотографии не обнаружен. Сфотографируйте работу повторно: ближе и без наклона.')
       set({ stage: 'check', ocr })
       const result = await checkWork(ocr.lines)
       setWorks((ws) => ws.map((w) => (w.id === work.id ? { ...w, result, title: result.workTopic } : w)))
@@ -98,7 +98,7 @@ export function QuickCheck() {
             Загрузить фото (можно несколько)
           </button>
           <button className="btn btn--primary" onClick={() => setCameraOpen(true)}>
-            📷 Сфотографировать
+            Сфотографировать
           </button>
           <input
             ref={fileRef}
@@ -131,12 +131,12 @@ export function QuickCheck() {
                       <b>{w.title}</b>
                       <span className="muted small">
                         {fmtDate(w.createdAt)}
-                        {w.source === 'sample' && ' · пример'}
+                        {w.source === 'sample' && ' · образец'}
                       </span>
                       {pipeline[w.id]?.stage === 'ocr' ? (
-                        <span className="badge">распознаётся…</span>
+                        <span className="badge">распознавание…</span>
                       ) : pipeline[w.id]?.stage === 'check' ? (
-                        <span className="badge">проверяется…</span>
+                        <span className="badge">на проверке…</span>
                       ) : pipeline[w.id]?.stage === 'error' ? (
                         <span className="badge badge--err">ошибка</span>
                       ) : w.result ? (

@@ -44,17 +44,17 @@ export function ReportPanel({
           {checking ? (
             <>
               <div className="spinner" aria-hidden="true" />
-              <p>Проверяем работу…</p>
+              <p>Выполняется проверка работы…</p>
             </>
           ) : (
             <>
               <h2>Работа ещё не проверена</h2>
               <p className="muted">
-                Фото сохранено. Автоматическая проверка заработает, когда подключим сервер и нейросеть. Пока
-                подсветку ошибок можно посмотреть на тестовых работах.
+                Фото сохранено. Автоматическая проверка будет доступна после подключения сервера. Пример
+                выделения ошибок можно посмотреть на образцах работ.
               </p>
               <button className="btn" onClick={onRetry}>
-                Проверить ещё раз
+                Повторить проверку
               </button>
             </>
           )}
@@ -109,7 +109,7 @@ export function ReportPanel({
       <section>
         <h3>Ошибки</h3>
         {r.mistakes.length === 0 ? (
-          <p className="muted">Ошибок нет 🎉</p>
+          <p className="muted">Ошибок не обнаружено</p>
         ) : (
           <ol className="mistakes" ref={listRef}>
             {r.mistakes.map((m, i) => {
@@ -127,7 +127,7 @@ export function ReportPanel({
                       <span className="mistake__num">{i + 1}</span>
                       <span>
                         <b>{task?.label}</b> {m.title}
-                        {off && <span className="muted small"> — снято учителем</span>}
+                        {off && <span className="muted small"> — не засчитано учителем</span>}
                       </span>
                     </button>
                     <button
@@ -136,24 +136,24 @@ export function ReportPanel({
                         if (!off && open) onSelectMistake(null)
                         onToggleDismiss(m.id)
                       }}
-                      title={off ? 'Вернуть ошибку' : 'ИИ ошибся — это не ошибка'}
+                      title={off ? 'Восстановить ошибку' : 'Не считать ошибкой'}
                     >
-                      {off ? 'Вернуть' : 'Не ошибка'}
+                      {off ? 'Восстановить' : 'Не считать ошибкой'}
                     </button>
                   </div>
                   {open && (
                     <div className="mistake__body">
                       {m.where && (
                         <p className="mistake__where">
-                          <b>Где:</b> {m.where}
+                          <b>Место ошибки:</b> {m.where}
                         </p>
                       )}
                       <div className="solution solution--bad">
-                        <span>У ученика</span>
+                        <span>Ответ ученика</span>
                         <code>{m.studentAnswer}</code>
                       </div>
                       <div className="solution solution--good">
-                        <span>Как правильно</span>
+                        <span>Верное решение</span>
                         <p>{m.correctSolution}</p>
                       </div>
                       <p>{m.explanation}</p>
@@ -167,13 +167,13 @@ export function ReportPanel({
       </section>
 
       <section>
-        <h3>Что не так</h3>
+        <h3>Замечания</h3>
         <p className="summary">{r.summary}</p>
       </section>
 
       {r.weakTopics.length > 0 && (
         <section>
-          <h3>Что повторить</h3>
+          <h3>Рекомендуется повторить</h3>
           <ul className="topics">
             {r.weakTopics.map((t) => (
               <li key={t.name}>
@@ -197,7 +197,7 @@ export function ReportPanel({
           </>
         ) : (
           <>
-            <span className="muted small">Проверку сделал ИИ. Просмотрите ошибки и подтвердите результат.</span>
+            <span className="muted small">Работа проверена автоматически. Просмотрите найденные ошибки и подтвердите результат.</span>
             <button className="btn btn--primary" onClick={onToggleConfirm}>
               Подтвердить проверку
             </button>

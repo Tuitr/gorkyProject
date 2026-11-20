@@ -51,7 +51,7 @@ export function AssignmentForm({ id }: { id?: string }) {
       const ai = await splitTasksAi(text)
       if (ai.length) tasks = ai.map((t) => ({ id: uid('t'), num: t.num, text: t.text, manual: false, max: 1 }))
     } catch (e) {
-      console.warn('GigaChat не разделил номера, делим по «1)», «2.»', e)
+      console.warn('Автоматическое разделение не выполнено: задания разделены по нумерации «1)», «2.»', e)
     }
     setParsed(tasks)
     if (!tasks.length) setPasted(text)
@@ -64,9 +64,9 @@ export function AssignmentForm({ id }: { id?: string }) {
     setParsed(null)
     if (!title.trim()) setTitle(fs[0].name.replace(/\.(docx|pdf|jpe?g|png|heic|webp)$/i, ''))
     const kept = items.filter((i) => i.text !== null)
-    void runJob(draftKey, 'ocr', fs.length > 1 ? `Разбираем файлы (${fs.length})` : 'Разбираем файл', async () => {
+    void runJob(draftKey, 'ocr', fs.length > 1 ? `Обработка файлов (${fs.length})` : 'Обработка файла', async () => {
       const read: { source: SourceFile; text: string }[] = []
-      for (const f of fs) read.push(await readSource(f)) // по очереди — номера идут в порядке файлов
+      for (const f of fs) read.push(await readSource(f)) // по очереди — задания нумеруются в порядке файлов
       const next = [...kept, ...read]
       setItems(next)
       await split(next)
@@ -77,11 +77,12 @@ export function AssignmentForm({ id }: { id?: string }) {
     const next = items.filter((_, i) => i !== idx)
     setItems(next)
     setParsed(null)
-    if (next.some((i) => i.text)) void runJob(draftKey, 'ocr', 'Разбираем файлы', () => split(next))
+    if (next.some((i) => i.text)) void runJob(draftKey, 'ocr', 'Обработка файлов', () => split(next))
   }
 
   const tasksToSave = parsed?.length ? parsed : pasted.trim() ? splitTasks(pasted) : null
-  const canSave = title.trim() && classIds.length && (existing || tasksToSave?.length)
+  // новая работа: материалы, классы, заметки; название — по имени файла, тип — в «Параметрах»
+  const canSave = classIds.length && (existing ? title.trim() : tasksToSave?.length)
 
   const save = () => {
     const cleanClassNotes = Object.fromEntries(
@@ -109,7 +110,7 @@ export function AssignmentForm({ id }: { id?: string }) {
     }
     const a: Assignment = {
       id: uid('a'),
-      title: title.trim(),
+      title: title.trim() || 'Новая работа',
       type,
       createdAt: Date.now(),
       file: files[0],
@@ -124,27 +125,28 @@ export function AssignmentForm({ id }: { id?: string }) {
       status: 'draft',
     }
     update((s) => ({ ...s, assignments: [a, ...s.assignments] }))
-    go('a', a.id, 'source')
+    go('a', a.id, 'source', { new: '1' })
   }
 
   return (
     <div className="page page--narrow">
       <PageHead
         title={existing ? 'Параметры работы' : 'Добавить работу'}
-        sub={existing ? existing.title : 'Загрузите задания — дальше сверите номера и получите варианты'}
+        sub={existing ? existing.title : 'Загрузите материалы работы. На следующем шаге проверьте правильность распознавания заданий.'}
       />
 
       <div className="form">
         <label className="field">
-          <span>Название</span>
+          <span>Название работы</span>
           <input
             className="input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Квадратные уравнения"
+            placeholder="Например: Квадратные уравнения"
           />
         </label>
 
+        {existing && (
         <div className="field">
           <span>Тип</span>
           <div className="segmented" role="radiogroup" aria-label="Тип работы">
@@ -155,9 +157,10 @@ export function AssignmentForm({ id }: { id?: string }) {
             ))}
           </div>
         </div>
+        )}
 
         <div className="field">
-          <span>Файлы с заданиями — DOCX, PDF или фото (можно несколько)</span>
+          <span>Файлы с заданиями: DOCX, PDF или фото (допускается несколько файлов)</span>
           {files.length > 0 && (
             <ol className="file-list">
               {files.map((f, i) => (
@@ -201,8 +204,8 @@ export function AssignmentForm({ id }: { id?: string }) {
               }}
             />
             <span>
-              {files.length ? '+ Добавить ещё файлы' : 'Нажмите или перетащите сюда файлы'}{' '}
-              <span className="muted small">— номера идут в порядке файлов</span>
+              {files.length ? '+ Добавить ещё файлы' : 'Нажмите, чтобы выбрать файлы, или перетащите их сюда'}{' '}
+              <span className="muted small">— задания нумеруются в порядке файлов</span>
             </span>
           </label>
           {job?.status === 'running' && (
@@ -212,7 +215,7 @@ export function AssignmentForm({ id }: { id?: string }) {
           )}
           {job?.status === 'error' && (
             <span className="job job--err">
-              <Badge tone="err">Сбой</Badge> {job.error}
+              <Badge tone="err">Ошибка</Badge> {job.error}
               {lastFiles.length > 0 && (
                 <button className="link-btn" onClick={() => addFiles(lastFiles)}>
                   Повторить
@@ -222,15 +225,15 @@ export function AssignmentForm({ id }: { id?: string }) {
           )}
           {parsed && parsed.length > 0 && (
             <span className="ok-line">
-              ✓ Найдено номеров: {parsed.length}. Проверите их на следующем шаге.
+              ✓ Найдено заданий: {parsed.length}. Их необходимо проверить на следующем шаге.
             </span>
           )}
           {existing && parsed?.length ? (
-            <span className="muted small">При сохранении номера и варианты будут заменены — работа станет черновиком.</span>
+            <span className="muted small">При сохранении задания и варианты будут заменены, работа получит статус «Черновик».</span>
           ) : null}
           {(job?.status === 'error' || (parsed && !parsed.length) || (!existing && !files.length)) && (
             <details className="paste" open={!!parsed && !parsed.length}>
-              <summary>Или вставьте текст заданий</summary>
+              <summary>Или введите текст заданий</summary>
               <textarea
                 className="input"
                 rows={7}
@@ -238,13 +241,13 @@ export function AssignmentForm({ id }: { id?: string }) {
                 onChange={(e) => setPasted(e.target.value)}
                 placeholder={'1. Решите уравнение x² + 2x − 5 = 0.\n2. ...'}
               />
-              {pasted.trim() && <span className="muted small">Номеров: {splitTasks(pasted).length}</span>}
+              {pasted.trim() && <span className="muted small">Заданий: {splitTasks(pasted).length}</span>}
             </details>
           )}
         </div>
 
         <div className="field">
-          <span>Для каких классов</span>
+          <span>Классы</span>
           {!classes.length ? (
             <span className="muted">
               Нет классов — <a href="#/classes">создайте класс</a>.
@@ -268,7 +271,7 @@ export function AssignmentForm({ id }: { id?: string }) {
         </div>
 
         <label className="field">
-          <span>Заметки к работе — как проверять</span>
+          <span>Указания по проверке</span>
           <textarea
             className="input"
             rows={6}
@@ -277,13 +280,13 @@ export function AssignmentForm({ id }: { id?: string }) {
             placeholder={NOTES_EXAMPLE}
           />
           <span className="muted small">
-            Пишите обычным языком. На шаге «Исходник» увидите, какие правила распознаны, а что не учтено автоматически.
+            Указания составляются в свободной форме. На странице проверки распознавания будет показано, какие правила учтены, а какие требуют ручной проверки.
           </span>
         </label>
 
         {classIds.length > 0 && (
           <div className="field">
-            <span>Заметки для конкретного класса</span>
+            <span>Указания для отдельного класса</span>
             {classes
               .filter((c) => classIds.includes(c.id))
               .map((c) =>
@@ -295,12 +298,12 @@ export function AssignmentForm({ id }: { id?: string }) {
                       rows={2}
                       value={classNotes[c.id] ?? ''}
                       onChange={(e) => setClassNotes((n) => ({ ...n, [c.id]: e.target.value }))}
-                      placeholder="Например: в этом классе №6 оценивать мягче"
+                      placeholder="Например: в этом классе задание №6 оценивается без учёта оформления"
                     />
                   </label>
                 ) : (
                   <button key={c.id} className="link-btn" onClick={() => setOpenNotes((o) => [...o, c.id])}>
-                    + заметка для {c.name}
+                    + указание для класса {c.name}
                   </button>
                 ),
               )}
@@ -312,7 +315,7 @@ export function AssignmentForm({ id }: { id?: string }) {
             Отмена
           </a>
           <button className="btn btn--primary" disabled={!canSave || job?.status === 'running'} onClick={save}>
-            {existing ? 'Сохранить' : 'Далее: сверка исходника →'}
+            {existing ? 'Сохранить' : 'Далее: проверка распознавания →'}
           </button>
         </div>
       </div>

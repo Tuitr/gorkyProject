@@ -1,20 +1,21 @@
-/* Тема «Бежевый» — как в Spirit Code (Desktop\Spirit Code\src\index.css).
-   Сверху — переменные Spirit Code, ниже — их псевдонимы под имена, которые использует эта платформа. */
+/* Спокойная серо-белая тема (акцент — оранжевый Spirit Code).
+   Фон — мягкий светло-серый, без чистого белого на всю площадь: меньше бликов и нагрузки на глаза.
+   Сверху — базовые переменные, ниже — их псевдонимы под имена, которые использует эта платформа. */
 :root {
-  --bg: #f1e8da;
-  --grid: #e7dccb;
-  --surface: #fbf6ee;
-  --surface-2: #efe5d6;
-  --inset: #fffdf9;
-  --line: #e0d2bf;
-  --line-soft: #e0d2bf;
+  --bg: #eceef0;
+  --grid: #e3e6e9;
+  --surface: #f7f8f9;
+  --surface-2: #e8ebee;
+  --inset: #fbfbfc;
+  --line: #d9dde2;
+  --line-soft: #e1e4e8;
 
-  --text: #2a1c12;
-  --text-2: #3d2c20;
-  --muted: #5e4b3c;
-  --faint: #7a6656;
+  --text: #24292f;
+  --text-2: #363c44;
+  --muted: #57606a;
+  --faint: #6e7781;
 
-  /* --accent — заливки (кнопки, полосы), --accent-text — оранжевый текст на бежевом */
+  /* --accent — заливки (кнопки, полосы), --accent-text — оранжевый текст на светлом фоне */
   --accent: #ff8400;
   --accent-hover: #ff9a2e;
   --accent-text: #a14a00;
@@ -30,7 +31,7 @@
   --success: #2f7a3e;
   --success-soft: #dcefdc;
 
-  --shadow: 0 8px 28px rgba(42, 28, 18, 0.12);
+  --shadow: 0 6px 20px rgba(31, 35, 40, 0.07);
 
   --font-display: Inter, system-ui, sans-serif;
   --font-body: Inter, system-ui, sans-serif;

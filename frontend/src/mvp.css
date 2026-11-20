@@ -19,7 +19,7 @@ button:disabled { opacity: 0.6; cursor: default; }
   gap: 12px 32px;
   padding: 14px 48px;
   border-bottom: 1px solid var(--line);
-  background: rgba(241, 232, 218, 0.85);
+  background: rgba(236, 238, 240, 0.88);
   backdrop-filter: blur(16px);
 }
 .logo {
@@ -414,7 +414,7 @@ textarea.input { resize: vertical; line-height: 1.45; }
   box-shadow: var(--shadow);
   transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
-.card:hover { transform: translateY(-2px); border-color: var(--accent-line); box-shadow: 0 12px 32px rgba(42, 28, 18, 0.14); }
+.card:hover { transform: translateY(-2px); border-color: var(--accent-line); box-shadow: 0 12px 32px rgba(31, 35, 40, 0.11); }
 .card.is-draft { border-color: var(--accent); }
 .card__head { display: flex; justify-content: space-between; gap: 8px; align-items: center; min-height: 24px; }
 .card__subject { min-width: 0; overflow: hidden; color: var(--amber); font-family: var(--font-mono); font-size: 15px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
@@ -425,9 +425,12 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .card__classes { display: flex; gap: 8px; flex-wrap: wrap; }
 .class-pill { display: flex; flex-direction: column; padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--inset); color: var(--text); text-decoration: none; }
 .class-pill:hover { border-color: var(--accent); text-decoration: none; }
-.card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-top: auto; font-size: 17px; }
-.card__actions { display: flex; gap: 2px; flex-wrap: wrap; margin-left: -8px; }
+.card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; margin-top: auto; font-size: 17px; }
 .card__open { color: var(--accent-text); font-weight: 600; white-space: nowrap; }
+/* вся карточка кликабельна: ссылка «Открыть» растянута на карточку, плашки классов — поверх */
+.card { position: relative; cursor: pointer; }
+.card__open::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.card__classes { position: relative; z-index: 1; }
 
 /* ---------- классы ---------- */
 .parallel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -435,6 +438,11 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .students li { padding-left: 4px; }
 .students li > * { vertical-align: middle; }
 .students .input { width: calc(100% - 40px); }
+/* «Мои классы»: обе панели одной высоты; в списке видно 10 учеников (строка 38px + промежуток 2px), дальше — прокрутка */
+.class-cols { align-items: stretch; }
+.students--scroll { max-height: calc(10 * 38px + 9 * 2px); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.students--scroll li { min-height: 38px; }
+.class-paste { flex: 1; min-height: 0; resize: none; }
 
 /* ---------- форма работы ---------- */
 .form { display: flex; flex-direction: column; gap: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
@@ -788,3 +796,7 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 /* сетки и flex-элементы не должны распирать страницу на телефоне */
 .shell__nav a, .shoot .btn, .finish .btn { min-width: 0; }
 .shoot .btn, .finish .btn { white-space: normal; text-align: center; }
+
+/* «+ Номер» и «Номера с фото» рядом */
+.src-add { display: flex; gap: 8px; flex-wrap: wrap; }
+.src-task > .btn { align-self: flex-start; }

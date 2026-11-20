@@ -5,13 +5,13 @@ import { useStore } from '../store'
 import { Badge, Tabs } from '../ui'
 
 export const STEPS = [
-  { id: 'source', label: 'Исходник' },
+  { id: 'source', label: 'Исходный материал' },
   { id: 'variants', label: 'Варианты и печать' },
   { id: 'collect', label: 'Сбор работ' },
-  { id: 'queue', label: 'Очередь' },
+  { id: 'queue', label: 'Спорные места' },
   { id: 'sheet', label: 'Ведомость' },
   { id: 'class-report', label: 'Отчёт по классу' },
-  { id: 'practice', label: 'Практика' },
+  { id: 'practice', label: 'Работа над ошибками' },
 ] as const
 export type Step = (typeof STEPS)[number]['id']
 

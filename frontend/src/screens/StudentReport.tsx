@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ErrorPanel } from '../components/ErrorPanel'
-import { TECHNIQUE_LABEL, activeMistakes, submissionTotal, taskScore, type TaskResult } from '../domain'
+import { CATEGORY_LABEL, TECHNIQUE_LABEL, activeMistakes, submissionTotal, taskScore, type TaskResult } from '../domain'
 import { href } from '../router'
 import { useStore } from '../store'
 import { Badge, Photo, type Tone } from '../ui'
@@ -20,7 +20,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   const [pageIdx, setPageIdx] = useState(0)
   const s = state.submissions.find((x) => x.id === submissionId)
   const cls = classes.find((c) => c.id === s?.classId)
-  if (!a || !s || !cls) return <NotFound what={!a ? 'Работа' : 'Сдача'} />
+  if (!a || !s || !cls) return <NotFound what={!a ? 'Работа' : 'Сданная работа'} />
 
   const student = cls.students.find((x) => x.id === s.studentId)
   const v = a.variants.find((x) => x.id === s.variantId)
@@ -61,7 +61,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
       </div>
 
       {s.status !== 'processed' && (
-        <div className="notice notice--warn">Работа ещё не обработана — отчёт появится после проверки.</div>
+        <div className="notice notice--warn">Работа ещё не проверена. Отчёт будет доступен после проверки.</div>
       )}
 
       <div className="report-grid">
@@ -72,7 +72,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                 <th>№</th>
                 <th>Ответ</th>
                 <th>Ход решения</th>
-                <th>Приём</th>
+                <th>Метод решения</th>
                 <th>Балл</th>
               </tr>
             </thead>
@@ -91,13 +91,13 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                     </td>
                     <td>
                       {!r || r.status === 'missing' ? (
-                        <span className="muted">номер не найден в работе</span>
+                        <span className="muted">задание отсутствует в работе</span>
                       ) : r.status === 'stopped' ? (
                         <Badge tone="warn">проверка остановлена</Badge>
                       ) : r.status === 'insufficient' ? (
-                        <Badge tone="warn">недостаточно записи</Badge>
+                        <Badge tone="warn">недостаточно записей для оценки</Badge>
                       ) : r.status === 'unreadable' ? (
-                        <Badge tone="warn">неразборчиво — на ручном просмотре</Badge>
+                        <Badge tone="warn">неразборчиво, требуется ручная проверка</Badge>
                       ) : r.status === 'manual' ? (
                         <Badge tone="warn">ручная проверка</Badge>
                       ) : ms.length === 0 ? (
@@ -109,7 +109,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                               <button className="link-btn link-btn--text" onClick={() => setPanel(t.id)}>
                                 {m.title}
                               </button>{' '}
-                              <Badge tone="err">{m.category}</Badge>
+                              <Badge tone="err">{CATEGORY_LABEL[m.category]}</Badge>
                             </li>
                           ))}
                         </ul>
@@ -138,7 +138,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
           </table>
           {s.summary && (
             <>
-              <h3>Вывод</h3>
+              <h3>Заключение</h3>
               <p className="summary">{s.summary}</p>
             </>
           )}
@@ -157,7 +157,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
               </div>
             )}
           </div>
-          {page ? <Photo src={page.image} marks={allMarks} onMark={(mid) => setPanel(mid.split('|')[0])} /> : <p className="muted">Нет страниц</p>}
+          {page ? <Photo src={page.image} marks={allMarks} onMark={(mid) => setPanel(mid.split('|')[0])} /> : <p className="muted">Страницы не загружены</p>}
         </section>
       </div>
 

@@ -56,8 +56,8 @@ export function useActions() {
           s.pages.length > 0 &&
           (s.status === 'submitted' || s.status === 'error'),
       )
-      if (!list.length) return toast('Нет новых сданных работ для обработки')
-      toast(`Обработка запущена: ${list.length} шт.`)
+      if (!list.length) return toast('Нет новых сданных работ для проверки')
+      toast(`Проверка запущена, работ: ${list.length}`)
       for (const s of list) await process(s.id)
     },
     [getState, process, toast],
@@ -65,10 +65,10 @@ export function useActions() {
 
   const genVariants = useCallback(
     (assignmentId: string) =>
-      runJob(`gen:${assignmentId}`, 'generate', 'Генерация вариантов', async () => {
+      runJob(`gen:${assignmentId}`, 'generate', 'Формирование вариантов', async () => {
         const a = getState().assignments.find((x) => x.id === assignmentId)
         if (!a) return
-        if (!a.tasks.length) throw new Error('В исходнике нет номеров — сначала сверьте исходник.')
+        if (!a.tasks.length) throw new Error('В исходном материале нет заданий. Сначала проверьте исходный материал.')
         const out = await generateVariants(a, a.variantCount)
         update((st) => ({
           ...st,

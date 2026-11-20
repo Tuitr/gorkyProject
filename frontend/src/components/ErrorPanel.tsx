@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useActions } from '../actions'
 import {
   CATEGORIES,
+  CATEGORY_LABEL,
   TASK_STATUS_LABEL,
   activeMistakes,
   taskScore,
@@ -62,7 +63,7 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
     const v = scoring.score.trim() === '' ? undefined : Math.max(0, Math.min(task.max, Number(scoring.score)))
     setRes((r) => ({ ...r, score: v, scoreComment: scoring.comment.trim() || undefined }))
     setScoring(null)
-    toast(v == null ? 'Возвращён балл ИИ' : `Балл за №${task.num}: ${v}`)
+    toast(v == null ? 'Восстановлен автоматический балл' : `Балл за №${task.num}: ${v}`)
   }
 
   // окно строк вокруг ошибки
@@ -108,7 +109,7 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
         {m ? (
           <section className={`ep__mistake${m.dismissed ? ' is-off' : ''}`}>
             <h3>
-              {m.title} {m.dismissed && <Badge>снято учителем</Badge>}
+              {m.title} {m.dismissed && <Badge>не засчитано учителем</Badge>}
             </h3>
             <p>
               {m.where}
@@ -121,17 +122,17 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
                       document.getElementById(`line-${m.page}-${m.lines[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                     }
                   >
-                    → стр. {m.page + 1}, строка {m.lines[0] + 1}
+                    → страница {m.page + 1}, строка {m.lines[0] + 1}
                   </button>
                 </>
               )}
             </p>
             <div className="solution solution--bad">
-              <span>У ученика</span>
+              <span>Ответ ученика</span>
               <code>{m.studentAnswer}</code>
             </div>
             <div className="solution solution--good">
-              <span>Как правильно</span>
+              <span>Верное решение</span>
               <p>{m.correctSolution}</p>
             </div>
             {m.explanation && <p>{m.explanation}</p>}
@@ -144,20 +145,22 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
                   onChange={(e) => setMistake(m.id, { category: e.target.value as MistakeCategory })}
                 >
                   {CATEGORIES.map((c) => (
-                    <option key={c}>{c}</option>
+                    <option key={c} value={c}>
+                      {CATEGORY_LABEL[c]}
+                    </option>
                   ))}
                 </select>
               </label>
               <span>
-                Правило: {m.rule ? <b>{m.rule}</b> : <span className="muted">общее — по ключу</span>}
+                Правило: {m.rule ? <b>{m.rule}</b> : <span className="muted">общий критерий — по эталонному ответу</span>}
               </span>
             </div>
             <button className="link-btn" onClick={() => setMistake(m.id, { dismissed: !m.dismissed })}>
-              {m.dismissed ? 'Вернуть ошибку' : 'Это не ошибка'}
+              {m.dismissed ? 'Восстановить ошибку' : 'Не считать ошибкой'}
             </button>
           </section>
         ) : (
-          <p className="muted">{res?.status === 'ok' ? 'Ошибок нет — номер решён верно.' : 'Ошибок ИИ не нашёл.'}</p>
+          <p className="muted">{res?.status === 'ok' ? 'Ошибок нет: задание выполнено верно.' : 'Автоматическая проверка ошибок не выявила.'}</p>
         )}
 
         {page && (
@@ -172,9 +175,9 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
         )}
 
         <section>
-          <h3>Расшифровка строк</h3>
+          <h3>Распознанный текст по строкам</h3>
           {!lines.length ? (
-            <p className="muted small">Расшифровки нет: работа размечена вручную или ещё не распознана.</p>
+            <p className="muted small">Распознанный текст отсутствует: работа размечена вручную или ещё не распознана.</p>
           ) : (
             <ol className="lines" start={from + 1}>
               {lines.slice(from, to).map((l, k) => {
@@ -249,13 +252,13 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
                 />
               </label>
               <label className="field">
-                <span>Комментарий — почему</span>
+                <span>Обоснование изменения балла</span>
                 <textarea
                   className="input"
                   rows={2}
                   value={scoring.comment}
                   onChange={(e) => setScoring({ ...scoring, comment: e.target.value })}
-                  placeholder="Например: способ верный, арифметика — описка"
+                  placeholder="Например: метод решения верный, допущена вычислительная описка"
                 />
               </label>
               <div className="row">
@@ -266,7 +269,7 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
                   Сохранить балл
                 </button>
               </div>
-              <span className="muted small">Пустое поле — вернуть балл ИИ.</span>
+              <span className="muted small">Если поле не заполнено, сохраняется балл автоматической проверки.</span>
             </div>
           ) : (
             <button

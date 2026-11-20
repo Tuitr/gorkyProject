@@ -44,7 +44,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
 
       <div className="toolbar">
         <span className="muted small">
-          Нажмите на клетку — откроется панель ошибки. На заголовок номера — критерий оценки.
+          Нажмите на ячейку, чтобы открыть сведения об ошибках; на заголовок задания — чтобы изменить критерии оценивания.
         </span>
         <span className="spacer" />
         <button
@@ -57,9 +57,9 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
             }))
             toast(`Утверждено: ${ready.length}`)
           }}
-          title="Утвердить все работы без номеров на ручном просмотре"
+          title="Утвердить все работы, в которых нет заданий на ручной проверке"
         >
-          Утвердить готовые ({ready.length})
+          Утвердить проверенные ({ready.length})
         </button>
       </div>
 
@@ -68,7 +68,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
           <thead>
             <tr>
               <th className="sheet__name">Ученик</th>
-              <th>Вар.</th>
+              <th>Вариант</th>
               {a.tasks.map((t) => (
                 <th key={t.id} className="sheet__task">
                   <button className="link-btn" onClick={() => setCriterion(t)} title="Изменить критерий">
@@ -78,8 +78,8 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                   </button>
                 </th>
               ))}
-              <th>Сумма</th>
-              <th>Итог учителя</th>
+              <th>Предварительный балл</th>
+              <th>Итоговый балл</th>
               <th />
             </tr>
           </thead>
@@ -93,7 +93,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                     <td className="sheet__name">{st.name}</td>
                     <td>—</td>
                     <td colSpan={a.tasks.length}>
-                      <Badge>Нет сдачи</Badge>
+                      <Badge>Не сдано</Badge>
                     </td>
                     <td>—</td>
                     <td />
@@ -107,16 +107,16 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                     <td>{v?.name ?? '—'}</td>
                     <td colSpan={a.tasks.length}>
                       {s.status === 'error' ? (
-                        <Badge tone="err">Ошибка обработки</Badge>
+                        <Badge tone="err">Ошибка проверки</Badge>
                       ) : (
-                        <Badge tone="info">{s.status === 'processing' ? 'Обрабатывается' : 'Сдано, не обработано'}</Badge>
+                        <Badge tone="info">{s.status === 'processing' ? 'На проверке' : 'Сдано, не проверено'}</Badge>
                       )}
                     </td>
                     <td>—</td>
                     <td />
                     <td>
                       <a className="link-btn" href={href('a', a.id, 'collect', { c: cls.id })}>
-                        К сбору
+                        К сбору работ
                       </a>
                     </td>
                   </tr>
@@ -139,7 +139,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                     </b>
                     {total.preliminary && (
                       <div>
-                        <Badge tone="warn" title="Есть номера на ручном просмотре">
+                        <Badge tone="warn" title="Есть задания на ручной проверке">
                           предварительная
                         </Badge>
                       </div>
@@ -159,7 +159,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                           approved: false,
                         }))
                       }
-                      aria-label={`Итог учителя: ${st.name}`}
+                      aria-label={`Итоговый балл: ${st.name}`}
                     />
                   </td>
                   <td>
@@ -171,7 +171,7 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
                       <button
                         className="btn btn--sm"
                         onClick={() => {
-                          if (total.preliminary && s.teacherTotal == null && !confirm('Есть номера на ручном просмотре. Утвердить предварительную сумму?'))
+                          if (total.preliminary && s.teacherTotal == null && !confirm('Есть задания на ручной проверке. Утвердить предварительный балл?'))
                             return
                           setSub(s.id, (x) => ({ ...x, approved: true }))
                         }}
@@ -188,8 +188,8 @@ export function Gradebook({ id, classId }: { id: string; classId?: string }) {
       </div>
 
       <p className="muted small legend">
-        <Badge tone="ok">1/1</Badge> балл из максимума · <Badge tone="warn">ручная</Badge> ждёт вашей оценки ·{' '}
-        <Badge>не сдано</Badge> и <Badge tone="warn">неразборчиво</Badge> не считаются нулём · ⚠ прочтение выбрано
+        <Badge tone="ok">1/1</Badge> полученный балл из максимального · <Badge tone="warn">ручная</Badge> требует оценки учителя ·{' '}
+        <Badge>не сдано</Badge> и <Badge tone="warn">неразборчиво</Badge> не оцениваются как 0 баллов · ⚠ вариант распознавания выбран
         автоматически
       </p>
 
@@ -208,7 +208,7 @@ function Cell({ t, r, onOpen }: { t: SourceTask; r?: TaskResult; onOpen: () => v
       : r.status === 'manual'
         ? 'ручная'
         : r.status === 'unreadable'
-          ? 'неразб.'
+          ? 'неразборчиво'
           : r.status === 'missing'
             ? 'не сдано'
             : TASK_STATUS_LABEL[r.status]
@@ -217,7 +217,7 @@ function Cell({ t, r, onOpen }: { t: SourceTask; r?: TaskResult; onOpen: () => v
     <button className={`cell cell--${tone}`} onClick={onOpen} title={TASK_STATUS_LABEL[r.status]}>
       {label}
       {r.score != null && <sup title="Балл изменён учителем">✎</sup>}
-      {(r.autoReading || needsManual(r)) && v != null && <sup title={r.autoReading ?? 'на ручном просмотре'}>⚠</sup>}
+      {(r.autoReading || needsManual(r)) && v != null && <sup title={r.autoReading ?? 'на ручной проверке'}>⚠</sup>}
       {activeMistakes(r).length > 0 && <span className="cell__n">{activeMistakes(r).length}</span>}
     </button>
   )
@@ -265,7 +265,7 @@ function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask;
 
   return (
     <Modal
-      title={`Критерий №${task.num}`}
+      title={`Критерии оценивания задания №${task.num}`}
       onClose={onClose}
       footer={
         <>
@@ -283,7 +283,7 @@ function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask;
         <input className="input input--num" type="number" min={0} value={max} onChange={(e) => setMax(Math.max(0, Number(e.target.value) || 0))} />
       </label>
       <label className="check">
-        <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} /> Ручная проверка (ИИ не ставит балл)
+        <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} /> Ручная проверка (балл выставляет учитель)
       </label>
       {changed && (
         <div className="affected">
@@ -297,13 +297,13 @@ function CriterionModal({ a, task, onClose }: { a: Assignment; task: SourceTask;
                 return (
                   <li key={s.id}>
                     {name(s.studentId)}: {before ?? '—'} → <b>{after ?? 'ручная'}</b>
-                    {s.approved && <Badge tone="warn">снимется утверждение</Badge>}
+                    {s.approved && <Badge tone="warn">утверждение будет отменено</Badge>}
                   </li>
                 )
               })}
             </ul>
           ) : (
-            <p className="muted">Проверенных работ с этим номером нет.</p>
+            <p className="muted">Проверенных работ с этим заданием нет.</p>
           )}
         </div>
       )}

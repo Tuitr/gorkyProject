@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { analyzeClass } from '../analytics'
-import { submissionTotal } from '../domain'
+import { CATEGORY_LABEL, submissionTotal } from '../domain'
 import { href } from '../router'
 import { useStore } from '../store'
 import { Badge, plural } from '../ui'
@@ -31,7 +31,7 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
         classId={cls.id}
         actions={
           <a className="btn btn--primary" href={href('a', a.id, 'practice', { c: cls.id })}>
-            Практика по ошибкам →
+            Работа над ошибками →
           </a>
         }
       />
@@ -52,13 +52,13 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
         </div>
         <div className="stat stat--warn">
           <b>{topics.length}</b>
-          <span>{plural(topics.length, 'проблемный номер', 'проблемных номера', 'проблемных номеров')}</span>
+          <span>{plural(topics.length, 'задание с типичными ошибками', 'задания с типичными ошибками', 'заданий с типичными ошибками')}</span>
         </div>
       </div>
 
       {!processed ? (
         <div className="empty">
-          <h2>Пока нет проверенных работ</h2>
+          <h2>Проверенных работ нет</h2>
           <a className="btn" href={href('a', a.id, 'collect', { c: cls.id })}>
             К сбору работ
           </a>
@@ -68,21 +68,21 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
           <section className="panel">
             <h2>Типовые ошибки</h2>
             {!typical.length ? (
-              <p className="muted">Ошибок нет 🎉</p>
+              <p className="muted">Ошибок не обнаружено</p>
             ) : (
               <table className="table">
                 <thead>
                   <tr>
                     <th>Ошибка</th>
                     <th>Учеников</th>
-                    <th>Номера</th>
+                    <th>Задания</th>
                   </tr>
                 </thead>
                 <tbody>
                   {typical.map((g) => (
                     <tr key={g.category}>
                       <td>
-                        <Badge tone="err">{g.category}</Badge>
+                        <Badge tone="err">{CATEGORY_LABEL[g.category]}</Badge>
                         <div className="muted small">{g.examples[0]?.mistake.title}</div>
                       </td>
                       <td>
@@ -98,7 +98,7 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
 
           <section className="panel">
             <h2>Темы для повторения</h2>
-            <p className="muted small">От самой проблемной: доля учеников с ошибкой среди сдавших номер.</p>
+            <p className="muted small">По убыванию доли учеников, допустивших ошибку, среди выполнявших задание.</p>
             <ol className="topics-list">
               {topics.map((t) => (
                 <li key={t.taskId}>
@@ -124,7 +124,7 @@ export function ClassReport({ id, classId }: { id: string; classId?: string }) {
                     </div>
                   )}
                   <button className="link-btn" onClick={() => setOpen(open === t.taskId ? null : t.taskId)}>
-                    {open === t.taskId ? 'Скрыть примеры' : `Перейти к примерам (${t.examples.length})`}
+                    {open === t.taskId ? 'Скрыть примеры' : `Показать примеры (${t.examples.length})`}
                   </button>
                   {open === t.taskId && (
                     <ul className="examples">

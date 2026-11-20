@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
 import { gigachatPlugin } from './server/gigachat.ts'
+import { qwenPlugin } from './server/qwen.ts'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -21,7 +22,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), gigachatPlugin(env)],
+    plugins: [react(), gigachatPlugin(env), qwenPlugin(env)],
     server: { proxy: ocrProxy },
     preview: { proxy: ocrProxy },
   }

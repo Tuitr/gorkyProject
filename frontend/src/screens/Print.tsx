@@ -21,7 +21,7 @@ export function PrintView({ path }: { path: string[] }) {
     <div className="print">
       <div className="print__bar no-print">
         <button className="btn btn--primary" onClick={() => print()}>
-          Печать / сохранить в PDF
+          Печать или сохранение в PDF
         </button>
         <span className="muted small">В окне печати выберите «Сохранить как PDF».</span>
       </div>
@@ -34,14 +34,14 @@ export function PrintView({ path }: { path: string[] }) {
       ) : kind === 'practice-keys' ? (
         <PracticeKeys id={id} />
       ) : (
-        <p>Неизвестная форма</p>
+        <p>Документ не найден</p>
       )}
     </div>
   )
 }
 
 function Missing() {
-  return <p>Не найдено — откройте форму из приложения заново.</p>
+  return <p>Документ не найден. Откройте его повторно из приложения.</p>
 }
 
 /** Только условия: ответы сюда не передаются. */
@@ -89,7 +89,7 @@ function KeySheet({ id }: { id: string }) {
       <header className="sheet-page__head">
         <div>
           <b>{a.title}</b>
-          <div>Лист ключей — только для учителя</div>
+          <div>Ответы к вариантам (для учителя)</div>
         </div>
       </header>
       <table className="keys">
@@ -99,7 +99,7 @@ function KeySheet({ id }: { id: string }) {
             {vs.map((v) => (
               <th key={v.id}>Вариант {v.name}</th>
             ))}
-            <th>Макс.</th>
+            <th>Макс. балл</th>
           </tr>
         </thead>
         <tbody>
@@ -172,13 +172,13 @@ function PracticeKeys({ id }: { id: string }) {
     <section className="sheet-page">
       <header className="sheet-page__head">
         <div>
-          <b>Ключи к практике — {a.title}</b>
+          <b>Ответы к работе над ошибками — {a.title}</b>
           <div>Только для учителя</div>
         </div>
       </header>
       {p.mode === 'board' && p.board && (
         <p>
-          Задача у доски: <b>{p.board.task.answer}</b>
+          Задание для разбора у доски: <b>{p.board.task.answer}</b>
         </p>
       )}
       {p.groups

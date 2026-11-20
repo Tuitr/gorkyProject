@@ -89,7 +89,7 @@ export default function App() {
         <nav className="shell__nav" aria-label="Основная навигация">
           {link('', 'Работы')}
           {link('classes', 'Классы')}
-          {link('queue', 'Очередь', open ? <span className="count">{open}</span> : null)}
+          {link('queue', 'Спорные места', open ? <span className="count">{open}</span> : null)}
         </nav>
         <div className="shell__user">
           <div
@@ -107,16 +107,16 @@ export default function App() {
           <a
             href={href('quick')}
             className={`shell__quiet${section === 'quick' ? ' is-active' : ''}`}
-            title="Проверить одно фото без класса и работы"
+            title="Проверка одной фотографии без привязки к классу и работе"
           >
             Быстрая проверка
           </a>
           <button
             className="shell__reset"
-            onClick={() => confirm('Сбросить все данные и вернуть демо-данные?') && reset()}
-            title="Вернуть демо-классы и демо-работу"
+            onClick={() => confirm('Удалить все данные и восстановить демонстрационные?') && reset()}
+            title="Восстановить демонстрационные классы и работу"
           >
-            Демо заново
+            Демонстрационные данные
           </button>
         </div>
       </header>

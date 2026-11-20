@@ -114,7 +114,7 @@ export function JobStatus({ job, onRetry, idle }: { job?: Job; onRetry?: () => v
   if (job.status === 'error')
     return (
       <span className="job job--err">
-        <Badge tone="err">Сбой</Badge> <span className="small">{job.error}</span>
+        <Badge tone="err">Ошибка</Badge> <span className="small">{job.error}</span>
         {onRetry && (
           <button className="link-btn" onClick={onRetry}>
             Повторить

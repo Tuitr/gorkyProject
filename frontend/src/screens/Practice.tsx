@@ -7,12 +7,12 @@ import { Badge, JobStatus } from '../ui'
 import { AssignmentHeader, ClassTabs, NotFound, useAssignment } from './common'
 
 const MODES: { id: PracticeMode; title: string; text: string }[] = [
-  { id: 'board', title: 'Разбор у доски', text: 'Обезличенный пример с самой частой ошибкой + задача на закрепление для всего класса.' },
-  { id: 'groups', title: 'Варианты по типам ошибок', text: 'Ученики в группах по главной ошибке; группа «Углубление» — для решивших всё.' },
-  { id: 'individual', title: 'Индивидуальный вариант', text: 'Каждому — задачи по его собственным ошибкам.' },
+  { id: 'board', title: 'Разбор у доски', text: 'Анонимный пример с наиболее частой ошибкой и задание на закрепление для всего класса.' },
+  { id: 'groups', title: 'Варианты по типам ошибок', text: 'Ученики распределяются по группам в соответствии с основной ошибкой; для выполнивших всё верно — группа «Повышенная сложность».' },
+  { id: 'individual', title: 'Индивидуальный вариант', text: 'Для каждого ученика — задания по допущенным им ошибкам.' },
 ]
 
-const DEEP = 'Углубление'
+const DEEP = 'Повышенная сложность'
 const deepTopic = (a: Assignment) => `${DEEP}: задачи повышенной сложности по теме «${a.title}»`
 const topicName = (a: Assignment, t: Topic) => {
   const task = a.tasks.find((x) => x.id === t.taskId)
@@ -66,7 +66,7 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
   const setP = (fn: (x: PracticeT) => PracticeT) => update((st) => ({ ...st, practices: patch(st.practices, p!.id, fn) }))
 
   const chooseMode = (mode: PracticeMode) => {
-    if (p && p.groups.some((g) => g.tasks.length) && !confirm('Сменить режим? Составленные задачи будут удалены.')) return
+    if (p && p.groups.some((g) => g.tasks.length) && !confirm('Сменить режим? Сформированные задания будут удалены.')) return
     const next: PracticeT = {
       id: p?.id ?? uid('pr'),
       assignmentId: a.id,
@@ -85,12 +85,12 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
 
   const generate = () => {
     if (!p) return
-    void runJob(jobId, 'practice', 'Составляем задачи', async () => {
+    void runJob(jobId, 'practice', 'Формирование заданий', async () => {
       if (p.mode === 'board') {
         const t = topics[0]
-        if (!t) throw new Error('Ошибок нет — разбирать у доски нечего.')
+        if (!t) throw new Error('Ошибок не обнаружено: материалов для разбора нет.')
         const out = await generatePractice([{ topic: topicName(a, t), examples: examples(topicName(a, t)), count: 1 }], true)
-        if (!out.board) throw new Error('GigaChat не прислал пример для разбора')
+        if (!out.board) throw new Error('Не удалось сформировать пример для разбора. Повторите попытку.')
         setP((x) => ({ ...x, board: out.board, approved: false }))
         return
       }
@@ -113,13 +113,13 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
         ]),
       )
       const lost = uniq.filter((t) => !byTopic.get(t)?.length)
-      if (lost.length === uniq.length) throw new Error('GigaChat не прислал задачи — повторите.')
+      if (lost.length === uniq.length) throw new Error('Не удалось сформировать задания. Повторите попытку.')
       setP((x) => ({
         ...x,
         approved: false,
         groups: x.groups.map((g) => ({ ...g, tasks: g.topic.split(' | ').flatMap((t) => (byTopic.get(t) ?? []).map((task) => ({ ...task, id: uid('pt') }))) })),
       }))
-      if (lost.length) toast(`Не пришли задачи по ${lost.length} теме(ам) — нажмите «Составить заново»`, 'err')
+      if (lost.length) toast(`Не сформированы задания по темам (${lost.length}). Нажмите «Сформировать заново»`, 'err')
     })
   }
 
@@ -127,10 +127,10 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
     const g = p?.groups.find((x) => x.id === gid)
     const t = g?.tasks.find((x) => x.id === tid)
     if (!g || !t) return
-    void runJob(`ptask:${tid}`, 'practice', 'Замена задачи', async () => {
+    void runJob(`ptask:${tid}`, 'practice', 'Замена задания', async () => {
       const out = await generatePractice([{ topic: t.topic || g.topic, examples: [`не повторять: ${t.text}`], count: 1 }], false)
       const n = out.topics[0]?.tasks[0]
-      if (!n) throw new Error('GigaChat не прислал задачу')
+      if (!n) throw new Error('Не удалось сформировать задание. Повторите попытку.')
       setP((x) => ({
         ...x,
         approved: false,
@@ -160,7 +160,7 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
       {!processed ? (
         <div className="empty">
           <h2>Нет проверенных работ</h2>
-          <p className="muted">Практика строится по ошибкам класса.</p>
+          <p className="muted">Работа над ошибками формируется по ошибкам, допущенным классом.</p>
         </div>
       ) : (
         <>
@@ -177,7 +177,7 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
             <>
               <div className="toolbar">
                 <button className="btn" onClick={generate} disabled={job?.status === 'running'}>
-                  {hasTasks ? '↻ Составить заново' : '✦ Составить задачи'}
+                  {hasTasks ? 'Сформировать заново' : 'Сформировать задания'}
                 </button>
                 <JobStatus job={job} onRetry={generate} />
                 <span className="spacer" />
@@ -187,14 +187,14 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
                       ⤓ PDF {p.mode === 'individual' ? 'учеников' : p.mode === 'groups' ? 'групп' : 'для доски'}
                     </a>
                     <a className="btn" href={href('print', 'practice-keys', p.id)} target="_blank" rel="noreferrer">
-                      ⤓ Лист ключей
+                      ⤓ Ответы для учителя
                     </a>
                   </>
                 )}
                 {p.approved ? (
                   <span className="ok-line">✓ Утверждено</span>
                 ) : (
-                  <button className="btn btn--primary" disabled={!hasTasks} onClick={() => (setP((x) => ({ ...x, approved: true })), toast('Практика утверждена'))}>
+                  <button className="btn btn--primary" disabled={!hasTasks} onClick={() => (setP((x) => ({ ...x, approved: true })), toast('Работа над ошибками утверждена'))}>
                     Утвердить
                   </button>
                 )}
@@ -206,18 +206,18 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
                   {topics[0] && <p className="muted">Тема: {topics[0].name} — ошиблись {Math.round(topics[0].share * 100)}%</p>}
                   {p.board ? (
                     <>
-                      <h3>Пример (обезличенный)</h3>
+                      <h3>Пример (анонимно)</h3>
                       <div className="solution solution--bad">
                         <p>{p.board.example}</p>
                       </div>
-                      <h3>Задача на закрепление</h3>
+                      <h3>Задание на закрепление</h3>
                       <p>{p.board.task.text}</p>
                       <p className="key-line">
-                        Ключ: <b>{p.board.task.answer}</b>
+                        Ответ: <b>{p.board.task.answer}</b>
                       </p>
                     </>
                   ) : (
-                    <p className="muted">Нажмите «Составить задачи».</p>
+                    <p className="muted">Нажмите «Сформировать задания».</p>
                   )}
                 </section>
               ) : (
@@ -242,13 +242,13 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
                               >
                                 {p.groups.map((x) => (
                                   <option key={x.id} value={x.id}>
-                                    {x.id === g.id ? 'перенести в…' : x.name}
+                                    {x.id === g.id ? 'перенести в группу…' : x.name}
                                   </option>
                                 ))}
                               </select>
                             </li>
                           ))}
-                          {!g.studentIds.length && <li className="muted small">пусто</li>}
+                          {!g.studentIds.length && <li className="muted small">нет учеников</li>}
                         </ul>
                       )}
                       {g.tasks.length > 0 && (
@@ -258,14 +258,14 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
                               <p>{t.text}</p>
                               <div className="ptask__foot">
                                 <span className="key-line">
-                                  Ключ: <b>{t.answer || '—'}</b>
+                                  Ответ: <b>{t.answer || '—'}</b>
                                 </span>
                                 <JobStatus
                                   job={jobs[`ptask:${t.id}`]}
                                   onRetry={() => replace(g.id, t.id)}
                                   idle={
                                     <button className="link-btn" onClick={() => replace(g.id, t.id)}>
-                                      ↻ Заменить задачу
+                                      Заменить задание
                                     </button>
                                   }
                                 />

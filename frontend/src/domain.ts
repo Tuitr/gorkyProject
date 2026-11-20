@@ -65,6 +65,16 @@ export type Page = {
 
 export type MistakeCategory = 'вычислительная' | 'знак' | 'правило' | 'логика' | 'запись' | 'неполное решение' | 'другое'
 export const CATEGORIES: MistakeCategory[] = ['вычислительная', 'знак', 'правило', 'логика', 'запись', 'неполное решение', 'другое']
+/** Подписи категорий для интерфейса (сами значения используются в запросах к GigaChat). */
+export const CATEGORY_LABEL: Record<MistakeCategory, string> = {
+  вычислительная: 'вычислительная ошибка',
+  знак: 'ошибка в знаке',
+  правило: 'неверное применение правила',
+  логика: 'логическая ошибка',
+  запись: 'ошибка оформления',
+  'неполное решение': 'неполное решение',
+  другое: 'прочее',
+}
 
 export type StepMistake = {
   id: Id
@@ -89,13 +99,13 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   unreadable: 'неразборчиво',
   missing: 'не сдано',
   stopped: 'проверка остановлена',
-  insufficient: 'недостаточно записи',
+  insufficient: 'недостаточно записей для оценки',
 }
 
 export type Technique = 'shown' | 'not_shown' | 'not_required'
 export const TECHNIQUE_LABEL: Record<Technique, string> = {
-  shown: 'показан',
-  not_shown: 'не показан',
+  shown: 'применён',
+  not_shown: 'не применён',
   not_required: 'не требуется',
 }
 
@@ -113,11 +123,11 @@ export type TaskResult = {
 
 export type SubmissionStatus = 'none' | 'submitted' | 'processing' | 'processed' | 'error'
 export const SUBMISSION_STATUS_LABEL: Record<SubmissionStatus, string> = {
-  none: 'Нет сдачи',
+  none: 'Не сдано',
   submitted: 'Сдано',
-  processing: 'Обрабатывается',
-  processed: 'Обработано',
-  error: 'Ошибка обработки',
+  processing: 'На проверке',
+  processed: 'Проверено',
+  error: 'Ошибка проверки',
 }
 
 export type Submission = {
@@ -138,9 +148,9 @@ export type Submission = {
 export type ReviewKind = 'student' | 'sign' | 'method' | 'reshoot'
 export const REVIEW_LABEL: Record<ReviewKind, string> = {
   student: 'Указать ученика',
-  sign: 'Уточнить знак',
-  method: 'Посмотреть другой способ',
-  reshoot: 'Переснять / добавить',
+  sign: 'Уточнить распознанный символ',
+  method: 'Проверить другой способ решения',
+  reshoot: 'Заменить или добавить фото',
 }
 
 export type ReviewItem = {

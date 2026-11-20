@@ -1,9 +1,9 @@
 import type { Box } from '../types'
 
 /**
- * Распознавание фото через Yandex Vision OCR (модель math-markdown:
- * текст в Markdown, формулы — LaTeX в $...$ / $$...$$).
- * Запрос идёт на /api/ocr — его проксирует сервер Vite и сам добавляет ключ (vite.config.ts).
+ * Распознавание фото: Qwen (/api/ocr-qwen, server/qwen.ts), запасной вариант — Yandex Vision OCR
+ * (модель math-markdown: текст в Markdown, формулы — LaTeX в $...$ / $$...$$).
+ * Ключи добавляет сервер Vite (vite.config.ts), в браузер они не попадают.
  */
 
 const MAX_SIDE = 2000 // OCR не любит огромные снимки; 2000px хватает для текста
@@ -78,8 +78,47 @@ function queued<T>(fn: () => Promise<T>): Promise<T> {
 
 const isQuota = (status: number, msg: string) => status === 429 || /quota|rate/i.test(msg)
 
+/**
+ * Фото — сначала мультимодальная Qwen (server/qwen.ts): рукописную математику она читает лучше.
+ * Нет ключа (501) — больше не пробуем и работаем через Yandex; сбой Qwen — этот снимок через Yandex.
+ * PDF идёт в Yandex: Qwen принимает только картинки.
+ */
+let qwenOff = false
+
+async function recognizeQwen(content: string, mimeType: 'JPEG' | 'PNG'): Promise<OcrResult | null> {
+  if (qwenOff) return null
+  try {
+    const res = await fetch('/api/ocr-qwen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, mimeType }),
+    })
+    if (res.status === 501 || res.status === 404) {
+      qwenOff = true
+      return null
+    }
+    const data = (await res.json().catch(() => null)) as (OcrResult & { message?: string }) | null
+    if (!res.ok || !data?.lines) {
+      console.warn('Qwen OCR не сработал, берём Yandex:', data?.message ?? res.status)
+      return null
+    }
+    return { latex: data.latex, lines: data.lines }
+  } catch (e) {
+    console.warn('Qwen OCR не сработал, берём Yandex:', e)
+    return null
+  }
+}
+
 /** PDF (одна страница) или готовый base64-снимок. */
 export async function recognizeRaw(content: string, mimeType: 'JPEG' | 'PNG' | 'PDF'): Promise<OcrResult> {
+  if (mimeType !== 'PDF') {
+    const q = await recognizeQwen(content, mimeType)
+    if (q) return q
+  }
+  return recognizeYandex(content, mimeType)
+}
+
+async function recognizeYandex(content: string, mimeType: 'JPEG' | 'PNG' | 'PDF'): Promise<OcrResult> {
   const body = JSON.stringify({ mimeType, languageCodes: ['ru', 'en'], model: 'math-markdown', content })
   let data: OcrResponse | null = null
   for (let attempt = 0; ; attempt++) {

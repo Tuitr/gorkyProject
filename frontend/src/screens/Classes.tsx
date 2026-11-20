@@ -31,7 +31,7 @@ export function Classes() {
     setClass(current.id, (c) => ({ ...c, students: [...c.students, ...fresh.map((name) => ({ id: uid('st'), name }))] }))
     setPaste('')
     toast(
-      `Добавлено: ${fresh.length}` + (names.length > fresh.length ? ` (повторы пропущены: ${names.length - fresh.length})` : ''),
+      `Добавлено: ${fresh.length}` + (names.length > fresh.length ? ` (дубликаты пропущены: ${names.length - fresh.length})` : ''),
     )
   }
 
@@ -42,7 +42,7 @@ export function Classes() {
     <div className="page">
       <PageHead
         title="Мои классы"
-        sub="Фото работ и отчёты видит только учитель — владелец класса"
+        sub="Фотографии работ и отчёты доступны только учителю, создавшему класс"
         actions={
           <button className="btn btn--primary" onClick={() => setCreating(true)}>
             + Создать класс
@@ -75,7 +75,7 @@ export function Classes() {
           })}
 
           {current && (
-            <div className="two-col">
+            <div className="two-col class-cols">
               <section className="panel">
                 <div className="panel__head">
                   <h2>
@@ -93,9 +93,9 @@ export function Classes() {
                   </button>
                 </div>
                 {!current.students.length ? (
-                  <p className="muted">Вставьте список учеников справа — по одному в строке.</p>
+                  <p className="muted">Введите список учеников в поле справа, по одному в строке.</p>
                 ) : (
-                  <ol className="students">
+                  <ol className="students students--scroll">
                     {current.students.map((st) => (
                       <li key={st.id}>
                         <input
@@ -126,9 +126,9 @@ export function Classes() {
 
               <section className="panel">
                 <h2>Добавить учеников</h2>
-                <p className="muted small">По одному в строке, можно скопировать из электронного журнала. Номера в начале строк уберутся сами.</p>
+                <p className="muted small">По одному в строке; список можно скопировать из электронного журнала. Порядковые номера в начале строк удаляются автоматически.</p>
                 <textarea
-                  className="input"
+                  className="input class-paste"
                   rows={10}
                   value={paste}
                   onChange={(e) => setPaste(e.target.value)}
@@ -194,7 +194,7 @@ function CreateClass({ onClose }: { onClose: () => void }) {
         {exists && <span className="field__err">Такой класс уже есть</span>}
       </label>
       <label className="field">
-        <span>Ученики — по одному в строке</span>
+        <span>Ученики (по одному в строке)</span>
         <textarea className="input" rows={8} value={list} onChange={(e) => setList(e.target.value)} />
         <span className="muted small">Учеников: {parseNames(list).length}</span>
       </label>

@@ -23,7 +23,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
 
   const cls = classes.find((c) => c.id === classId)
   const student = cls?.students.find((s) => s.id === studentId)
-  if (!a || !cls || !student) return <NotFound what={!a ? 'Работа' : 'Ученица или ученик'} />
+  if (!a || !cls || !student) return <NotFound what={!a ? 'Работа' : 'Ученик'} />
 
   const sub = state.submissions.find((s) => s.assignmentId === a.id && s.studentId === student.id)
   const job = sub ? jobs[`check:${sub.id}`] : undefined
@@ -71,7 +71,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
       pages.push({ id: uid('p'), image, hash })
     }
     if (pages.length) setSub((s) => touched({ ...s, pages: [...s.pages, ...pages] }))
-    if (dup) toast(`Эта страница уже загружена — повтор пропущен (${dup})`, 'err')
+    if (dup) toast(`Эта страница уже загружена, повторная загрузка пропущена (${dup})`, 'err')
   }
 
   const replacePage = async (pageId: string, raw: string) => {
@@ -161,7 +161,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
           </div>
         ) : (
           <p className="muted">
-            Варианты не созданы — <a href={href('a', a.id, 'variants')}>создать</a>.
+            Варианты не сформированы — <a href={href('a', a.id, 'variants')}>сформировать</a>.
           </p>
         )}
       </section>
@@ -172,10 +172,10 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
         </div>
         <div className="shoot">
           <button className="btn btn--primary btn--big" onClick={() => setCamera({ mode: 'add' })}>
-            📷 {pages.length ? 'Добавить страницу' : 'Снять страницу'}
+            {pages.length ? 'Добавить фото страницы' : 'Отправить фото'}
           </button>
           <button className="btn btn--big" onClick={() => fileRef.current?.click()}>
-            🖼 Выбрать фото
+            Выбрать фото из файлов
           </button>
           <input
             ref={fileRef}
@@ -205,16 +205,16 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
                   <button className="icon-btn" title="Повернуть" onClick={() => void rotate(p)}>
                     ⟳
                   </button>
-                  <button className="icon-btn" title="Переснять" onClick={() => setCamera({ mode: 'replace', pageId: p.id })}>
+                  <button className="icon-btn" title="Заменить фото" onClick={() => setCamera({ mode: 'replace', pageId: p.id })}>
                     📷
                   </button>
-                  <button className="icon-btn" title="Раньше" disabled={i === 0} onClick={() => swap(i, i - 1)}>
+                  <button className="icon-btn" title="Переместить на одну позицию выше" disabled={i === 0} onClick={() => swap(i, i - 1)}>
                     ←
                   </button>
-                  <button className="icon-btn" title="Позже" disabled={i === pages.length - 1} onClick={() => swap(i, i + 1)}>
+                  <button className="icon-btn" title="Переместить на одну позицию ниже" disabled={i === pages.length - 1} onClick={() => swap(i, i + 1)}>
                     →
                   </button>
-                  <button className="icon-btn" title="Перенести в другую сдачу" onClick={() => setMoving(p)}>
+                  <button className="icon-btn" title="Перенести в работу другого ученика" onClick={() => setMoving(p)}>
                     ⇄
                   </button>
                   <button
@@ -236,13 +236,13 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
 
       <div className="finish">
         {!canFinish && (
-          <span className="muted small">{!variantId ? 'Выберите вариант' : 'Добавьте хотя бы одну страницу'}</span>
+          <span className="muted small">{!variantId ? 'Выберите вариант' : 'Добавьте как минимум одну страницу'}</span>
         )}
         <button className="btn btn--big" disabled={!canFinish} onClick={() => finish(false)}>
-          Готово{next ? ' → следующий' : ''}
+          Сохранить{next ? ' и перейти к следующему ученику' : ''}
         </button>
         <button className="btn btn--primary btn--big" disabled={!canFinish} onClick={() => finish(true)}>
-          Готово и проверить
+          Сохранить и отправить на проверку
         </button>
       </div>
 
@@ -335,7 +335,7 @@ function MovePage({
     >
       <img className="move-thumb" src={page.image} alt="" />
       <label className="field">
-        <span>Кому</span>
+        <span>Ученик</span>
         <select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
           <option value="">— выберите ученика —</option>
           {students.map((s) => (

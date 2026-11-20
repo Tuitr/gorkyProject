@@ -61,17 +61,17 @@ export function Variants({ id }: { id: string }) {
           />
         </label>
         <button className="btn" onClick={() => void genVariants(a.id)} disabled={genJob?.status === 'running'}>
-          {a.variants.length ? '↻ Сгенерировать заново' : '✦ Сгенерировать варианты и ключи'}
+          {a.variants.length ? 'Сформировать заново' : 'Сформировать варианты и ответы'}
         </button>
         <JobStatus job={genJob} onRetry={() => void genVariants(a.id)} />
         <span className="spacer" />
         {ready && (
           <>
             <a className="btn" href={href('print', 'variants', a.id)} target="_blank" rel="noreferrer">
-              ⤓ Ученический PDF
+              ⤓ PDF для учеников
             </a>
             <a className="btn" href={href('print', 'keys', a.id)} target="_blank" rel="noreferrer">
-              ⤓ Лист ключей
+              ⤓ Ответы для учителя
             </a>
           </>
         )}
@@ -81,11 +81,11 @@ export function Variants({ id }: { id: string }) {
           <button
             className="btn btn--primary"
             disabled={!ready}
-            title={!ready ? 'Сначала сгенерируйте варианты' : undefined}
+            title={!ready ? 'Сначала сформируйте варианты' : undefined}
             onClick={() => {
-              if (missingKeys && !confirm(`Без ключа: ${missingKeys} номер(ов). Всё равно утвердить?`)) return
+              if (missingKeys && !confirm(`Заданий без ответа: ${missingKeys}. Утвердить работу?`)) return
               setA((x) => ({ ...x, status: 'approved' }))
-              toast('Работа утверждена — можно печатать и собирать')
+              toast('Работа утверждена. Доступны печать и сбор работ')
             }}
           >
             Утвердить
@@ -95,23 +95,23 @@ export function Variants({ id }: { id: string }) {
 
       {!a.variants.length ? (
         <div className="empty">
-          <h2>Вариантов ещё нет</h2>
+          <h2>Варианты не сформированы</h2>
           <p className="muted">
-            GigaChat решит вариант А (ключ) и составит {a.variantCount > 1 ? `ещё ${a.variantCount - 1} равнозначных` : 'ключ'}
-            . Обычно 20–60 секунд.
+            Будут сформированы ответы к варианту А{a.variantCount > 1 ? ` и ещё ${a.variantCount - 1} равнозначных варианта` : ''}
+            . Обычно это занимает 20–60 секунд.
           </p>
         </div>
       ) : (
         <>
           {!ready && (
             <div className="notice notice--warn">
-              Вариантов меньше, чем нужно ({a.variants.length} из {a.variantCount}) — сгенерируйте заново.
+              Вариантов меньше, чем нужно ({a.variants.length} из {a.variantCount}) — сформируйте заново.
             </div>
           )}
           {softCount > 0 && (
             <div className="notice notice--warn">
-              Жёлтым — мягкие признаки на границе равнозначности ({softCount}). Посмотрите эти номера и при
-              необходимости нажмите «Заменить номер».
+              Жёлтым выделены признаки, по которым равнозначность вариантов сомнительна ({softCount}). Проверьте эти задания и при
+              необходимости нажмите «Заменить задание».
             </div>
           )}
           <div className="variants" style={{ ['--cols' as string]: cols.length }}>
@@ -147,7 +147,7 @@ export function Variants({ id }: { id: string }) {
                             />
                           )}
                           <label className="key">
-                            <span>Ключ</span>
+                            <span>Ответ</span>
                             <input
                               className={`input${cell?.answer ? '' : ' input--warn'}`}
                               value={cell?.answer ?? ''}
@@ -162,7 +162,7 @@ export function Variants({ id }: { id: string }) {
                                 onRetry={() => replace(v, t.id)}
                                 idle={
                                   <button className="link-btn" onClick={() => replace(v, t.id)}>
-                                    ↻ Заменить номер
+                                    Заменить задание
                                   </button>
                                 }
                               />
@@ -193,7 +193,7 @@ export function Variants({ id }: { id: string }) {
   )
 }
 
-/** Признаки равнозначности номера: «на границе» показываем сразу, остальные — под спойлером. */
+/** Признаки равнозначности номера: «требует внимания» показываем сразу, остальные — под спойлером. */
 function FeatureTable({ feats, cols }: { feats: EquivFeature[]; cols: number }) {
   if (!feats.length) return null
   return (
@@ -203,7 +203,7 @@ function FeatureTable({ feats, cols }: { feats: EquivFeature[]; cols: number }) 
           <tr key={f.name} className={f.soft ? 'is-soft' : ''}>
             <th>
               {f.name}
-              {f.soft && <span className="soft-tag">на границе</span>}
+              {f.soft && <span className="soft-tag">сомнительно</span>}
             </th>
             {Array.from({ length: cols }, (_, i) => (
               <td key={i}>{f.values[i] ?? '—'}</td>

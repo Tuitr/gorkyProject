@@ -45,10 +45,10 @@ export function PhotoText({ works, pipeline }: { works: Work[]; pipeline: Record
   return (
     <section className="panel photo-text">
       <div className="panel__head">
-        <h2>Текст с фото</h2>
+        <h2>Распознанный текст</h2>
         <span className="muted small">
           фото: {photos.length}
-          {waiting > 0 && ` · распознаётся: ${waiting}`}
+          {waiting > 0 && ` · на распознавании: ${waiting}`}
         </span>
         <span className="spacer" />
         {text && (
@@ -63,11 +63,11 @@ export function PhotoText({ works, pipeline }: { works: Work[]; pipeline: Record
             <div key={p.w.id} className="photo-text__part">
               <div className="photo-text__name">📄 {p.name}</div>
               {p.text === null ? (
-                <span className="muted">распознаётся…</span>
+                <span className="muted">выполняется распознавание…</span>
               ) : p.text ? (
                 <p>{p.text}</p>
               ) : (
-                <span className="muted">текст не найден</span>
+                <span className="muted">текст не обнаружен</span>
               )}
             </div>
           ))}
@@ -75,7 +75,7 @@ export function PhotoText({ works, pipeline }: { works: Work[]; pipeline: Record
       ) : text ? (
         <p className="photo-text__body">{text}</p>
       ) : (
-        <p className="muted">{waiting ? 'Распознаём фото…' : 'Текст на фото не найден.'}</p>
+        <p className="muted">{waiting ? 'Выполняется распознавание…' : 'Текст на фотографии не обнаружен.'}</p>
       )}
     </section>
   )

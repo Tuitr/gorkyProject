@@ -93,8 +93,8 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
 
       {a.status === 'draft' && (
         <div className="notice notice--warn">
-          Работа — черновик. Собирать можно, но лучше сначала <a href={href('a', a.id, 'variants')}>утвердить варианты</a>
-          : проверка идёт по ключам.
+          Работа имеет статус «Черновик». Сбор работ доступен, однако рекомендуется сначала <a href={href('a', a.id, 'variants')}>утвердить варианты</a>
+          : проверка выполняется по эталонным ответам.
         </div>
       )}
 
@@ -107,11 +107,11 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
         </div>
         <div className="stat stat--ok">
           <b>{processed}</b>
-          <span>обработано</span>
+          <span>проверено</span>
         </div>
         <a className={`stat${attention.size ? ' stat--warn' : ''}`} href={href('a', a.id, 'queue')}>
           <b>{attention.size}</b>
-          <span>требует внимания</span>
+          <span>требует проверки учителем</span>
         </a>
         <div className="stats__actions">
           <button
@@ -120,10 +120,10 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
             onClick={() => void processAll(a.id, cls.id)}
             title={!pending ? 'Нет новых сданных работ' : undefined}
           >
-            {running ? 'Обработка…' : `▶ Запустить обработку${pending ? ` (${pending})` : ''}`}
+            {running ? 'Выполняется проверка…' : `Запустить проверку${pending ? ` (${pending})` : ''}`}
           </button>
           <button className="btn" onClick={() => fileRef.current?.click()}>
-            Загрузить пачку фото
+            Загрузить несколько фото
           </button>
           <input
             ref={fileRef}
@@ -172,12 +172,12 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
                 <td>{s?.pages.length || <span className="muted">0</span>}</td>
                 <td>
                   <Badge tone={job?.status === 'running' ? 'info' : STATUS_TONE[status]}>
-                    {job?.status === 'running' ? 'Обрабатывается…' : SUBMISSION_STATUS_LABEL[status]}
+                    {job?.status === 'running' ? 'На проверке…' : SUBMISSION_STATUS_LABEL[status]}
                   </Badge>
                   {s && attention.has(s.id) && status !== 'error' && (
                     <>
                       {' '}
-                      <Badge tone="warn">требует внимания</Badge>
+                      <Badge tone="warn">требует проверки учителем</Badge>
                     </>
                   )}
                   {status === 'error' && s?.error && <div className="small err-text">{s.error}</div>}
@@ -193,7 +193,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
                     </a>
                   ) : status === 'none' ? (
                     <a className="link-btn link-btn--quiet" href={link}>
-                      📷 Снять
+                      Отправить фото
                     </a>
                   ) : (
                     <a className="link-btn" href={link}>
@@ -207,7 +207,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
           {!rows.length && (
             <tr>
               <td colSpan={5} className="muted">
-                Никого не найдено
+                Ученики не найдены
               </td>
             </tr>
           )}

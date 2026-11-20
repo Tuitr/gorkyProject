@@ -21,21 +21,21 @@ export function Hub({ id }: { id: string }) {
     {
       to: href('a', a.id, 'collect', f),
       icon: '📷',
-      title: 'Добавить ответы учеников',
+      title: 'Загрузить работы учеников',
       note: `Фото работ: сдано ${handed} из ${students}`,
       main: true,
     },
     {
       to: href('a', a.id, 'source', { ...f, add: '1' }),
       icon: '＋',
-      title: 'Добавить номер',
-      note: `Сейчас номеров: ${a.tasks.length}`,
+      title: 'Добавить задание',
+      note: `Заданий: ${a.tasks.length}`,
     },
     {
       to: href('a', a.id, 'variants', f),
       icon: '🗂',
       title: 'Варианты',
-      note: a.variants.length ? `Вариантов: ${a.variants.length} · ключи и печать` : 'Ещё не созданы',
+      note: a.variants.length ? `Вариантов: ${a.variants.length} · ответы и печать` : 'Ещё не созданы',
     },
     {
       to: href('a', a.id, 'sheet', f),
@@ -46,7 +46,7 @@ export function Hub({ id }: { id: string }) {
     {
       to: href('a', a.id, 'class-report', f),
       icon: '📊',
-      title: 'Отчёт',
+      title: 'Отчёт по классу',
       note: 'Типовые ошибки и темы для повторения',
     },
   ]
@@ -62,7 +62,7 @@ export function Hub({ id }: { id: string }) {
           {a.status === 'draft' ? <Badge tone="info">Черновик</Badge> : <Badge tone="ok">Утверждена</Badge>}
         </h1>
         <div className="muted">
-          {WORK_TYPE_LABEL[a.type]} · {a.tasks.length} номеров · {classes.map((c) => c.name).join(', ') || 'классы не выбраны'}
+          {WORK_TYPE_LABEL[a.type]} · заданий: {a.tasks.length} · {classes.map((c) => c.name).join(', ') || 'классы не выбраны'}
         </div>
       </div>
 

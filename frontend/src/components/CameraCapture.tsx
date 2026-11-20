@@ -10,7 +10,7 @@ export function CameraCapture({ onCapture, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(() =>
-    typeof navigator.mediaDevices?.getUserMedia === "function" ? null : 'Браузер не даёт доступ к камере (нужен https или localhost).',
+    typeof navigator.mediaDevices?.getUserMedia === "function" ? null : 'Браузер не предоставляет доступ к камере (требуется HTTPS или localhost).',
   )
   const [shot, setShot] = useState<string | null>(null)
 
@@ -34,7 +34,7 @@ export function CameraCapture({ onCapture, onClose }: Props) {
         const name = e instanceof DOMException ? e.name : ''
         setError(
           name === 'NotAllowedError'
-            ? 'Доступ к камере запрещён. Разрешите его в настройках браузера.'
+            ? 'Доступ к камере запрещён. Разрешите доступ в настройках браузера.'
             : name === 'NotFoundError'
               ? 'Камера не найдена.'
               : 'Не удалось включить камеру.',
@@ -84,7 +84,7 @@ export function CameraCapture({ onCapture, onClose }: Props) {
             <div className="camera__error">
               <p>{error}</p>
               <label className="btn btn--primary">
-                Сделать фото телефоном / выбрать файл
+                Сфотографировать телефоном или выбрать файл
                 <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => onFile(e.target.files?.[0])} />
               </label>
             </div>
@@ -105,15 +105,15 @@ export function CameraCapture({ onCapture, onClose }: Props) {
             {shot ? (
               <>
                 <button className="btn" onClick={() => setShot(null)}>
-                  Переснять
+                  Сделать новый снимок
                 </button>
                 <button className="btn btn--primary" onClick={() => onCapture(shot)}>
-                  Проверить
+                  Отправить фото
                 </button>
               </>
             ) : (
               <>
-                <span className="muted">Положите лист ровно, чтобы он занял всю рамку</span>
+                <span className="muted">Расположите лист ровно так, чтобы он занимал всю рамку</span>
                 <button className="shutter" onClick={takeShot} aria-label="Сделать снимок" />
               </>
             )}
