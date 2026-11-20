@@ -124,7 +124,7 @@ export const deleteAttempt = (attemptId: string) => call<void>('DELETE', `/attem
 
 export type Requirement = { text: string; taskNumber: string | null }
 
-/** Сохраняет работу классу: DOCX + требования (+ дата ГГГГ-ММ-ДД). С assignmentId — новая ревизия той же работы. */
+/** Сохраняет работу классу: DOCX + требования (+ дата ГГГГ-ММ-ДД, предмет). С assignmentId — новая ревизия той же работы. */
 export function uploadAssignment(
   classId: string,
   docx: Blob,
@@ -132,10 +132,12 @@ export function uploadAssignment(
   assignmentId?: string,
   assignmentDate?: string,
   fileName = 'assignment.docx',
+  subject: 'math' | 'physics' = 'math',
 ) {
   const form = new FormData()
   form.append('file', docx, fileName)
   form.append('requirements', JSON.stringify(requirements))
+  form.append('subject', subject)
   if (assignmentId) form.append('assignmentId', assignmentId)
   if (assignmentDate) form.append('assignmentDate', assignmentDate)
   return call<{ assignmentId: string; assignmentRev: number }>('POST', `/classes/${classId}/assignments`, form)

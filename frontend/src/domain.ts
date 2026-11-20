@@ -18,6 +18,10 @@ export type ClassGroup = {
 export type WorkType = 'control' | 'homework'
 export const WORK_TYPE_LABEL: Record<WorkType, string> = { control: 'Контрольная', homework: 'Домашнее задание' }
 
+/** Предмет работы: выбирает солвер эталонов и промпт проверки в бэкенде (физика — ответ с единицей и допуском). */
+export type Subject = 'math' | 'physics'
+export const SUBJECT_LABEL: Record<Subject, string> = { math: 'Математика', physics: 'Физика' }
+
 /** Один номер исходника. */
 export type SourceTask = {
   id: Id
@@ -53,6 +57,8 @@ export type Assignment = {
   status: 'draft' | 'approved'
   /** дата работы ГГГГ-ММ-ДД (уходит в кабинет; по умолчанию — день создания) */
   date?: string
+  /** предмет (уходит в кабинет; у старых работ нет — это математика) */
+  subject?: Subject
   /** задания правили после распознавания — исходный DOCX учителя уже не совпадает с ними */
   sourceEdited?: boolean
   /** работа в кабинете (бэкенд из main): по классу — id работы, ревизия и отпечаток отправленного содержимого */

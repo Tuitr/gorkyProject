@@ -47,7 +47,9 @@ const dateOf = (a: Assignment) => a.date ?? new Date(a.createdAt).toLocaleDateSt
 
 /** Отпечаток того, что уходит в кабинет: изменилось — нужна новая ревизия. */
 export function contentHash(a: Assignment) {
-  const s = JSON.stringify([a.title, a.tasks.map((t) => [t.num, t.text]), a.notes, dateOf(a), !!a.sourceEdited])
+  const s = JSON.stringify([
+    a.title, a.tasks.map((t) => [t.num, t.text]), a.notes, dateOf(a), !!a.sourceEdited, a.subject ?? 'math',
+  ])
   let h = 5381
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
   return (h >>> 0).toString(36)
@@ -63,7 +65,9 @@ export async function publishAssignment(a: Assignment): Promise<Record<string, R
     const prev = remote[classId]
     if (prev?.hash === hash) continue
     file ??= await assignmentFile(a)
-    const r = await uploadAssignment(classId, file.blob, requirementsOf(a), prev?.assignmentId, dateOf(a), file.name)
+    const r = await uploadAssignment(
+      classId, file.blob, requirementsOf(a), prev?.assignmentId, dateOf(a), file.name, a.subject ?? 'math',
+    )
     remote[classId] = { assignmentId: r.assignmentId, rev: r.assignmentRev, hash }
   }
   return remote

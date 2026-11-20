@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { readSource, splitTasks } from '../api/source'
-import { sourceFiles, uid, WORK_TYPE_LABEL, type Assignment, type SourceFile, type SourceTask, type WorkType } from '../domain'
+import {
+  sourceFiles, SUBJECT_LABEL, uid, WORK_TYPE_LABEL,
+  type Assignment, type SourceFile, type SourceTask, type Subject, type WorkType,
+} from '../domain'
 import { go, href, useRoute } from '../router'
 import { patch, useStore } from '../store'
 import { Badge, PageHead } from '../ui'
@@ -22,6 +25,7 @@ export function AssignmentForm({ id }: { id?: string }) {
   const [title, setTitle] = useState(existing?.title ?? '')
   const [date, setDate] = useState(existing?.date ?? new Date().toLocaleDateString('sv-SE'))
   const [type, setType] = useState<WorkType>(existing?.type ?? 'control')
+  const [subject, setSubject] = useState<Subject>(existing?.subject ?? 'math')
   // null — учитель ещё не выбирал: берём первый класс (классы приходят из кабинета уже после открытия формы)
   const [picked, setPicked] = useState<string[] | null>(existing?.classIds ?? null)
   const classIds = (picked ?? (classes[0] ? [classes[0].id] : [])).filter((cid) => classes.some((c) => c.id === cid))
@@ -98,6 +102,7 @@ export function AssignmentForm({ id }: { id?: string }) {
           title: title.trim(),
           date,
           type,
+          subject,
           classIds,
           notes,
           ...(items.some((i) => i.text !== null) || files.length !== sourceFiles(a).length
@@ -115,6 +120,7 @@ export function AssignmentForm({ id }: { id?: string }) {
       title: title.trim() || 'Новая работа',
       date,
       type,
+      subject,
       createdAt: Date.now(),
       file: files[0],
       files,
@@ -153,6 +159,23 @@ export function AssignmentForm({ id }: { id?: string }) {
           <span>Дата работы</span>
           <input className="input input--date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
+
+        <div className="field">
+          <span>Предмет</span>
+          <div className="segmented" role="radiogroup" aria-label="Предмет">
+            {(Object.keys(SUBJECT_LABEL) as Subject[]).map((s) => (
+              <button key={s} role="radio" aria-checked={subject === s} onClick={() => setSubject(s)}>
+                {SUBJECT_LABEL[s]}
+              </button>
+            ))}
+          </div>
+          {subject === 'physics' && (
+            <small className="muted">
+              Расчётные задачи: эталон — число с единицей, ответ ученика засчитывается в любой эквивалентной
+              единице (84 кДж = 84 000 Дж) с допуском 2 %.
+            </small>
+          )}
+        </div>
 
         {existing && (
         <div className="field">
