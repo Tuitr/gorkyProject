@@ -1248,6 +1248,131 @@ def testRemovingRosterEntriesKeepsHistoryAndPreventsNewBindings(
                 s3.delete_object(Bucket=SOURCES_BUCKET, Key=key)
 
 
+def testDeletingAssignmentRequiresConfirmationAndHidesEveryRevision(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+) -> None:
+    checkId, _ = reviewedCheck
+    addTeacher(cabinetSessions, "teacher.other@example.org")
+    secondCheckId, uploadId = (str(uuid.uuid4()) for _ in range(2))
+    with cabinetSessions.begin() as db:
+        check = db.get(CheckRecord, checkId)
+        assert check is not None
+        assignment = db.get(AssignmentRecord, (check.assignmentId, 1))
+        assert assignment is not None
+        assignmentId, classId, attemptId = assignment.assignmentId, assignment.classId, check.attemptId
+        db.add(AssignmentRecord(
+            assignmentId=assignmentId, assignmentRev=2, classId=classId, assignmentDate=clock.now().date(),
+            requirements=[], bucket="sources", objectKey="second-variant", sha256="0" * 64,
+        ))
+        db.flush()
+        db.add(CheckRecord(checkId=secondCheckId, attemptId=attemptId, assignmentId=assignmentId, assignmentRev=2))
+        db.add(UploadRecord(uploadId=uploadId, assignmentId=assignmentId, assignmentRev=2))
+
+    app = createApp(SETTINGS, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    with TestClient(app, base_url="https://testserver") as client:
+        path = f"/v1/assignments/{assignmentId}"
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
+        assert client.delete(f"{path}?confirm=true").status_code == 404
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        pending = client.delete(path)
+        assert pending.status_code == 409 and pending.json()["code"] == "confirmation_required"
+        assert client.get(f"/v1/uploads/{uploadId}").status_code == 200
+
+        assert client.delete(f"{path}?confirm=true").status_code == 204
+        assert client.delete(f"{path}?confirm=true").status_code == 404
+        assert client.get(f"/v1/uploads/{uploadId}").status_code == 404
+        for revision, workCheckId in ((1, checkId), (2, secondCheckId)):
+            assert client.get(f"/v1/checks/{workCheckId}").status_code == 404
+            assert client.get(f"{path}/report?rev={revision}").status_code == 404
+            assert client.post(
+                f"{path}/uploads", data={"assignmentRev": str(revision)},
+                files={"file": ("work.docx", assignmentDocx("Решение"))},
+            ).status_code == 404
+        assert client.post(
+            f"/v1/classes/{classId}/assignments", data={"assignmentId": assignmentId, "requirements": "[]"},
+            files={"file": ("variant.docx", assignmentDocx("Новая версия"))},
+        ).status_code == 404
+
+    with cabinetSessions() as db:
+        assert db.scalars(select(AssignmentRecord.deletedAt)).all() == [clock.now(), clock.now()]
+        assert {check.checkId for check in db.scalars(select(CheckRecord))} == {checkId, secondCheckId}
+        assert db.get(AttemptRecord, attemptId) is not None
+
+
+def testDeletingOneSubmissionHidesItsChecksAndAllowsResubmission(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+) -> None:
+    retainedCheckId, _ = reviewedCheck
+    addTeacher(cabinetSessions, "teacher.other@example.org")
+    with cabinetSessions() as db:
+        check = db.get(CheckRecord, retainedCheckId)
+        assert check is not None
+        attempt = db.get(AttemptRecord, check.attemptId)
+        assert attempt is not None
+        assignmentId, studentId = check.assignmentId, attempt.studentId
+    removedCheckIds: list[str] = []
+
+    def grading(request: Request) -> Response:
+        assert request.url.path == f"/internal/v1/assignments/{assignmentId}/report"
+        assert request.url.params.get_list("excludeCheckId") == removedCheckIds
+        return Response(200, json={
+            "assignmentId": assignmentId, "assignmentRev": 1,
+            "results": [{"studentId": studentId, "checkId": retainedCheckId, "resultRev": 1}],
+            "tasks": [{"taskId": "1", "correct": 1, "incorrect": 0, "skipped": 0}],
+        })
+
+    settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
+    app = createApp(
+        settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock,
+        gradingTransport=MockTransport(grading),
+    )
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        path = f"/v1/assignments/{assignmentId}"
+        content = assignmentDocx("Решение, которое можно загрузить повторно")
+
+        def submit() -> tuple[str, dict[str, str]]:
+            uploaded = client.post(
+                f"{path}/uploads", data={"assignmentRev": "1"}, files={"file": ("Иванов Иван.docx", content)},
+            )
+            assert uploaded.status_code == 202, uploaded.text
+            uploadPath = f"/v1/uploads/{uploaded.json()['uploadId']}"
+            file: dict[str, str] = client.get(uploadPath).json()["files"][0]
+            assert file["status"] == "bound"
+            return uploadPath, file
+
+        try:
+            uploadPath, first = submit()
+            attemptPath = f"/v1/attempts/{first['attemptId']}"
+            assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
+            assert client.delete(f"{attemptPath}?confirm=true").status_code == 404
+            assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+            pending = client.delete(f"{attemptPath}?confirm=false")
+            assert pending.status_code == 409 and pending.json()["code"] == "confirmation_required"
+            assert client.get(uploadPath).json()["files"][0]["attemptId"] == first["attemptId"]
+
+            assert client.delete(f"{attemptPath}?confirm=true").status_code == 204
+            assert client.get(uploadPath).json()["files"] == []
+            assert client.get(f"/v1/checks/{first['checkId']}").status_code == 404
+            assert client.post(f"{uploadPath}/bindings", json={"fileId": first["fileId"], "studentId": studentId}).status_code == 404
+            removedCheckIds.append(first["checkId"])
+            report = client.get(f"{path}/report?rev=1")
+            assert report.status_code == 200, report.text
+            assert [row["checkId"] for row in report.json()["results"]] == [retainedCheckId]
+
+            _, repeated = submit()
+            assert repeated["studentId"] == studentId
+            assert repeated["attemptId"] != first["attemptId"] and repeated["checkId"] != first["checkId"]
+            assert client.get(uploadPath).json()["files"] == []
+            with cabinetSessions() as db:
+                removed = db.get(AttemptRecord, first["attemptId"])
+                assert removed is not None and removed.deletedAt == clock.now()
+        finally:
+            with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+                for file in db.scalars(select(UploadFileRecord)):
+                    s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
+
+
 def testTeacherEditsPublishesAndDownloadsAnExplicitRevision(
     cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
 ) -> None:

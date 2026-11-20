@@ -2,9 +2,9 @@
 
 import uuid
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, ForeignKey, String, UniqueConstraint, func, select
+from sqlalchemy import Date, DateTime, ForeignKey, String, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -32,6 +32,7 @@ class AssignmentRecord(Base):
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     sha256: Mapped[str] = mapped_column(String(64))
+    deletedAt: Mapped[datetime | None] = mapped_column("deleted_at", DateTime(timezone=True))
 
 
 def storeAssignment(
@@ -58,6 +59,7 @@ def storeAssignment(
                 AssignmentRecord.assignmentId == assignmentId,
                 AssignmentRecord.assignmentRev == 1,
                 AssignmentRecord.classId == classId,
+                AssignmentRecord.deletedAt.is_(None),
             )
             .with_for_update()
         )
@@ -104,9 +106,30 @@ def requireOwnedAssignment(
                 AssignmentRecord.assignmentRev == assignmentRev,
                 ClassRecord.teacherId == teacherId,
                 ClassRecord.deletedAt.is_(None),
+                AssignmentRecord.deletedAt.is_(None),
             )
         )
-        classId = db.scalar(query.with_for_update(read=True, of=ClassRecord) if lockForWrite else query)
+        classId = db.scalar(query.with_for_update(read=True, of=(ClassRecord, AssignmentRecord)) if lockForWrite else query)
         if classId is not None:
             return classId
     raise ApiProblem("not_found", "Assignment revision not found")
+
+
+def deleteAssignment(db: Session, assignmentId: str, teacherId: str, deletedAt: datetime, confirm: bool) -> None:
+    if len(assignmentId) != 36 or "\x00" in assignmentId:
+        raise ApiProblem("not_found", "Assignment not found")
+    # Share the revision-one lock used by storeAssignment before updating every revision.
+    root = db.scalar(
+        select(AssignmentRecord.assignmentId)
+        .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
+        .where(
+            AssignmentRecord.assignmentId == assignmentId, AssignmentRecord.assignmentRev == 1,
+            AssignmentRecord.deletedAt.is_(None), ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None),
+        )
+        .with_for_update(of=AssignmentRecord)
+    )
+    if root is None:
+        raise ApiProblem("not_found", "Assignment not found")
+    if not confirm:
+        raise ApiProblem("confirmation_required", "Confirm deleting the assignment and all its submissions", status=409)
+    db.execute(update(AssignmentRecord).where(AssignmentRecord.assignmentId == root).values(deletedAt=deletedAt))

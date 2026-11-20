@@ -12,12 +12,12 @@ from zlib import error as ZlibError
 
 from fastapi import UploadFile
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, func, select
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Select, String, UniqueConstraint, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.assignments import AssignmentRecord
-from cabinet.attempts import ensureAttempt, ensureCheck
+from cabinet.attempts import AttemptRecord, ensureAttempt, ensureCheck
 from cabinet.bindings import matchStudent, signatureNames
 from cabinet.classes import ClassRecord, StudentRecord, activeStudents
 from cabinet.database import Base
@@ -292,8 +292,11 @@ def requireOwnedUpload(db: Session, uploadId: str, teacherId: str) -> tuple[Uplo
             & (AssignmentRecord.assignmentRev == UploadRecord.assignmentRev),
         )
         .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
-        .where(UploadRecord.uploadId == uploadId, ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None))
-        .with_for_update(read=True, of=ClassRecord)
+        .where(
+            UploadRecord.uploadId == uploadId, ClassRecord.teacherId == teacherId,
+            ClassRecord.deletedAt.is_(None), AssignmentRecord.deletedAt.is_(None),
+        )
+        .with_for_update(read=True, of=(ClassRecord, AssignmentRecord))
     ).one_or_none()
     if owned is None:
         raise ApiProblem("not_found", "Upload not found")
@@ -301,13 +304,19 @@ def requireOwnedUpload(db: Session, uploadId: str, teacherId: str) -> tuple[Uplo
     return upload, classId
 
 
+def visibleUploadFiles(uploadId: str) -> Select[UploadFileRecord]:
+    archived = select(AttemptRecord.attemptId).where(
+        AttemptRecord.attemptId == UploadFileRecord.attemptId, AttemptRecord.deletedAt.is_not(None),
+    ).exists()
+    return select(UploadFileRecord).where(UploadFileRecord.uploadId == uploadId, ~archived)
+
+
 def getUploadProgress(
     db: Session, settings: Settings, uploadId: str, teacherId: str, eventContext: EventContext,
 ) -> UploadProgress:
     upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     fileQuery = (
-        select(UploadFileRecord)
-        .where(UploadFileRecord.uploadId == uploadId)
+        visibleUploadFiles(uploadId)
         .order_by(UploadFileRecord.originalName, UploadFileRecord.fileId)
     )
     files = db.scalars(fileQuery).all()

@@ -16,7 +16,10 @@ def readReportRoster(
     submittedChecks = (
         select(CheckRecord.checkId.label("checkId"), AttemptRecord.studentId.label("studentId"))
         .join(AttemptRecord, AttemptRecord.attemptId == CheckRecord.attemptId)
-        .where(CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev)
+        .where(
+            CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev,
+            AttemptRecord.deletedAt.is_(None),
+        )
         .subquery()
     )
     roster: dict[str, StudentSummary] = {}
@@ -31,6 +34,18 @@ def readReportRoster(
         if checkId is not None:
             checks[checkId] = student.studentId
     return list(roster.values()), checks
+
+
+def deletedReportCheckIds(db: Session, assignmentId: str, assignmentRev: int) -> list[str]:
+    return list(db.scalars(
+        select(CheckRecord.checkId)
+        .join(AttemptRecord, AttemptRecord.attemptId == CheckRecord.attemptId)
+        .where(
+            CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev,
+            AttemptRecord.deletedAt.is_not(None),
+        )
+        .order_by(CheckRecord.checkId)
+    ))
 
 
 def combineReport(

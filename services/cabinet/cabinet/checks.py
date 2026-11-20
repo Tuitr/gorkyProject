@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cabinet.assignments import AssignmentRecord
-from cabinet.attempts import CheckRecord
+from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.classes import ClassRecord
 from cabinet.gradingclient import invalidGradingResponse, sendGradingRequest
 from cabinet.settings import Settings
@@ -25,8 +25,12 @@ def requireOwnedCheck(db: Session, checkId: str, teacherId: str) -> str:
             (AssignmentRecord.assignmentId == CheckRecord.assignmentId)
             & (AssignmentRecord.assignmentRev == CheckRecord.assignmentRev),
         )
+        .join(AttemptRecord, AttemptRecord.attemptId == CheckRecord.attemptId)
         .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
-        .where(CheckRecord.checkId == checkId, ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None))
+        .where(
+            CheckRecord.checkId == checkId, ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None),
+            AssignmentRecord.deletedAt.is_(None), AttemptRecord.deletedAt.is_(None),
+        )
     )
     if attemptId is None:
         raise ApiProblem("not_found", "Check not found")

@@ -17,7 +17,8 @@ from sqlalchemy import create_engine, delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from cabinet.assignments import AssignmentRecord, requireOwnedAssignment, storeAssignment
+from cabinet.assignments import AssignmentRecord, deleteAssignment, requireOwnedAssignment, storeAssignment
+from cabinet.attempts import deleteAttempt
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
@@ -29,7 +30,7 @@ from cabinet.cleanupuploads import tryCleanUpload
 from cabinet.documents import readDocx
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
-from cabinet.reports import combineReport, readReportRoster
+from cabinet.reports import combineReport, deletedReportCheckIds, readReportRoster
 from cabinet.reviews import loadMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
@@ -287,6 +288,28 @@ def createApp(
                 tryCleanUpload(sessionFactory, settings, uploadId)
             raise
 
+    @v1.delete(
+        "/assignments/{assignmentId}", status_code=204,
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}, 409: {"model": ApiError}},
+    )
+    def deleteTeacherAssignment(
+        assignmentId: str, confirm: Annotated[bool, Query()] = False, teacher: TeacherSession = Depends(currentTeacher),
+    ) -> Response:
+        with sessionFactory.begin() as db:
+            deleteAssignment(db, assignmentId, teacher.teacherId, sessionClock.now(), confirm)
+        return Response(status_code=204)
+
+    @v1.delete(
+        "/attempts/{attemptId}", status_code=204,
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}, 409: {"model": ApiError}},
+    )
+    def deleteStudentAttempt(
+        attemptId: str, confirm: Annotated[bool, Query()] = False, teacher: TeacherSession = Depends(currentTeacher),
+    ) -> Response:
+        with sessionFactory.begin() as db:
+            deleteAttempt(db, attemptId, teacher.teacherId, sessionClock.now(), confirm)
+        return Response(status_code=204)
+
     @v1.get(
         "/uploads/{uploadId}",
         response_model_exclude_none=True,
@@ -338,9 +361,13 @@ def createApp(
     ) -> AssignmentReport:
         with sessionFactory() as db:
             classId = requireOwnedAssignment(db, assignmentId, rev, teacher.teacherId)
+            excluded = deletedReportCheckIds(db, assignmentId, rev)
+        params: dict[str, int | list[str]] = {"rev": rev}
+        if excluded:
+            params["excludeCheckId"] = excluded
         upstream = sendGradingRequest(
             settings, "GET", f"/internal/v1/assignments/{assignmentId}/report", getTraceId(request), gradingTransport,
-            params={"rev": rev},
+            params=params,
         )
         summary = readGradingModel(upstream, GradingReport)
         with sessionFactory() as db:

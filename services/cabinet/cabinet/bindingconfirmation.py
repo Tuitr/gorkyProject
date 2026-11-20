@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from cabinet.classes import StudentRecord, activeStudents
 from cabinet.outbox import EventContext
-from cabinet.uploads import UploadFileRecord, finishFileBinding, requireOwnedUpload
+from cabinet.uploads import UploadFileRecord, finishFileBinding, requireOwnedUpload, visibleUploadFiles
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest, SelectStudentBinding
 from shared.httperrors import ApiProblem
 
@@ -28,8 +28,8 @@ def confirmBinding(
     if len(request.fileId) != 36 or "\x00" in request.fileId:
         raise ApiProblem("not_found", "Upload file not found")
     file = db.scalar(
-        select(UploadFileRecord)
-        .where(UploadFileRecord.uploadId == uploadId, UploadFileRecord.fileId == request.fileId)
+        visibleUploadFiles(uploadId)
+        .where(UploadFileRecord.fileId == request.fileId)
         .with_for_update()
     )
     if file is None:
