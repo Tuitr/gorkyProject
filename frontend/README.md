@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# Фронтенд учителя
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite. Своего сервера у фронтенда нет: всё идёт через кабинет (`services/cabinet`, API `/v1`).
+Dev-сервер Vite проксирует `/v1` на `CHECKER_CABINET_URL` (по умолчанию `http://127.0.0.1:18080`), поэтому страница и
+кабинет живут на одном origin и cookie сессии `__Host-cabinet` работает без CORS.
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```
+docker compose -f deploy/compose.yaml --profile full up -d --build --wait   # из корня репозитория
+cd frontend
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Порт кабинета другой — задайте `CHECKER_CABINET_URL=http://127.0.0.1:<порт>` в `frontend/.env.local`.
+
+## Что идёт через кабинет
+
+- вход и регистрация учителя, классы и ученики (создание и удаление);
+- работа: DOCX и требования учителя, новая ревизия при изменении;
+- эталонные ответы варианта из реестра решателей (`GET /v1/assignments/{id}/references`);
+- работы учеников — DOCX или ZIP с DOCX, привязка к ученикам;
+- результат проверки, правки учителя, публикация, отзыв в Markdown и отчёт по классу.
+
+Проверяются только DOCX: фото и PDF не принимаются. Формирование вариантов и заданий работы над ошибками пока
+отключено — все ученики пишут один общий вариант.
+
+## Проверки
+
+```
+npx tsc -b
+npm run lint
+npm run build
+```

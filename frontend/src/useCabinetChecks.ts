@@ -1,17 +1,16 @@
 import { useEffect } from 'react'
-import { isCabinet } from './api/cabinet'
 import { refreshCheck } from './api/sync'
 import { useStore } from './store'
 
 /**
- * Режим кабинета: пока страница открыта, спрашиваем кабинет о проверке перечисленных сдач
+ * Пока страница открыта, спрашиваем кабинет о проверке перечисленных сдач
  * (сразу и затем раз в 30 секунд) и применяем ответ — состояние, готовый результат, «нужен учитель».
  */
 export function useCabinetChecks(submissionIds: string[]) {
   const { getState, update } = useStore()
   const key = submissionIds.join(',')
   useEffect(() => {
-    if (!isCabinet() || !key) return
+    if (!key) return
     let alive = true
     let busy = false // прошлый круг ещё идёт (много работ, медленный сервер) — новый не начинаем
     const run = async () => {

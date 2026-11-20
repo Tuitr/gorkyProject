@@ -1,10 +1,9 @@
 import { analyzeClass, type Topic } from '../analytics'
 import { askConfirm } from '../lib/confirm'
-import { generatePractice, type PracticeTopicIn } from '../api/generate'
 import { uid, type Assignment, type ClassGroup, type Practice as PracticeT, type PracticeGroup, type PracticeMode } from '../domain'
 import { href } from '../router'
 import { patch, useStore } from '../store'
-import { Badge, JobStatus } from '../ui'
+import { Badge } from '../ui'
 import { AssignmentHeader, ClassTabs, NotFound, useAssignment } from './common'
 
 const MODES: { id: PracticeMode; title: string; text: string }[] = [
@@ -50,7 +49,7 @@ function buildGroups(a: Assignment, cls: ClassGroup, topics: Topic[], studentOf:
 
 /** Экран 12. Практика по ошибкам: режим, группы, задачи с ключами, утверждение и печать. */
 export function Practice({ id, classId }: { id: string; classId?: string }) {
-  const { state, update, jobs, runJob, toast } = useStore()
+  const { state, update, toast } = useStore()
   const { a, classes } = useAssignment(id)
   const cls = classes.find((c) => c.id === classId) ?? classes[0]
   if (!a) return <NotFound />
@@ -61,9 +60,6 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
   const studentOf = (sid: string) => subs.find((s) => s.id === sid)?.studentId ?? null
   const handed = new Set(subs.filter((s) => s.status === 'processed' && s.studentId).map((s) => s.studentId!))
   const p = state.practices.find((x) => x.assignmentId === a.id && x.classId === cls.id)
-  const jobId = p ? `practice:${p.id}` : ''
-  const job = jobs[jobId]
-
   const setP = (fn: (x: PracticeT) => PracticeT) => update((st) => ({ ...st, practices: patch(st.practices, p!.id, fn) }))
 
   const chooseMode = async (mode: PracticeMode) => {
@@ -82,67 +78,6 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
       approved: false,
     }
     update((st) => ({ ...st, practices: [...st.practices.filter((x) => x.id !== next.id), next] }))
-  }
-
-  const examples = (topic: string) =>
-    topics
-      .filter((t) => topic.includes(a.tasks.find((x) => x.id === t.taskId)?.text.split('\n')[0] ?? '\u0000'))
-      .flatMap((t) => t.examples.map((e) => `${e.mistake.studentAnswer} (верно: ${e.mistake.correctSolution})`))
-
-  const generate = () => {
-    if (!p) return
-    void runJob(jobId, 'practice', 'Формирование заданий', async () => {
-      if (p.mode === 'board') {
-        const t = topics[0]
-        if (!t) throw new Error('Ошибок не обнаружено: материалов для разбора нет.')
-        const out = await generatePractice([{ topic: topicName(a, t), examples: examples(topicName(a, t)), count: 1 }], true)
-        if (!out.board) throw new Error('Не удалось сформировать пример для разбора. Повторите попытку.')
-        setP((x) => ({ ...x, board: out.board, approved: false }))
-        return
-      }
-      // каждую тему (их может быть несколько у индивидуального варианта) запрашиваем один раз
-      const per = p.mode === 'individual' ? 2 : 4
-      const uniq = [...new Set(p.groups.flatMap((g) => g.topic.split(' | ')))]
-      const req: PracticeTopicIn[] = uniq.map((topic) => ({ topic, examples: examples(topic), count: per }))
-      const out = await generatePractice(req, false)
-      // модель может переписать название темы (кавычки, регистр) — сравниваем «нормализованно»
-      const norm = (x: string) => x.toLowerCase().replace(/[«»"'“”().,:;!?]/g, '').replace(/\s+/g, ' ').trim()
-      const same = (x: string, y: string) => {
-        const [p1, p2] = [norm(x), norm(y)]
-        return p1 === p2 || p1.startsWith(p2.slice(0, 40)) || p2.startsWith(p1.slice(0, 40))
-      }
-      const byTopic = new Map(
-        uniq.map((topic, i) => [
-          topic,
-          out.topics.find((x) => same(x.topic, topic))?.tasks ??
-            (out.topics.length === uniq.length ? out.topics[i].tasks : []),
-        ]),
-      )
-      const lost = uniq.filter((t) => !byTopic.get(t)?.length)
-      if (lost.length === uniq.length) throw new Error('Не удалось сформировать задания. Повторите попытку.')
-      setP((x) => ({
-        ...x,
-        approved: false,
-        groups: x.groups.map((g) => ({ ...g, tasks: g.topic.split(' | ').flatMap((t) => (byTopic.get(t) ?? []).map((task) => ({ ...task, id: uid('pt') }))) })),
-      }))
-      if (lost.length) toast(`Не сформированы задания по темам (${lost.length}). Нажмите «Сформировать заново»`, 'err')
-    })
-  }
-
-  const replace = (gid: string, tid: string) => {
-    const g = p?.groups.find((x) => x.id === gid)
-    const t = g?.tasks.find((x) => x.id === tid)
-    if (!g || !t) return
-    void runJob(`ptask:${tid}`, 'practice', 'Замена задания', async () => {
-      const out = await generatePractice([{ topic: t.topic || g.topic, examples: [`не повторять: ${t.text}`], count: 1 }], false)
-      const n = out.topics[0]?.tasks[0]
-      if (!n) throw new Error('Не удалось сформировать задание. Повторите попытку.')
-      setP((x) => ({
-        ...x,
-        approved: false,
-        groups: x.groups.map((gg) => (gg.id !== gid ? gg : { ...gg, tasks: gg.tasks.map((tt) => (tt.id === tid ? { ...n, id: tid } : tt)) })),
-      }))
-    })
   }
 
   const moveStudent = (sid: string, to: string) =>
@@ -181,10 +116,9 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
           {p && (
             <>
               <div className="toolbar">
-                <button className="btn" onClick={generate} disabled={job?.status === 'running'}>
-                  {hasTasks ? 'Сформировать заново' : 'Сформировать задания'}
-                </button>
-                <JobStatus job={job} onRetry={generate} />
+                <span className="muted small">
+                  Группы собраны по ошибкам из результатов кабинета. Автоматическое формирование заданий пока отключено.
+                </span>
                 <span className="spacer" />
                 {hasTasks && (
                   <>
@@ -265,15 +199,6 @@ export function Practice({ id, classId }: { id: string; classId?: string }) {
                                 <span className="key-line">
                                   Ответ: <b>{t.answer || '—'}</b>
                                 </span>
-                                <JobStatus
-                                  job={jobs[`ptask:${t.id}`]}
-                                  onRetry={() => replace(g.id, t.id)}
-                                  idle={
-                                    <button className="link-btn" onClick={() => replace(g.id, t.id)}>
-                                      Заменить задание
-                                    </button>
-                                  }
-                                />
                               </div>
                             </li>
                           ))}

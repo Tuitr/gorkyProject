@@ -1,6 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
 import { ConfirmHost } from './components/ConfirmHost'
-import { isCabinet } from './api/cabinet'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { pullClasses, withRemoteClasses } from './api/sync'
 import './App.css'
@@ -57,11 +56,10 @@ function Screen() {
   return <Home />
 }
 
-/** Режим кабинета: при входе подтягиваем классы и учеников с сервера. */
+/** При входе подтягиваем классы и учеников с сервера. */
 function useCabinetClasses() {
   const { update, toast } = useStore()
   useEffect(() => {
-    if (!isCabinet()) return
     let alive = true
     pullClasses()
       .then((remote) => alive && update((s) => withRemoteClasses(s, remote)))

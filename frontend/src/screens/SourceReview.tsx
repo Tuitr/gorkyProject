@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions } from '../actions'
-import { splitTasksAi } from '../api/generate'
-import { useSolvedAnswers } from '../api/solve'
-import { readSource, splitTasks } from '../api/source'
+import { ReferenceLine, ReferenceStatus } from '../components/ReferenceAnswers'
+import { useReferences } from '../useReferences'
 import { sourceFiles, uid, type Assignment, type SourceFile, type SourceTask } from '../domain'
 import { go, href, useRoute } from '../router'
 import { patch, useStore } from '../store'
@@ -11,7 +10,7 @@ import { AssignmentHeader, NotFound, useAssignment } from './common'
 
 /** Экран 3. Сверка исходника: оригинал рядом со списком номеров, правка, объединение, правила проверки. */
 export function SourceReview({ id }: { id: string }) {
-  const { update, toast } = useStore()
+  const { update } = useStore()
   const { publish } = useActions()
   const { a } = useAssignment(id)
   const { query } = useRoute()
@@ -19,11 +18,6 @@ export function SourceReview({ id }: { id: string }) {
   // только что создана из формы «Добавить работу»: проверить номера и сохранить
   const isNew = query.get('new') === '1'
   const added = useRef(false)
-  // фото условия: куда положить текст — в номер (id) или новыми номерами ('new')
-  const photoInput = useRef<HTMLInputElement>(null)
-  const photoTarget = useRef<string>('new')
-  const [photoBusy, setPhotoBusy] = useState<string | null>(null)
-
   // «Добавить номер» со страницы работы: один пустой номер в конец, курсор — в его условие
   useEffect(() => {
     if (!wantAdd || !a || added.current) return
@@ -44,8 +38,8 @@ export function SourceReview({ id }: { id: string }) {
     }, 50)
   }, [wantAdd, a, id, update, query])
 
-  // точные ответы солвера под условиями — учитель видит эталон, с которым будет сверяться проверка
-  const solved = useSolvedAnswers(a?.tasks.map((t) => t.text) ?? [])
+  // эталонные ответы из реестра решателей — учитель видит, с чем кабинет будет сверять работы
+  const refs = useReferences(a)
 
   if (!a) return <NotFound />
 
@@ -80,52 +74,6 @@ export function SourceReview({ id }: { id: string }) {
       ...x,
       tasks: [...x.tasks, { id: uid('t'), num: String(x.tasks.length + 1), text: '', manual: false, max: 1 }],
     }))
-
-  const pickPhoto = (target: string) => {
-    photoTarget.current = target
-    photoInput.current?.click()
-  }
-
-  /** Фото условия → OCR → текст в номер (или новые номера); фото добавляется к оригиналу. */
-  const onPhotos = async (fs: File[]) => {
-    const target = photoTarget.current
-    if (!fs.length) return
-    setPhotoBusy(target)
-    try {
-      const read: Awaited<ReturnType<typeof readSource>>[] = []
-      for (const f of fs) read.push(await readSource(f)) // по очереди — у OCR лимит запросов
-      const text = read.map((r) => r.text.trim()).filter(Boolean).join('\n')
-      const sources = read.map((r) => r.source)
-      if (!text) toast('Текст на фотографии не обнаружен. Введите условие вручную.', 'err')
-
-      let fresh: SourceTask[] = []
-      if (target === 'new' && text) {
-        fresh = splitTasks(text)
-        try {
-          const ai = await splitTasksAi(text)
-          if (ai.length) fresh = ai.map((t) => ({ id: uid('t'), num: t.num, text: t.text, manual: false, max: 1 }))
-        } catch (e) {
-          console.warn('Автоматическое разделение не выполнено: задания разделены по нумерации «1)», «2.»', e)
-        }
-      }
-      setA((x) => {
-        const files = [...sourceFiles(x), ...sources]
-        let tasks = x.tasks
-        if (target !== 'new') {
-          tasks = tasks.map((t) => (t.id === target ? { ...t, text: [t.text.trim(), text].filter(Boolean).join('\n') } : t))
-        } else if (text) {
-          // на фото один номер без «1)» — одним номером с продолжением нумерации
-          const list = fresh.length ? fresh : [{ id: uid('t'), num: '', text, manual: false, max: 1 }]
-          tasks = [...tasks, ...list.map((t, i) => (fresh.length > 1 ? t : { ...t, num: String(x.tasks.length + i + 1) }))]
-        }
-        return { ...x, files, file: x.file ?? files[0], tasks }
-      })
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Не удалось распознать фото', 'err')
-    } finally {
-      setPhotoBusy(null)
-    }
-  }
 
   const total = a.tasks.reduce((s, t) => s + t.max, 0)
 
@@ -219,14 +167,6 @@ export function SourceReview({ id }: { id: string }) {
                     б.
                   </label>
                   <span className="spacer" />
-                  <button
-                    className="link-btn src-task__tool"
-                    onClick={() => pickPhoto(t.id)}
-                    disabled={!!photoBusy}
-                    title="Распознать условие с фото и добавить в это задание"
-                  >
-                    {photoBusy === t.id ? 'распознавание…' : 'Распознать с фото'}
-                  </button>
                   {i > 0 && (
                     <button className="link-btn src-task__tool" onClick={() => merge(i)} title="Объединить с предыдущим заданием">
                       Объединить с предыдущим
@@ -248,50 +188,16 @@ export function SourceReview({ id }: { id: string }) {
                   onChange={(e) => setTask(t.id, { text: e.target.value })}
                   aria-label={`Условие задания №${t.num}`}
                 />
-                {solved.get(t.text) && (
-                  <p className="src-task__answer" title="Посчитано программой точно; проверка сверяет ответ ученика с ним">
-                    Ответ (посчитан): <b>{solved.get(t.text)}</b>
-                  </p>
-                )}
-                {!t.text.trim() && (
-                  <button className="btn" onClick={() => pickPhoto(t.id)} disabled={!!photoBusy}>
-                    {photoBusy === t.id ? (
-                      <>
-                        <span className="spinner spinner--sm" /> Выполняется распознавание…
-                      </>
-                    ) : (
-                      'Заполнить условие по фото'
-                    )}
-                  </button>
-                )}
+                <ReferenceLine refs={refs} num={t.num} />
               </li>
             ))}
           </ol>
+          <ReferenceStatus refs={refs} saved={!!a.remote && Object.keys(a.remote).length > 0} />
           <div className="src-add">
             <button className="btn" onClick={add}>
               + Задание
             </button>
-            <button className="btn" onClick={() => pickPhoto('new')} disabled={!!photoBusy}>
-              {photoBusy === 'new' ? (
-                <>
-                  <span className="spinner spinner--sm" /> Выполняется распознавание…
-                </>
-              ) : (
-                'Добавить задания по фото'
-              )}
-            </button>
           </div>
-          <input
-            ref={photoInput}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(e) => {
-              void onPhotos(Array.from(e.target.files ?? []))
-              e.target.value = ''
-            }}
-          />
         </section>
 
       </div>
@@ -316,7 +222,5 @@ function Original({ a }: { a: Assignment }) {
 
 function OriginalFile({ f }: { f: SourceFile }) {
   if (f.kind === 'docx' && f.html) return <div className="docx" dangerouslySetInnerHTML={{ __html: f.html }} />
-  if (f.kind === 'pdf' && f.dataUrl) return <iframe className="pdf" src={f.dataUrl} title={`Исходный документ: ${f.name}`} />
-  if (f.kind === 'image' && f.dataUrl) return <img className="orig-img" src={f.dataUrl} alt={f.name} />
   return <p className="muted">Предпросмотр недоступен.</p>
 }

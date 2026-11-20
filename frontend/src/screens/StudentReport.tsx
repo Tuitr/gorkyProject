@@ -96,7 +96,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
         <div>
           <h1>{student?.name ?? 'Ученик не определён'}</h1>
           <div className="muted">
-            {a.title} · {cls.name} · вариант {v?.name ?? '—'}
+            {a.title} · {cls.name}{v ? ` · вариант ${v.name}` : ''}
             {s.remote && (
               <>
                 {' · '}

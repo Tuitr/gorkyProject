@@ -75,7 +75,7 @@ export type Page = {
 
 export type MistakeCategory = 'вычислительная' | 'знак' | 'правило' | 'логика' | 'запись' | 'неполное решение' | 'другое'
 export const CATEGORIES: MistakeCategory[] = ['вычислительная', 'знак', 'правило', 'логика', 'запись', 'неполное решение', 'другое']
-/** Подписи категорий для интерфейса (сами значения используются в запросах к GigaChat). */
+/** Подписи категорий для интерфейса (значения — категории замечаний кабинета). */
 export const CATEGORY_LABEL: Record<MistakeCategory, string> = {
   вычислительная: 'вычислительная ошибка',
   знак: 'ошибка в знаке',
@@ -183,7 +183,7 @@ export const REVIEW_LABEL: Record<ReviewKind, string> = {
   student: 'Указать ученика',
   sign: 'Уточнить распознанный символ',
   method: 'Проверить другой способ решения',
-  reshoot: 'Заменить или добавить фото',
+  reshoot: 'Заменить файл работы',
 }
 
 export type ReviewItem = {
@@ -213,7 +213,7 @@ export type Practice = {
   approved: boolean
 }
 
-/** Фоновая задача: генерация, OCR, проверка. */
+/** Фоновая задача: чтение файла, сохранение на сервере. */
 export type JobKind = 'generate' | 'ocr' | 'check' | 'practice' | 'sync'
 export type Job = {
   id: Id // ключ по объекту — повторный запуск того же не создаёт дубль

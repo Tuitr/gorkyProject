@@ -15,7 +15,7 @@ import {
   type TaskResult,
 } from '../domain'
 import { patch, useStore } from '../store'
-import { Badge, Drawer, JobStatus, Photo } from '../ui'
+import { Badge, Drawer, Photo } from '../ui'
 
 const ANSWER_V = { correct: 'верный', incorrect: 'неверный', skipped: 'нет ответа', unreadable: 'неразборчиво' }
 const REASONING_V = { valid: 'верный', invalid: 'с ошибками', not_shown: 'не показан', unknown: 'не определён' }
@@ -31,18 +31,16 @@ type Props = {
   inline?: boolean
 }
 
-/** Экран 9. Панель ошибки: текст ИИ со ссылкой на строку, фото с фрагментом, расшифровка, категория, правило, правка. */
+/** Экран 9. Панель ошибки: замечание кабинета, текст работы, категория, правило, правки на сервере. */
 export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }: Props) {
-  const { state, update, jobs, toast } = useStore()
-  const { process, editRemote } = useActions()
+  const { state, update, toast } = useStore()
+  const { editRemote } = useActions()
   const s = state.submissions.find((x) => x.id === submissionId)
   const a = state.assignments.find((x) => x.id === s?.assignmentId)
   const task = a?.tasks.find((t) => t.id === taskId)
   const res = s?.results.find((r) => r.taskId === taskId)
   const [mid, setMid] = useState<string | null>(mistakeId ?? res?.mistakes[0]?.id ?? null)
-  const [editLine, setEditLine] = useState<{ page: number; line: number; text: string } | null>(null)
   const [scoring, setScoring] = useState<{ score: string; comment: string } | null>(null)
-  const [dirty, setDirty] = useState(false)
   // правки результата кабинета: замечание и вердикты задания
   const [issueEdit, setIssueEdit] = useState<{ comment: string; correction: string } | null>(null)
   const [verdict, setVerdict] = useState<NonNullable<TaskResult['remote']> | null>(null)
@@ -54,7 +52,6 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
   const pageIdx = m?.page ?? 0
   const page = s.pages[pageIdx]
   const lines = page?.lines ?? []
-  const job = jobs[`check:${s.id}`]
   // результат пришёл из кабинета — правки уходят на сервер (PATCH review), а не только в браузер
   const fromCabinet = !!res?.remote && !!s.remote?.resultRev
   // нерассмотренные спорные места этого задания — разбираются прямо здесь
@@ -71,21 +68,6 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
     setSub((x) => ({ ...x, results: x.results.map((r) => (r.taskId === taskId ? fn(r) : r)), approved: false }))
   const setMistake = (id: string, p: Partial<StepMistake>) =>
     setRes((r) => ({ ...r, mistakes: r.mistakes.map((x) => (x.id === id ? { ...x, ...p } : x)) }))
-
-  const saveLine = () => {
-    if (!editLine) return
-    setSub((x) => ({
-      ...x,
-      pages: x.pages.map((p, i) =>
-        i !== editLine.page
-          ? p
-          : { ...p, lines: (p.lines ?? []).map((l, j) => (j === editLine.line ? { ...l, text: editLine.text, fixed: true } : l)) },
-      ),
-    }))
-    setEditLine(null)
-    setDirty(true)
-    toast('Распознавание исправлено')
-  }
 
   const saveScore = () => {
     if (!scoring) return
@@ -221,7 +203,7 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
                       disabled={saving || !issueEdit.comment.trim() || !issueEdit.correction.trim()}
                       onClick={async () => {
                         const ok = await saveRemote(
-                          [{ type: 'update_issue', issueId: m.id, comment: issueEdit.comment.trim(), correction: issueEdit.correction.trim() }],
+                          [{ type: 'update_issue', taskId: res?.remote?.taskId, issueId: m.id, comment: issueEdit.comment.trim(), correction: issueEdit.correction.trim() }],
                           'Замечание изменено',
                         )
                         if (ok) setIssueEdit(null)
@@ -249,7 +231,7 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
                           danger: true,
                         })
                       )
-                        void saveRemote([{ type: 'remove_issue', issueId: m.id }], 'Замечание убрано')
+                        void saveRemote([{ type: 'remove_issue', taskId: res?.remote?.taskId, issueId: m.id }], 'Замечание убрано')
                     }}
                   >
                     Не считать ошибкой
@@ -280,64 +262,20 @@ export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }:
 
         {!inline && (
           <section>
-            <h3>Распознанный текст по строкам</h3>
+            <h3>Текст работы по строкам</h3>
             {!lines.length ? (
-              <p className="muted small">Распознанный текст отсутствует: работа размечена вручную или ещё не распознана.</p>
+              <p className="muted small">Текста работы по строкам нет: замечания ниже относятся к заданию целиком.</p>
             ) : (
               <ol className="lines" start={from + 1}>
                 {lines.slice(from, to).map((l, k) => {
                   const j = from + k
-                  const editing = editLine?.page === pageIdx && editLine.line === j
                   return (
                     <li key={j} id={`line-${pageIdx}-${j}`} className={focus.has(j) ? 'is-focus' : ''}>
-                      {editing ? (
-                        <span className="line-edit">
-                          <input
-                            className="input input--sm"
-                            autoFocus
-                            value={editLine.text}
-                            onChange={(e) => setEditLine({ ...editLine, text: e.target.value })}
-                            onKeyDown={(e) => e.key === 'Enter' && saveLine()}
-                          />
-                          <button className="link-btn" onClick={saveLine}>
-                            Сохранить
-                          </button>
-                        </span>
-                      ) : (
-                        <>
-                          <code>{l.text}</code>
-                          {l.fixed && <Badge tone="info">исправлено</Badge>}
-                          <button
-                            className="link-btn"
-                            onClick={() => setEditLine({ page: pageIdx, line: j, text: l.text })}
-                            title="Исправить распознавание"
-                          >
-                            ✎
-                          </button>
-                        </>
-                      )}
+                      <code>{l.text}</code>
                     </li>
                   )
                 })}
               </ol>
-            )}
-            {lines.length > 0 && (
-              <div className="row">
-                <button className="btn" onClick={() => setEditLine({ page: pageIdx, line: m?.lines[0] ?? from, text: lines[m?.lines[0] ?? from]?.text ?? '' })}>
-                  Исправить распознавание
-                </button>
-                {dirty && (
-                  <JobStatus
-                    job={job}
-                    onRetry={() => void process(s.id)}
-                    idle={
-                      <button className="btn btn--primary" onClick={() => void process(s.id).then(() => setDirty(false))}>
-                        Перепроверить с исправлением
-                      </button>
-                    }
-                  />
-                )}
-              </div>
             )}
           </section>
         )}

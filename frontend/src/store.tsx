@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { isCabinet } from './api/cabinet'
 import type { Job, JobKind, State } from './domain'
 
 /**
@@ -8,8 +7,6 @@ import type { Job, JobKind, State } from './domain'
  */
 
 const LS_KEY = 'gorky-mvp-v1'
-/** Кому уже отданы данные, накопленные в браузере до появления входа (общий ключ LS_KEY). */
-const LEGACY_OWNER_KEY = 'gorky-mvp-legacy-owner'
 
 export type AuthUser = { id: string; name: string; lastName: string; firstName: string; middleName: string; email: string }
 
@@ -203,16 +200,8 @@ export function StoreProvider({
     const fresh = () => emptyState(user)
     let raw: string | null = null
     try {
+      // классы и ученики приходят из кабинета; старые данные браузера без входа не подхватываем
       raw = localStorage.getItem(key)
-      // данные, накопленные в этом браузере до появления входа, достаются первому вошедшему учителю
-      // (в режиме кабинета — нет: классы и ученики приходят с сервера)
-      if (!raw && user && !isCabinet() && !localStorage.getItem(LEGACY_OWNER_KEY)) {
-        const legacy = localStorage.getItem(LS_KEY)
-        if (legacy) {
-          localStorage.setItem(LEGACY_OWNER_KEY, user.id)
-          raw = legacy
-        }
-      }
     } catch {
       /* хранилище недоступно — работаем на пустых/демо-данных */
     }

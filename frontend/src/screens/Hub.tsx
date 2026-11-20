@@ -1,6 +1,6 @@
 import { WORK_TYPE_LABEL } from '../domain'
 import { askConfirm } from '../lib/confirm'
-import { isCabinet } from '../api/cabinet'
+import { deleteAssignment } from '../api/cabinet'
 import { go, href } from '../router'
 import { useStore } from '../store'
 import { Badge } from '../ui'
@@ -13,7 +13,7 @@ export function Hub({ id }: { id: string }) {
   if (!a) return <NotFound />
 
   const subs = state.submissions.filter((s) => s.assignmentId === a.id)
-  const handed = subs.filter((s) => s.status !== 'none' && s.pages.length).length
+  const handed = subs.filter((s) => s.status !== 'none' && s.remote).length
   const students = classes.reduce((n, c) => n + c.students.length, 0)
   const processed = subs.filter((s) => s.status === 'processed').length
   const queue = state.review.filter((r) => !r.resolved && subs.some((s) => s.id === r.submissionId)).length
@@ -29,14 +29,14 @@ export function Hub({ id }: { id: string }) {
     {
       to: href('a', a.id, 'variants', f),
       icon: '🗂',
-      title: 'Варианты',
-      note: a.variants.length ? `Вариантов: ${a.variants.length} · ответы и печать` : 'Не сформированы (необязательно)',
+      title: 'Эталонные ответы',
+      note: a.status === 'approved' ? 'Утверждена · ответы из реестра решателей' : 'Проверить ответы и утвердить',
     },
     {
       to: href('a', a.id, 'collect', f),
-      icon: '📷',
+      icon: '📄',
       title: 'Загрузить работы учеников',
-      note: `Фото работ: сдано ${handed} из ${students}`,
+      note: `DOCX или ZIP: сдано ${handed} из ${students}`,
       main: true,
     },
     {
@@ -56,10 +56,14 @@ export function Hub({ id }: { id: string }) {
   const remove = async () => {
     const extra = handed ? `
 Будут удалены также сданные работы учеников: ${handed}.` : ''
-    // в режиме кабинета удалить работу на сервере нельзя (нет такого маршрута) — предупреждаем
-    const server = isCabinet() && a.remote ? '\nВ кабинете на сервере работа останется: удалить её там нельзя.' : ''
-    if (!(await askConfirm(`Удалить работу «${a.title}»? Действие нельзя отменить.${extra}${server}`, { ok: 'Удалить', danger: true })))
+    if (!(await askConfirm(`Удалить работу «${a.title}»? Действие нельзя отменить.${extra}`, { ok: 'Удалить', danger: true })))
       return
+    try {
+      // работа удаляется и в кабинете (у каждого класса — своя), вместе со сдачами
+      for (const r of Object.values(a.remote ?? {})) await deleteAssignment(r.assignmentId)
+    } catch (e) {
+      return toast(e instanceof Error ? e.message : 'Не удалось удалить работу на сервере', 'err')
+    }
     const subIds = new Set(subs.map((s) => s.id))
     update((s) => ({
       ...s,

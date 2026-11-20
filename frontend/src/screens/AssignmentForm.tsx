@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { splitTasksAi } from '../api/generate'
 import { readSource, splitTasks } from '../api/source'
 import { sourceFiles, uid, WORK_TYPE_LABEL, type Assignment, type SourceFile, type SourceTask, type WorkType } from '../domain'
 import { go, href, useRoute } from '../router'
@@ -39,21 +38,14 @@ export function AssignmentForm({ id }: { id?: string }) {
 
   if (id && !existing) return <NotFound />
 
-  /** Делит на номера общий текст всех файлов: сначала нейросеть, при сбое — по «1)», «2.». */
-  const split = async (list: { text: string | null }[]) => {
+  /** Делит на номера общий текст всех файлов по «1)», «2.», «№3». */
+  const split = (list: { text: string | null }[]) => {
     const text = list.map((i) => i.text ?? '').filter(Boolean).join('\n')
     if (!text.trim()) {
       setParsed(null)
       return
     }
-    let tasks = splitTasks(text)
-    try {
-      // нейросеть делит на номера надёжнее регулярки (номера без «1)», мусор с картинок)
-      const ai = await splitTasksAi(text)
-      if (ai.length) tasks = ai.map((t) => ({ id: uid('t'), num: t.num, text: t.text, manual: false, max: 1 }))
-    } catch (e) {
-      console.warn('Автоматическое разделение не выполнено: задания разделены по нумерации «1)», «2.»', e)
-    }
+    const tasks = splitTasks(text)
     setParsed(tasks)
     if (!tasks.length) setPasted(text)
   }
@@ -63,14 +55,14 @@ export function AssignmentForm({ id }: { id?: string }) {
     if (!fs.length) return
     setLastFiles(fs)
     setParsed(null)
-    if (!title.trim()) setTitle(fs[0].name.replace(/\.(docx|pdf|jpe?g|png|heic|webp)$/i, ''))
+    if (!title.trim()) setTitle(fs[0].name.replace(/\.docx$/i, ''))
     const kept = items.filter((i) => i.text !== null)
     void runJob(draftKey, 'ocr', fs.length > 1 ? `Обработка файлов (${fs.length})` : 'Обработка файла', async () => {
       const read: { source: SourceFile; text: string }[] = []
       for (const f of fs) read.push(await readSource(f)) // по очереди — задания нумеруются в порядке файлов
       const next = [...kept, ...read]
       setItems(next)
-      await split(next)
+      split(next)
     })
   }
 
@@ -78,7 +70,7 @@ export function AssignmentForm({ id }: { id?: string }) {
     const next = items.filter((_, i) => i !== idx)
     setItems(next)
     setParsed(null)
-    if (next.some((i) => i.text)) void runJob(draftKey, 'ocr', 'Обработка файлов', () => split(next))
+    split(next)
   }
 
   const tasksToSave = parsed?.length ? parsed : pasted.trim() ? splitTasks(pasted) : null
@@ -164,12 +156,12 @@ export function AssignmentForm({ id }: { id?: string }) {
         )}
 
         <div className="field">
-          <span>Файлы с заданиями: DOCX, PDF или фото (допускается несколько файлов)</span>
+          <span>Файлы с заданиями: DOCX (допускается несколько файлов)</span>
           {files.length > 0 && (
             <ol className="file-list">
               {files.map((f, i) => (
                 <li key={`${f.name}-${i}`}>
-                  <span>{f.kind === 'image' ? '🖼' : '📄'}</span>
+                  <span>📄</span>
                   <b>{f.name}</b>
                   <button
                     className="icon-btn icon-btn--danger"
@@ -200,7 +192,7 @@ export function AssignmentForm({ id }: { id?: string }) {
             <input
               type="file"
               multiple
-              accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
+              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               hidden
               onChange={(e) => {
                 addFiles(Array.from(e.target.files ?? []))

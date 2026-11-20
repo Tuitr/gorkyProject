@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { CabinetError, isCabinet, readReport, type AssignmentReport } from '../api/cabinet'
-import { normNum } from '../api/process'
+import { CabinetError, readReport, type AssignmentReport } from '../api/cabinet'
+import { sameTask } from '../api/tasks'
 import { CATEGORY_LABEL, type Assignment, type MistakeCategory } from '../domain'
 
 /**
@@ -14,7 +14,7 @@ export function CabinetReport({ a, classId }: { a: Assignment; classId: string }
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isCabinet() || !remote) return
+    if (!remote) return
     let alive = true
     readReport(remote.assignmentId, remote.rev)
       .then((r) => alive && setReport(r))
@@ -34,9 +34,9 @@ export function CabinetReport({ a, classId }: { a: Assignment; classId: string }
     }
   }, [remote])
 
-  if (!isCabinet() || !remote) return null
+  if (!remote) return null
   const pct = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`)
-  const taskNum = (taskId: string) => a.tasks.find((t) => t.id === taskId || normNum(t.num) === normNum(taskId))?.num ?? taskId
+  const taskNum = (taskId: string) => a.tasks.find((t) => sameTask(taskId, t))?.num ?? taskId
   const cat = (c: string) => CATEGORY_LABEL[c as MistakeCategory] ?? c
 
   return (

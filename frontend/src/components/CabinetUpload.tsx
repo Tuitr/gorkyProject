@@ -11,8 +11,8 @@ import { Badge, Modal, type Tone } from '../ui'
  * Загрузка работ учеников в кабинет (бэкенд из main): DOCX или ZIP с DOCX.
  * Кабинет сам подбирает ученика по подписи и имени файла; где не уверен — учитель выбирает здесь
  * (или создаёт нового ученика). Загрузки запоминаются: окно показывает их снова, и неподтверждённые
- * привязки можно доделать позже. Привязанная работа появляется в сборе работ (текстом из DOCX) и
- * уходит на нашу проверку, пока своей проверки в кабинете нет.
+ * привязки можно доделать позже. Привязанная работа появляется в сборе работ (текстом из DOCX),
+ * а её проверку ведёт кабинет: результат приходит оттуда.
  */
 
 const STATUS: Record<UploadFile['status'], [string, Tone]> = {
@@ -44,7 +44,7 @@ const fromStored = (v: string | undefined) => {
   }
 }
 
-/** Текст DOCX (без картинок) — для нашей проверки, пока в кабинете её нет. */
+/** Текст DOCX (без картинок): учитель видит работу по строкам рядом с замечаниями кабинета. */
 async function docxText(buf: ArrayBuffer) {
   const mammoth = await import('mammoth')
   return (await mammoth.extractRawText({ arrayBuffer: buf })).value
@@ -52,7 +52,7 @@ async function docxText(buf: ArrayBuffer) {
 
 export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGroup; onClose: () => void }) {
   const { state, update, getState, toast } = useStore()
-  const { publish, process } = useActions()
+  const { publish, pull } = useActions()
   const [items, setItems] = useState<Item[]>([])
   const [busy, setBusy] = useState(false)
   const [choice, setChoice] = useState<Record<string, string>>({})
@@ -62,7 +62,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
   const setItem = (uploadId: string, fn: (x: Item) => Item) =>
     setItems((list) => list.map((x) => (x.record.uploadId === uploadId ? fn(x) : x)))
 
-  /** Привязанный файл → сдача ученика в нашем состоянии (страница-текст) → проверка. */
+  /** Привязанный файл → сдача ученика в нашем состоянии (страница-текст) → состояние проверки из кабинета. */
   const attach = (record: CabinetUploadRecord, f: UploadFile) => {
     if (!f.studentId) return
     const text = fromStored(record.texts[baseName(f.originalName)])
@@ -81,11 +81,7 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
       classId: cls.id,
       studentId: f.studentId,
       variantId: prev?.variantId ?? null,
-      // фото, сданные раньше, остаются; заменяется только прежняя страница-текст из документа
-      pages: [
-        ...(prev?.pages.filter((p) => p.kind !== 'text') ?? []),
-        { id: uid('p'), image: '', hash: `cabinet:${f.fileId}`, kind: 'text', lines },
-      ],
+      pages: [{ id: uid('p'), image: '', hash: `cabinet:${f.fileId}`, kind: 'text', lines }],
       status: 'submitted',
       results: [],
       approved: false,
@@ -99,13 +95,12 @@ export function CabinetUpload({ a, cls, onClose }: { a: Assignment; cls: ClassGr
       },
     }
     update((s) => ({ ...s, submissions: prev ? patch(s.submissions, id, () => sub) : [...s.submissions, sub] }))
-    // проверку запускаем, когда сдача уже в состоянии (обновление React применяется не сразу)
-    if (lines.length)
-      void (async () => {
-        for (let k = 0; k < 30 && !getState().submissions.some((x) => x.id === id && x.remote?.fileId === f.fileId); k++)
-          await sleep(100)
-        await process(id)
-      })()
+    // спрашиваем кабинет, когда сдача уже в состоянии (обновление React применяется не сразу)
+    void (async () => {
+      for (let k = 0; k < 30 && !getState().submissions.some((x) => x.id === id && x.remote?.fileId === f.fileId); k++)
+        await sleep(100)
+      await pull(id)
+    })()
   }
 
   /** Читает состояние загрузки, пока кабинет подбирает учеников. */

@@ -1,30 +1,11 @@
 import type { AuthUser } from '../store'
 
 /**
- * Бэкенд «кабинет» из ветки main (services/cabinet, публичный API /v1).
- * Включается переменной CHECKER_CABINET_URL на сервере Vite: он пробрасывает /v1 в кабинет (vite.config.ts).
- * Без неё фронтенд работает сам — вход через server/auth.ts, данные в браузере.
- *
- * Что кабинет умеет сейчас: вход по почте, классы и ученики (чтение и создание), сохранение работы (DOCX
- * + требования учителя, ревизии), загрузка работ учеников (DOCX или ZIP) с подбором ученика, чтение
- * статуса проверки. Проверки (сервиса grading) в main пока нет — результаты считает наш сервер (GigaChat).
+ * Бэкенд «кабинет» (services/cabinet, публичный API /v1) — единственный сервер фронтенда.
+ * Сервер Vite пробрасывает /v1 в кабинет (CHECKER_CABINET_URL, по умолчанию http://127.0.0.1:18080).
+ * Через кабинет идут вход, классы и ученики, работы (DOCX + требования), загрузка работ учеников
+ * (DOCX или ZIP), результаты проверки grading, эталоны реестра, правки учителя, отчёт и Markdown.
  */
-
-let mode: boolean | null = null
-
-/** Включён ли режим кабинета (узнаётся у нашего сервера один раз при запуске). */
-export async function loadMode(): Promise<boolean> {
-  if (mode !== null) return mode
-  try {
-    const res = await fetch('/api/config')
-    mode = res.ok ? !!((await res.json()) as { cabinet?: boolean }).cabinet : false
-  } catch {
-    mode = false
-  }
-  return mode
-}
-/** После loadMode(): работаем ли через кабинет. */
-export const isCabinet = () => mode === true
 
 /** Ошибка кабинета: { code, message, retryable, traceId } — сообщение переводим для учителя. */
 export class CabinetError extends Error {
@@ -81,6 +62,8 @@ async function send(method: string, path: string, body?: BodyInit | object): Pro
     | null
   const code = data?.code ?? (res.status >= 500 ? 'unavailable' : 'invalid_input')
   let msg = MESSAGES[code] ?? data?.message ?? `Ошибка сервера ${res.status}`
+  if (path === '/teachers/register' && code === 'conflict') msg = 'Учитель с такой почтой уже зарегистрирован.'
+  if (path === '/teachers/register' && code === 'invalid_input') msg = 'Проверьте почту и пароль (не менее 8 символов).'
   if (code === 'unauthorized' && path !== '/sessions') {
     // сессия закончилась (живёт 8 часов) — на экран входа
     msg = 'Сессия закончилась — войдите снова.'
@@ -106,6 +89,8 @@ const toUser = (t: TeacherSession): AuthUser => ({
   email: '',
 })
 
+export const cabinetRegister = (email: string, password: string, displayName: string) =>
+  call<TeacherSession>('POST', '/teachers/register', { email, password, displayName })
 export const cabinetLogin = async (email: string, password: string) =>
   toUser(await call<TeacherSession>('POST', '/sessions', { email, password }))
 export async function cabinetMe(): Promise<AuthUser | null> {
@@ -127,6 +112,13 @@ export const createClass = (name: string) => call<RemoteClass>('POST', '/classes
 export const listStudents = (classId: string) => call<RemoteStudent[]>('GET', `/classes/${classId}/students`)
 export const addStudent = (classId: string, name: string) =>
   call<RemoteStudent>('POST', `/classes/${classId}/students`, { name })
+/** Удаление в кабинете мягкое: класс, ученик, работа или сдача пропадают из списков, история остаётся в базе. */
+export const deleteClass = (classId: string) => call<void>('DELETE', `/classes/${classId}`)
+export const deleteStudent = (classId: string, studentId: string) =>
+  call<void>('DELETE', `/classes/${classId}/students/${studentId}`)
+/** Работа удаляется вместе со всеми сдачами — кабинет требует подтверждения (confirm=true). */
+export const deleteAssignment = (assignmentId: string) => call<void>('DELETE', `/assignments/${assignmentId}?confirm=true`)
+export const deleteAttempt = (attemptId: string) => call<void>('DELETE', `/attempts/${attemptId}?confirm=true`)
 
 /* ---------- работа (вариант) ---------- */
 
@@ -189,18 +181,26 @@ export type RemoteTaskResult = {
   issues: RemoteIssue[]
   needsReview: boolean
 }
-export type RemoteCheck =
-  | { checkId: string; attemptId: string; state: 'queued' | 'waiting_reference' | 'running' | 'needs_review' | 'failed'; reason: string }
-  | {
-      checkId: string
-      attemptId: string
-      state: 'ready'
-      resultRev: number
-      /** опубликованная версия; если меньше resultRev — текущий результат черновик */
-      publishedResultRev?: number
-      taskResults: RemoteTaskResult[]
-      overallReview: string
-    }
+/** Результата ещё нет (или проверка не удалась): состояние и причина. */
+export type RemoteCheckPending = {
+  checkId: string
+  attemptId: string
+  state: 'queued' | 'waiting_reference' | 'running' | 'needs_review' | 'failed'
+  reason: string
+}
+/** Результат есть; needs_review — у части заданий стоит needsReview, их решает учитель. */
+export type RemoteCheckResult = {
+  checkId: string
+  attemptId: string
+  state: 'ready' | 'needs_review'
+  resultRev: number
+  /** опубликованная версия; если меньше resultRev — текущий результат черновик */
+  publishedResultRev?: number | null
+  taskResults: RemoteTaskResult[]
+  overallReview: string
+}
+export type RemoteCheck = RemoteCheckPending | RemoteCheckResult
+export const hasResult = (c: RemoteCheck): c is RemoteCheckResult => 'taskResults' in c
 export type CheckState = RemoteCheck['state']
 export const CHECK_STATE_LABEL: Record<CheckState, string> = {
   queued: 'в очереди на проверку',
@@ -210,14 +210,46 @@ export const CHECK_STATE_LABEL: Record<CheckState, string> = {
   failed: 'проверка не удалась',
   ready: 'проверено',
 }
+/** Причины grading (коды) — словами для учителя. */
+const REASON_LABEL: Record<string, string> = {
+  queued_for_grading: 'Работа ждёт проверки.',
+  awaiting_reference: 'Готовится эталонное решение.',
+  grading_in_progress: 'Работа проверяется.',
+  awaiting_artifact: 'Готовится отзыв.',
+  grading_failed: 'Проверка не удалась после нескольких попыток.',
+  assignment_failed: 'Не удалось разобрать вариант: задания не найдены. Проверьте нумерацию «1.», «2.» в DOCX.',
+  manual_review: 'Работу нужно проверить вручную.',
+}
+export const reasonText = (reason: string) => REASON_LABEL[reason] ?? reason
 
 export const readCheck = (checkId: string) => call<RemoteCheck>('GET', `/checks/${checkId}`)
 
+/* ---------- эталоны реестра (разработчик № 3), которые grading подготовил к варианту ---------- */
+
+export type TaskReference = {
+  taskId: string
+  taskNumber: string
+  statement: string
+  state: 'missing' | 'pending' | 'ready' | 'unsupported' | 'validation_failed'
+  /** готовый ответ scalar.v1 строкой, например «13» или «-3/4» */
+  answer?: string | null
+  reasonCode?: string | null
+}
+export type AssignmentReferences = {
+  assignmentId: string
+  assignmentRev: number
+  state: 'queued' | 'running' | 'waiting_reference' | 'ready' | 'needs_review' | 'failed'
+  tasks: TaskReference[]
+}
+export const readReferences = (assignmentId: string, rev: number) =>
+  call<AssignmentReferences>('GET', `/assignments/${assignmentId}/references?rev=${rev}`)
+
 /* ---------- правки учителя, публикация, отзыв ---------- */
 
+/** issueId уникален внутри задания, поэтому к замечанию передаём и taskId задания (как его назвал grading). */
 export type ReviewChange =
-  | { type: 'remove_issue'; issueId: string }
-  | { type: 'update_issue'; issueId: string; comment: string; correction: string }
+  | { type: 'remove_issue'; issueId: string; taskId?: string }
+  | { type: 'update_issue'; issueId: string; taskId?: string; comment: string; correction: string }
   | {
       type: 'update_verdict'
       taskId: string

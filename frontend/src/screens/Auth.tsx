@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { login, logout, me, register } from '../api/auth'
-import { isCabinet, SESSION_EXPIRED_EVENT } from '../api/cabinet'
+import { SESSION_EXPIRED_EVENT } from '../api/cabinet'
 import type { AuthUser } from '../store'
 
 /** Пускает в приложение только после входа; children получает учителя и выход. */
@@ -49,14 +49,14 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
   const [password2, setPassword2] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  // В режиме кабинета этот экран показывает форму входа.
-  const cabinet = isCabinet()
-  const isReg = mode === 'register' && !cabinet
+  // Вход и регистрация — в кабинете (/v1/sessions, /v1/teachers/register).
+  const isReg = mode === 'register'
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
     if (isReg && password !== password2) return setError('Пароли не совпадают.')
+    if (isReg && !lastName.trim() && !firstName.trim()) return setError('Укажите фамилию и имя.')
     setBusy(true)
     try {
       onDone(isReg ? await register({ lastName, firstName, middleName }, email, password) : await login(email, password))
@@ -82,9 +82,6 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
       </div>
 
       <form className="auth__card" onSubmit={submit} noValidate>
-        {cabinet ? (
-          <h2 className="auth__title">Вход</h2>
-        ) : (
         <div className="segmented auth__tabs" role="tablist" aria-label="Вход или регистрация">
           <button type="button" role="tab" aria-selected={!isReg} onClick={() => switchTo('login')}>
             Вход
@@ -93,7 +90,6 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
             Регистрация
           </button>
         </div>
-        )}
 
         {isReg && (
           <>
@@ -136,7 +132,7 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoComplete={cabinet ? 'username' : 'email'}
+            autoComplete="username"
             required
           />
         </label>

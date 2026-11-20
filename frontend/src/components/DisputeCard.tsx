@@ -150,7 +150,7 @@ export function DisputeCard({ r, compact }: { r: ReviewItem; compact?: boolean }
                 <>
                   {s.studentId && (
                     <a className="btn btn--primary" href={href('a', a.id, 's', s.classId, s.studentId)}>
-                      Заменить или добавить фото
+                      Загрузить другой файл
                     </a>
                   )}
                   <button className="btn" onClick={() => resolve(undefined, 'Отмечено')}>

@@ -6,7 +6,7 @@ import { Tabs } from '../ui'
 
 export const STEPS = [
   { id: 'source', label: 'Исходный материал' },
-  { id: 'variants', label: 'Варианты и печать' },
+  { id: 'variants', label: 'Эталонные ответы' },
   { id: 'collect', label: 'Сбор работ' },
   { id: 'queue', label: 'Спорные места' },
   { id: 'sheet', label: 'Ведомость' },

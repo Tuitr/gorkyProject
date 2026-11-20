@@ -1,6 +1,6 @@
 import { CATEGORIES, uid, type Assignment, type ClassGroup, type MistakeCategory, type ReviewItem, type State, type Submission, type TaskResult, type Technique } from '../domain'
-import { CabinetError, listClasses, listStudents, readCheck, type RemoteCheck, type RemoteTaskResult } from './cabinet'
-import { normNum } from './process'
+import { CabinetError, hasResult, listClasses, listStudents, readCheck, reasonText, type RemoteCheckResult, type RemoteTaskResult } from './cabinet'
+import { sameTask } from './tasks'
 
 /** Классы и ученики из кабинета → состояние (id классов и учеников — серверные). */
 export async function pullClasses(): Promise<Omit<ClassGroup, 'ownerId'>[]> {
@@ -33,11 +33,11 @@ const TECH: Record<RemoteTaskResult['method'], Technique> = {
 export function fromRemoteCheck(
   a: Assignment,
   submissionId: string,
-  check: Extract<RemoteCheck, { state: 'ready' }>,
+  check: RemoteCheckResult,
 ): { results: TaskResult[]; summary: string; review: ReviewItem[] } {
   const review: ReviewItem[] = []
   const results = a.tasks.map((t): TaskResult => {
-    const rt = check.taskResults.find((x) => x.taskId === t.id || normNum(x.taskId) === normNum(t.num))
+    const rt = check.taskResults.find((x) => sameTask(x.taskId, t))
     if (!rt) return { taskId: t.id, status: 'missing', answer: 'none', technique: 'not_shown', mistakes: [] }
     const mistakes = rt.issues.map((is) => {
       const cat = is.category as MistakeCategory
@@ -45,7 +45,7 @@ export function fromRemoteCheck(
         id: is.issueId || uid('m'),
         title: is.comment.length > 80 ? `${is.comment.slice(0, 77)}…` : is.comment,
         category: CATEGORIES.includes(cat) ? cat : ('другое' as const),
-        where: is.stepId,
+        where: is.stepId ? `Шаг ${is.stepId}` : '',
         studentAnswer: '—',
         correctSolution: is.correction || '—',
         explanation: is.comment,
@@ -101,10 +101,11 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
   })
   try {
     const c = await readCheck(checkId)
-    if (c.state !== 'ready') {
+    if (!hasResult(c)) {
+      const note = reasonText(c.reason)
       return (s) => {
-        let next = setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: c.reason }))
-        const has = next.review.some((r) => r.submissionId === submissionId && !r.resolved && r.note === c.reason)
+        let next = setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: note }))
+        const has = next.review.some((r) => r.submissionId === submissionId && !r.resolved && r.note === note)
         if (c.state === 'needs_review' && !has)
           next = {
             ...next,
@@ -115,7 +116,7 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
                 submissionId,
                 kind: 'method',
                 page: 0,
-                note: c.reason,
+                note,
                 readings: [],
                 auto: false,
                 resolved: false,
@@ -127,7 +128,7 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
     }
     // та же версия и результаты кабинета на месте — обновляем только отметку публикации
     if (c.resultRev === sub.remote?.resultRev && sub.results.some((r) => r.remote))
-      return (s) => setRemote(s, (r) => ({ ...r, checkState: 'ready', checkReason: undefined, publishedRev: c.publishedResultRev }))
+      return (s) => setRemote(s, (r) => ({ ...r, checkState: c.state, checkReason: undefined, publishedRev: c.publishedResultRev ?? undefined }))
     const out = fromRemoteCheck(a, submissionId, c)
     return (s) => ({
       ...s,
@@ -142,10 +143,10 @@ export async function refreshCheck(st: State, submissionId: string): Promise<((s
               approved: false,
               remote: x.remote && {
                 ...x.remote,
-                checkState: 'ready',
+                checkState: c.state,
                 checkReason: undefined,
                 resultRev: c.resultRev,
-                publishedRev: c.publishedResultRev,
+                publishedRev: c.publishedResultRev ?? undefined,
               },
             },
       ),
