@@ -128,8 +128,8 @@ def testWorkerCheckpointsTasksForThePublishedRevision(
         assert job.completedStage == "assignment_parsed"
         assert job.stageData is not None
         assert job.stageData["tasks"] == [
-            {"taskId": "t1", "taskNumber": "1", "statement": "Первое", "requirements": []},
-            {"taskId": "t2", "taskNumber": "2", "statement": "Второе", "requirements": list(second.requirements)},
+            {"taskId": "t1", "taskNumber": "1", "statement": "Первое", "requirements": [], "constraints": {}},
+            {"taskId": "t2", "taskNumber": "2", "statement": "Второе", "requirements": list(second.requirements), "constraints": {}},
         ]
 
     assert worker.jobs.reschedule(lease, "queued", datetime(2000, 1, 1, tzinfo=UTC))

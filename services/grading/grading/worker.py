@@ -1,24 +1,34 @@
 """Consume grading events and acknowledge them after PostgreSQL commits."""
 
 from collections.abc import Callable
-from dataclasses import asdict
-from datetime import datetime
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
 
 from pydantic import TypeAdapter
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextReader, readAssignment
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
+from grading.references import ReferenceClient
 from grading.stream import StreamConsumer, StreamDelivery
 from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
 from grading.tables import AssignmentJob
 
 parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
 submissionReadingAdapter = TypeAdapter(SubmissionReading)
+referencesAdapter: TypeAdapter[dict[str, ReferenceResult]] = TypeAdapter(dict[str, ReferenceResult])
 SUBMISSION_PARSE_VERSION = 3
+ASSIGNMENT_RECHECK_DELAY = timedelta(seconds=5)
+
+
+@dataclass(frozen=True)
+class PreparedCheck:
+    reading: SubmissionReading
+    references: dict[str, ReferenceResult]
 
 
 class GradingWorker:
@@ -57,7 +67,7 @@ class GradingWorker:
         """Parse a leased assignment and checkpoint the tasks for reference lookup."""
         if isinstance(lease.key, str):
             raise ValueError("expected an assignment preparation job")
-        if lease.completedStage == "assignment_parsed" and lease.stageData is not None:
+        if lease.completedStage in ("assignment_parsed", "requesting_references", "references_requested") and lease.stageData is not None:
             return parsedTasksAdapter.validate_python(lease.stageData["tasks"])
         if lease.completedStage is not None:
             raise ValueError("unexpected checkpoint for assignment parsing")
@@ -66,6 +76,63 @@ class GradingWorker:
         if not self.jobs.checkpoint(lease, "assignment_parsed", {"tasks": [asdict(task) for task in tasks]}):
             raise RuntimeError("assignment lease expired before the parse could be saved")
         return tasks
+
+    def prepareAssignment(
+        self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
+        requestReference: Callable[[ReferenceRequest], ReferenceResult] | None = None,
+    ) -> dict[str, ReferenceResult]:
+        """Register tasks once per published revision and retain partial progress on restart."""
+        if isinstance(lease.key, str):
+            raise ValueError("expected an assignment preparation job")
+        tasks = self.parseAssignment(lease, loadDocument)
+        saved = lease.stageData or {}
+        references = referencesAdapter.validate_python(saved.get("references", {}))
+        data: dict[str, object] = {"tasks": [asdict(task) for task in tasks]}
+        for task in tasks:
+            if task.taskId in references:
+                continue
+            if requestReference is None:
+                requestReference = ReferenceClient.fromEnv().request
+            request = ReferenceRequest(
+                assignmentId=lease.key[0], assignmentRev=lease.key[1], taskId=task.taskId,
+                statement=task.statement, constraints=task.constraints,
+            )
+            references[task.taskId] = requestReference(request)
+            data["references"] = referencesAdapter.dump_python(references, mode="json")
+            if not self.jobs.checkpoint(lease, "requesting_references", data):
+                raise RuntimeError("assignment lease expired before the reference could be saved")
+
+        data["references"] = referencesAdapter.dump_python(references, mode="json")
+        delays = [result.retryAfterS for result in references.values() if result.state == "pending"]
+        if delays:
+            savedProgress = self.jobs.checkpoint(lease, "references_requested", data) and self.jobs.waitForReference(
+                lease, timedelta(seconds=max(1, min(delays))),
+            )
+        else:
+            ready = all(result.state == "ready" for result in references.values())
+            savedProgress = self.jobs.finish(lease, "ready" if ready else "needs_review", "references_requested", data)
+        if not savedProgress:
+            raise RuntimeError("assignment lease expired before preparation was saved")
+        return references
+
+    def prepareCheck(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> PreparedCheck | None:
+        """Use the reference bindings of this revision or release the check until they exist."""
+        if not isinstance(lease.key, str):
+            raise ValueError("expected a submission check job")
+        submitted = AttemptSubmittedInput.model_validate(lease.payload)
+        with Session(self.engine) as session:
+            job = session.get(AssignmentJob, (submitted.assignmentId, submitted.assignmentRev))
+            if job is not None and job.state in ("ready", "needs_review") and job.completedStage == "references_requested":
+                if job.stageData is None:
+                    raise ValueError("missing references for prepared assignment")
+                references = referencesAdapter.validate_python(job.stageData["references"])
+            else:
+                references = None
+        if references is None:
+            if not self.jobs.waitForReference(lease, ASSIGNMENT_RECHECK_DELAY):
+                raise RuntimeError("check lease expired before it could wait for the assignment")
+            return None
+        return PreparedCheck(self.parseSubmissionDetails(lease, loadDocument), references)
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
         return self.parseSubmissionDetails(lease, loadDocument).steps

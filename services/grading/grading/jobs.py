@@ -79,6 +79,10 @@ class JobQueue:
     def reschedule(self, lease: JobLease, state: RetryState, nextAttemptAt: datetime) -> bool:
         return self._write(lease, {"state": state, "nextAttemptAt": nextAttemptAt, "leaseUntil": None})
 
+    def waitForReference(self, lease: JobLease, delay: timedelta) -> bool:
+        now = self.clock() if self.clock is not None else func.clock_timestamp()
+        return self._write(lease, {"state": "waiting_reference", "nextAttemptAt": now + delay, "leaseUntil": None})
+
     def _write(self, lease: JobLease, values: dict[str, object]) -> bool:
         if isinstance(lease.key, str):
             model: JobModel = CheckJob

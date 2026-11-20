@@ -3,8 +3,10 @@
 import hashlib
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
+
+from pydantic import JsonValue
 
 from grading.intake import AssignmentPublishedInput
 from grading.word import W, WordReadError, documentBody, paragraphText
@@ -39,6 +41,7 @@ class AssignmentTask:
     taskNumber: str
     statement: str
     requirements: tuple[str, ...]
+    constraints: dict[str, JsonValue] = field(default_factory=dict)
 
 
 def readAssignment(
