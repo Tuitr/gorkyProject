@@ -1,12 +1,19 @@
-# Local stand: PostgreSQL, Redis Streams and S3-compatible SeaweedFS (A1.1).
-# Start and wait until every service accepts requests:
-#   docker compose -f deploy/compose.yaml up -d --wait
+# Local stand: PostgreSQL, Redis Streams, S3-compatible SeaweedFS (A1.1), the cabinet and its outbox publisher.
+# The default services are what `uv run pytest` needs (the tests reset these schemas):
+#   docker compose -f deploy/compose.yaml up -d --build --wait
+# Profile "full" adds grading (results API and worker), the reference registry and the model gateway, so a
+# teacher's DOCX goes all the way to a result. Use it for the frontend and for manual checks, not under pytest:
+#   docker compose -f deploy/compose.yaml --profile full up -d --build --wait
+# The E2E tests start their own isolated project with this profile (tests/e2e/conftest.py).
+# The gateway answers from recorded fixtures (GATEWAY_TRANSPORT=fixture) unless the shell sets
+# GATEWAY_TRANSPORT=gigachat and GIGACHAT_AUTH_KEY: the stand and CI never pay for the model by default.
 # Ports bind to 127.0.0.1 only and stay below 49152: Windows/Hyper-V often reserves dynamic ports.
 # Addresses and test credentials for clients: .env.example in the repository root. Test credentials only.
 name: gorky
 
 services:
   cabinet:
+    image: gorky-cabinet:dev
     build: &cabinet-build
       context: ..
       dockerfile: deploy/cabinet.Dockerfile
@@ -18,8 +25,8 @@ services:
     environment:
       S3_ENDPOINT_URL: http://seaweedfs:8333
       CABINET_DATABASE_URL: &cabinet-db postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
-      CABINET_GRADING_BASE_URL: ${CABINET_GRADING_BASE_URL:-http://grading:8000}
-      CABINET_GRADING_SERVICE_TOKEN: ${CABINET_GRADING_SERVICE_TOKEN:-}
+      CABINET_GRADING_BASE_URL: http://grading:8000
+      CABINET_GRADING_SERVICE_TOKEN: stand-cabinet-token
     ports:
       - "127.0.0.1:${CABINET_PORT:-18080}:8000"
     healthcheck:
@@ -29,7 +36,86 @@ services:
       retries: 12
       start_period: 10s
 
+  grading:
+    profiles: [full]
+    image: &backend-image gorky-backend:dev
+    build: &backend-build
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    environment:
+      GRADING_DATABASE_URL: &grading-db postgresql+psycopg://gorky_grading:gorky_grading@postgres:5432/gorky?connect_timeout=3
+      # Stand-only token of the cabinet: reads results and reports, applies and publishes teacher edits.
+      GRADING_SERVICE_TOKENS: '{"stand-cabinet-token": {"serviceName": "cabinet", "rights": ["checks.read", "reports.read", "checks.edit", "checks.publish"]}}'
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+    command: ["sh", "-ec", "alembic -c services/grading/alembic.ini upgrade head && exec uvicorn grading.main:createApp --factory --host 0.0.0.0 --port 8000"]
+    healthcheck: &api-health
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/openapi.json', timeout=4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  grading-worker:
+    profiles: [full]
+    image: *backend-image
+    build: *backend-build
+    depends_on:
+      grading:
+        condition: service_healthy
+      references:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      GRADING_DATABASE_URL: *grading-db
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+      GRADING_REFERENCE_URL: http://references:8000
+      GRADING_REFERENCE_TOKEN: stand-grading-token
+      GRADING_GATEWAY_URL: http://gateway:8000
+      GRADING_GATEWAY_TOKEN: stand-grading-token
+    command: ["python", "-m", "grading.runner"]
+    restart: on-failure
+
+  references:
+    profiles: [full]
+    image: *backend-image
+    build: *backend-build
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      REFERENCES_DATABASE_URL: &references-db postgresql+psycopg://gorky_references:gorky_references@postgres:5432/gorky?connect_timeout=3
+      REFERENCES_SERVICE_TOKENS: '{"stand-grading-token": {"serviceName": "grading", "rights": ["references.request"]}}'
+    # The refs schema holds the registry and the gateway tables: this service migrates it for both.
+    command: ["sh", "-ec", "alembic -c services/references/alembic.ini upgrade head && exec uvicorn references.registry.main:createApp --factory --host 0.0.0.0 --port 8000"]
+    healthcheck: *api-health
+
+  gateway:
+    profiles: [full]
+    image: *backend-image
+    build: *backend-build
+    depends_on:
+      references:
+        condition: service_healthy
+    environment:
+      GATEWAY_DATABASE_URL: *references-db
+      GATEWAY_SERVICE_TOKENS: '{"stand-grading-token": {"serviceName": "grading", "rights": ["model.review"]}}'
+      GATEWAY_TRANSPORT: ${GATEWAY_TRANSPORT:-fixture}
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+    command: ["uvicorn", "references.gateway.main:createApp", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck: *api-health
+
   outbox-publisher:
+    image: gorky-cabinet:dev
     build: *cabinet-build
     depends_on:
       cabinet:
@@ -108,8 +194,10 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        printf '%s\n' 's3.bucket.create -name sources' | weed shell -master=seaweedfs:9333
-        wget -q -O /dev/null http://seaweedfs:8888/buckets/sources/
+        for bucket in sources results artifacts; do
+          printf 's3.bucket.create -name %s\n' "$$bucket" | weed shell -master=seaweedfs:9333
+          wget -q -O /dev/null "http://seaweedfs:8888/buckets/$$bucket/"
+        done
 
 volumes:
   postgres-data:
