@@ -6,7 +6,7 @@ import type { Box } from '../types'
  * Ключи добавляет сервер Vite (vite.config.ts), в браузер они не попадают.
  */
 
-const MAX_SIDE = 2000 // OCR не любит огромные снимки; 2000px хватает для текста
+export const MAX_OCR_IMAGE_SIDE = 2000 // OCR не любит огромные снимки; 2000px хватает для текста
 
 export type OcrLine = { text: string; box: Box } // box — в долях от размера фото
 export type OcrResult = { latex: string; lines: OcrLine[] }
@@ -26,7 +26,7 @@ export async function toJpegBase64(src: string, rotation = 0): Promise<string> {
   const img = new Image()
   img.src = src
   await img.decode()
-  const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight))
+  const k = Math.min(1, MAX_OCR_IMAGE_SIDE / Math.max(img.naturalWidth, img.naturalHeight))
   const w = Math.round(img.naturalWidth * k)
   const h = Math.round(img.naturalHeight * k)
   const turned = rotation % 180 !== 0
@@ -78,8 +78,8 @@ function queued<T>(fn: () => Promise<T>): Promise<T> {
 
 const isQuota = (status: number, msg: string) => status === 429 || /quota|rate/i.test(msg)
 
-/** PDF (одна страница) или готовый base64-снимок. */
-export async function recognizeRaw(content: string, mimeType: 'JPEG' | 'PNG' | 'PDF'): Promise<OcrResult> {
+/** Готовое изображение в base64. */
+export async function recognizeRaw(content: string, mimeType: 'JPEG' | 'PNG'): Promise<OcrResult> {
   const body = JSON.stringify({ mimeType, languageCodes: ['ru', 'en'], model: 'math-markdown', content })
   let data: OcrResponse | null = null
   for (let attempt = 0; ; attempt++) {

@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { authPlugin } from './server/auth.ts'
 import { gigachatPlugin } from './server/gigachat.ts'
 import { solverPlugin } from './server/solver.ts'
@@ -42,7 +43,19 @@ export default defineConfig(({ mode }) => {
 
   return {
     // authPlugin — первым: без входа остальные /api/* отвечают 401
-    plugins: [authPlugin(env), react(), gigachatPlugin(env), solverPlugin(env)],
+    plugins: [
+      authPlugin(env),
+      react(),
+      gigachatPlugin(env),
+      solverPlugin(env),
+      viteStaticCopy({
+        targets: [{
+          src: 'node_modules/pdfjs-dist/{cmaps,iccs,standard_fonts,wasm}',
+          dest: 'pdfjs',
+          rename: { stripBase: 2 },
+        }],
+      }),
+    ],
     server: { proxy: ocrProxy },
     preview: { proxy: ocrProxy },
   }

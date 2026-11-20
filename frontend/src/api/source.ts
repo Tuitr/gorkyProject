@@ -1,7 +1,7 @@
 import type { SourceFile, SourceTask } from '../domain'
 import { uid } from '../domain'
 import { latexToText } from '../../server/latexToText'
-import { recognize, recognizeRaw } from './ocr'
+import { recognize } from './ocr'
 
 /** Разбор исходника работы: DOCX — в браузере (mammoth), PDF и фото — через Yandex OCR. */
 
@@ -26,8 +26,8 @@ export async function readSource(file: File): Promise<{ source: SourceFile; text
   }
   const dataUrl = (await readAs(file, 'dataUrl')) as string
   if (/\.pdf$/i.test(name) || file.type === 'application/pdf') {
-    const ocr = await recognizeRaw(dataUrl.split(',')[1], 'PDF')
-    return { source: { name, kind: 'pdf', dataUrl }, text: ocr.lines.map((l) => latexToText(l.text)).join('\n') }
+    const { readPdfText } = await import('./pdf')
+    return { source: { name, kind: 'pdf', dataUrl }, text: await readPdfText(file) }
   }
   if (file.type.startsWith('image/')) {
     const ocr = await recognize(dataUrl)
