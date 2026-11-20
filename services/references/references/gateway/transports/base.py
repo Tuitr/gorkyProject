@@ -4,6 +4,7 @@ A transport only moves text: it does not build prompts, judge answers or validat
 The prompt text comes from developer 2 (promptVersion); taskResult validation is C4.4.
 """
 
+from datetime import datetime
 from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -44,6 +45,8 @@ class ModelCall(BaseModel):
     taskId: NonEmptyStr
     instructions: NonEmptyStr
     data: ReviewData
+    deadline: datetime | None = None
+    """End of the request budget (GATEWAY_REQUEST_BUDGET_S): no wait and no provider call may run past it."""
 
     @property
     def allowedStepIds(self) -> frozenset[str]:

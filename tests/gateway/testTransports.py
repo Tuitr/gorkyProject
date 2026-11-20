@@ -135,7 +135,7 @@ def testInternalIdsStayOutOfTheProviderBody() -> None:
     buildLive(fake).complete(call)
 
     sent = fake.requests[1].content.decode()
-    for internalValue in ('"r1"', '"t1"', '"review.v1"', '"q1"', "referenceId", "taskId", "promptVersion"):
+    for internalValue in ('"r1"', '"t1"', '"review.v2"', '"q1"', "referenceId", "taskId", "promptVersion"):
         assert internalValue not in sent
 
 

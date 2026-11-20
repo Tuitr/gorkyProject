@@ -1,8 +1,8 @@
 """taskResult: the verdict for one task of one attempt.
 
 Owner: developer 2. Consumers: developer 1 (cabinet), developer 3 (model gateway validates the shape).
-DRAFT written by developer 3 from the contracts document so the gateway contract can reference it.
-Developer 2 confirms or changes it; the gateway must not keep its own copy.
+Confirmed: developer 2 adopted it for review (grading/review.py, B4.2) and owns any change from now on.
+The gateway validates model answers against this class and must not keep its own copy.
 
 Answer, reasoning and required method are separate dimensions: a correct answer can come with
 reasoning=not_shown and method=unconfirmed.

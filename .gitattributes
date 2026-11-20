@@ -1,0 +1,5 @@
+# The published dataset is compared byte for byte with the generator output (tests/dataset/testGenerate.py),
+# so Git must not convert line endings there, also with core.autocrlf=true on Windows.
+tools/dataset/releases/** -text
+*.docx binary
+*.zip binary

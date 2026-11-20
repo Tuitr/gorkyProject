@@ -107,7 +107,7 @@ def testRepeatAfterSuccessDoesNotCallTheModel(sessionFactory: sessionmaker[Sessi
     "changes",
     [
         {"steps": [{"stepId": "s1", "markdown": "Ответ: 7"}]},
-        {"promptVersion": "review.v2"},
+        {"promptVersion": "review.v1"},
         {"rubric": []},
         {"reference": {"referenceId": "r2", "schemaId": "scalar.v1", "value": {"exact": "5"}}},
     ],
@@ -146,7 +146,7 @@ def testParallelRepeatWaitsAndModelIsCalledOnce(sessionFactory: sessionmaker[Ses
     assert duplicate.status_code == 503
     assert duplicate.json()["code"] == "unavailable"
     assert duplicate.json()["retryable"] is True
-    assert duplicate.headers["Retry-After"] == "600"
+    assert duplicate.headers["Retry-After"] == "60"
     assert conflicting.status_code == 409
     assert firstResponse.status_code == 200
     assert repeat.json() == firstResponse.json()

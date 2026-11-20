@@ -14,6 +14,7 @@ from references.registry.service import ReferenceService
 from references.registry.store import ReferenceStore
 from references.settings import Settings
 from shared.clock import Clock
+from shared.dotenv import loadDotEnv
 from shared.httperrors import ApiProblem, installErrorHandlers
 from shared.servicetokens import ServiceIdentity, ServiceTokenRegistry, requireRight
 
@@ -31,7 +32,9 @@ def createApp(
     provider: ReferenceProvider | None = None,
     clock: Clock | None = None,
 ) -> FastAPI:
-    settings = settings if settings is not None else Settings.fromEnv()
+    if settings is None:
+        loadDotEnv()
+        settings = Settings.fromEnv()
     if sessionFactory is None:
         sessionFactory = sessionmaker(create_engine(settings.databaseUrl), expire_on_commit=False)
     if provider is None:

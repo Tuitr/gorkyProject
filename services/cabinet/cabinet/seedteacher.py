@@ -15,12 +15,14 @@ from cabinet.main import buildAccounts
 from cabinet.settings import Settings
 from contracts.v1.cabinet.registration import validateEmail
 from shared.clock import SystemClock
+from shared.dotenv import loadDotEnv
 
 DEMO_EMAIL = "teacher.demo@example.org"
 DEMO_NAME = "Демо Учитель"
 
 
 def main() -> int:
+    loadDotEnv()
     password = os.environ.get("CABINET_DEMO_TEACHER_PASSWORD")
     if not password:
         print("Set CABINET_DEMO_TEACHER_PASSWORD (see .env.example)", file=sys.stderr)

@@ -42,7 +42,9 @@ assert ApiError.model_validate_json(wire) == error
 | Redis | `redis://127.0.0.1:16379/0` | `REDIS_PORT` |
 | S3 (SeaweedFS) | `http://127.0.0.1:18333`, ключ администратора `gorky-dev` / `gorky-dev-secret` | `S3_PORT` |
 
-Адреса и тестовые учётные данные для клиентов перечислены в `.env.example`. Внутри сети Compose сервисы доступны
+Адреса и тестовые учётные данные для клиентов перечислены в `.env.example`. Свои значения и секреты кладём в
+`.env` в корне (его нет в git и в образах): сервисы, запущенные из корня через `uvicorn ... --factory` или
+`python -m cabinet.*`, читают его сами, а переменная, уже заданная в сессии, важнее файла. pytest `.env` не читает. Внутри сети Compose сервисы доступны
 по именам `postgres:5432`, `redis:6379`, `seaweedfs:8333`. Ключи S3 задаются в `deploy/seaweedfs/s3.json`.
 
 - Запуск с ожиданием готовности (команда ждёт, пока каждый сервис начнёт принимать запросы): `docker compose -f deploy/compose.yaml up -d --wait`
@@ -176,6 +178,10 @@ uv run python -m dataset.generate --seed 20261120 --out <пустой катал
 - Приёмка стыка воркера № 2 с сервисами № 3 по HTTP: `uv run pytest tests/grading/testServiceHandoff.py`. Реестр и
   шлюз поднимаются в uvicorn с фикстурами, воркер проверяет вариант demo1 мини-набора (готовый результат), ожидание
   pending → ready и ручную проверку с reasonCode. Платный провайдер не вызывается.
+- Живая проверка GigaChat — один платный вызов, по умолчанию пропускается. `GIGACHAT_AUTH_KEY=<ключ>` кладём
+  в свой `.env` в корне или в переменные сессии, в git — никогда. Включатель `GIGACHAT_LIVE_SMOKE=1` задаём только
+  в сессии, чтобы полный прогон не платил: `uv run pytest tests/gateway/testGigaChatLive.py -s`. Тест проверяет вход, TLS, промпт `review.v2` и что ответ —
+  валидный `taskResult`; вердикт только печатается.
 
 ### Мини-набор mini.v1 для разработки и сверки
 

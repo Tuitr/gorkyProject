@@ -11,7 +11,7 @@
     },
     "body": {
       "requestId": "q-failRateLimitedAlways",
-      "promptVersion": "review.v1",
+      "promptVersion": "review.v2",
       "taskId": "failRateLimitedAlways",
       "statement": "Длина вектора (3; 4)",
       "rubric": [

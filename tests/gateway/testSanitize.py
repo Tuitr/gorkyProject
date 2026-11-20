@@ -73,7 +73,7 @@ def testOnlyAllowedFieldsGoOut() -> None:
     sent = json.loads(captureOutgoingBody(call))
 
     assert [message["role"] for message in sent["messages"]] == ["system", "user"]
-    assert sent["messages"][0]["content"] == (PROMPTS_DIR / "review.v1.md").read_text(encoding="utf-8").strip()
+    assert sent["messages"][0]["content"] == (PROMPTS_DIR / "review.v2.md").read_text(encoding="utf-8").strip()
     assert json.loads(sent["messages"][1]["content"]) == {
         "statement": request.statement,
         "rubric": request.rubric,
@@ -173,7 +173,9 @@ def testMathIsSentExactlyAsWritten() -> None:
     assert sent["statement"] == "Найдите длину вектора АВ, если А(1; 2), В(4; 6)"
 
 
-@pytest.mark.parametrize("promptVersion", ["review.v9", "../INDEX", "review", "Review.v1", "review.v1/../x"])
+@pytest.mark.parametrize(
+    "promptVersion", ["review.v1", "review.v9", "../INDEX", "review", "Review.v2", "review.v2/../x"]
+)
 def testUnknownPromptVersionIsRefusedLocally(promptVersion: str) -> None:
     transport = CountingTransport()
 
