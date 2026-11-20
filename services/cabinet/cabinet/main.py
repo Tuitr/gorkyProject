@@ -10,7 +10,7 @@ import uuid
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Query, Request, Response, UploadFile
 from pydantic import Json
 from starlette.datastructures import UploadFile as MultipartFile
 from sqlalchemy import create_engine, delete, select
@@ -26,12 +26,15 @@ from cabinet.bindingconfirmation import confirmBinding
 from cabinet.checks import readGradingCheck, requireOwnedCheck
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.documents import readDocx
+from cabinet.gradingclient import readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
+from cabinet.reports import combineReport, readReportRoster
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
+from contracts.v1.cabinet.reports import AssignmentReport, GradingReport
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
@@ -283,6 +286,28 @@ def createApp(
         with sessionFactory() as db:
             attemptId = requireOwnedCheck(db, checkId, teacher.teacherId)
         return readGradingCheck(settings, checkId, attemptId, getTraceId(request), gradingTransport)
+
+    @v1.get(
+        "/assignments/{assignmentId}/report",
+        responses={
+            401: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError},
+            502: {"model": ApiError}, 503: {"model": ApiError}, 504: {"model": ApiError},
+        },
+    )
+    def readAssignmentReport(
+        assignmentId: str, rev: Annotated[int, Query(ge=1, le=2_147_483_647)], request: Request,
+        teacher: TeacherSession = Depends(currentTeacher),
+    ) -> AssignmentReport:
+        with sessionFactory() as db:
+            classId = requireOwnedAssignment(db, assignmentId, rev, teacher.teacherId)
+        upstream = sendGradingRequest(
+            settings, "GET", f"/internal/v1/assignments/{assignmentId}/report", getTraceId(request), gradingTransport,
+            params={"rev": rev},
+        )
+        summary = readGradingModel(upstream, GradingReport)
+        with sessionFactory() as db:
+            roster, checks = readReportRoster(db, classId, assignmentId, rev)
+        return combineReport(assignmentId, rev, roster, checks, summary)
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

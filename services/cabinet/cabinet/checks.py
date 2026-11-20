@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from cabinet.assignments import AssignmentRecord
 from cabinet.attempts import CheckRecord
 from cabinet.classes import ClassRecord
+from cabinet.gradingclient import invalidGradingResponse, sendGradingRequest
 from cabinet.settings import Settings
 from contracts.v1.common.errors import ApiError
 from contracts.v1.grading.checks import CheckPending, CheckStatus, checkStatusAdapter
-from shared.httperrors import TRACE_HEADER, ApiProblem
+from shared.httperrors import ApiProblem
 
 
 def requireOwnedCheck(db: Session, checkId: str, teacherId: str) -> str:
@@ -35,18 +36,7 @@ def requireOwnedCheck(db: Session, checkId: str, teacherId: str) -> str:
 def readGradingCheck(
     settings: Settings, checkId: str, attemptId: str, traceId: str, transport: httpx.BaseTransport | None = None,
 ) -> CheckStatus:
-    if not settings.gradingServiceToken:
-        raise ApiProblem("unavailable", "Grading service is unavailable")
-    try:
-        with httpx.Client(base_url=settings.gradingBaseUrl, timeout=5, trust_env=False, transport=transport) as client:
-            response = client.get(
-                f"/internal/v1/checks/{checkId}",
-                headers={"Authorization": f"Bearer {settings.gradingServiceToken}", TRACE_HEADER: traceId},
-            )
-    except httpx.TimeoutException:
-        raise ApiProblem("timeout", "Grading service timed out") from None
-    except (httpx.RequestError, httpx.InvalidURL):
-        raise ApiProblem("unavailable", "Grading service is unavailable") from None
+    response = sendGradingRequest(settings, "GET", f"/internal/v1/checks/{checkId}", traceId, transport)
 
     try:
         if response.status_code == 404 and ApiError.model_validate_json(response.content).code == "not_found":
@@ -56,7 +46,7 @@ def readGradingCheck(
             raise ApiProblem("unavailable", "Grading service is unavailable")
         result = checkStatusAdapter.validate_json(response.content)
     except ValidationError:
-        raise ApiProblem("grading_invalid_response", "Invalid response from grading service", status=502) from None
+        raise invalidGradingResponse() from None
     if result.checkId != checkId or result.attemptId != attemptId:
-        raise ApiProblem("grading_invalid_response", "Invalid response from grading service", status=502)
+        raise invalidGradingResponse()
     return result

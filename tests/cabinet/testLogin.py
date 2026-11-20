@@ -33,6 +33,7 @@ from cabinet.assignments import AssignmentRecord, storeAssignment
 from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
+from cabinet.classes import ClassRecord, StudentRecord
 from cabinet.database import allMetadata, buildAlembicConfig
 from cabinet.documents import buildS3Client
 from cabinet.main import buildAccounts, createApp
@@ -984,6 +985,72 @@ def testOnlyOwnerReadsCheckFromGrading(
             s3.delete_object(Bucket=upload.bucket, Key=upload.objectKey)
         for variant in db.scalars(select(AssignmentRecord)):
             s3.delete_object(Bucket=variant.bucket, Key=variant.objectKey)
+
+
+def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    owner = addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.other")
+    classId, assignmentId = (str(uuid.uuid4()) for _ in range(2))
+    with cabinetSessions.begin() as db:
+        db.add(ClassRecord(classId=classId, teacherId=owner, name="8А"))
+        db.flush()
+        db.add(AssignmentRecord(
+            assignmentId=assignmentId, assignmentRev=1, classId=classId, assignmentDate=clock.now().date(),
+            requirements=[], bucket="sources", objectKey="test-variant", sha256="0" * 64,
+        ))
+        for studentId in ("reviewed", "skipped", "waiting", "absent"):
+            db.add(StudentRecord(classId=classId, studentId=studentId, name=studentId))
+        db.flush()
+        for checkId, studentId in (("old", "reviewed"), ("new", "reviewed"), ("skip", "skipped"), ("pending", "waiting")):
+            db.add(AttemptRecord(
+                attemptId=checkId, assignmentId=assignmentId, studentId=studentId, sha256=checkId,
+                bucket="sources", objectKey=f"test-{checkId}", submittedAt=clock.now(),
+            ))
+        db.flush()
+        for checkId in ("old", "new", "skip", "pending"):
+            db.add(CheckRecord(checkId=checkId, attemptId=checkId, assignmentId=assignmentId, assignmentRev=1))
+
+    requested: list[Request] = []
+
+    def summary(request: Request) -> Response:
+        requested.append(request)
+        return Response(200, json={
+            "assignmentId": assignmentId, "assignmentRev": 1,
+            "results": [
+                {"checkId": "new", "studentId": "reviewed", "resultRev": 2},
+                {"checkId": "skip", "studentId": "skipped", "resultRev": 1},
+            ],
+            "tasks": [{"taskId": "1", "correct": 1, "incorrect": 0, "skipped": 1, "issuesByCategory": {"sign": 1}}],
+        })
+
+    app = createApp(
+        replace(Settings.fromEnv(), gradingServiceToken="test-cabinet"), sessionFactory=cabinetSessions,
+        passwords=Passwords(CountingHasher()), clock=clock, gradingTransport=MockTransport(summary),
+    )
+    with TestClient(app, base_url="https://testserver") as client:
+        path = f"/v1/assignments/{assignmentId}/report?rev=1"
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert client.get(path).status_code == 404
+        assert not requested
+
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        report = response.json()
+        assert {student["studentId"] for student in report["students"]} == {"reviewed", "skipped", "waiting", "absent"}
+        assert [student["studentId"] for student in report["notSubmitted"]] == ["absent"]
+        assert [student["studentId"] for student in report["waiting"]] == ["waiting"]
+        assert report["submittedCount"] == 3
+        assert [result["checkId"] for result in report["results"]] == ["new", "skip"]
+        assert report["tasks"] == [{
+            "taskId": "1", "correct": 1, "incorrect": 0, "skipped": 1, "unchecked": 1,
+            "correctShare": 1 / 3, "incorrectShare": 0, "skippedShare": 1 / 3, "issuesByCategory": {"sign": 1},
+        }]
+        assert len(requested) == 1
+        assert requested[0].url.path == f"/internal/v1/assignments/{assignmentId}/report"
+        assert requested[0].url.params["rev"] == "1"
 
 
 def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
