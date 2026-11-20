@@ -85,6 +85,21 @@ class AssignmentReportSnapshot(Base):
     report: Mapped[dict[str, object]] = mapped_column(JSONB)
 
 
+class TeacherReviewEdit(Base):
+    __tablename__ = "teacher_review_edits"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["check_id", "result_rev"],
+            [f"{DB_SCHEMA}.check_result_revisions.check_id", f"{DB_SCHEMA}.check_result_revisions.result_rev"],
+        ),
+    )
+
+    checkId: Mapped[str] = mapped_column("check_id", Text, primary_key=True)
+    editId: Mapped[str] = mapped_column("edit_id", Text, primary_key=True)
+    resultRev: Mapped[int] = mapped_column("result_rev", BigInteger)
+    request: Mapped[dict[str, object]] = mapped_column(JSONB)
+
+
 class InboxEntry(Base):
     __tablename__ = "inbox"
     # An event claims its ID before creating its job. The links are checked at commit.
