@@ -26,15 +26,17 @@ from cabinet.bindingconfirmation import confirmBinding
 from cabinet.checks import readGradingCheck, requireOwnedCheck
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.documents import readDocx
-from cabinet.gradingclient import readGradingModel, sendGradingRequest
+from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.reports import combineReport, readReportRoster
+from cabinet.reviews import loadMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.reports import AssignmentReport, GradingReport
+from contracts.v1.cabinet.reviews import EditReview, PublishedMarkdown, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
@@ -308,6 +310,85 @@ def createApp(
         with sessionFactory() as db:
             roster, checks = readReportRoster(db, classId, assignmentId, rev)
         return combineReport(assignmentId, rev, roster, checks, summary)
+
+    @v1.patch(
+        "/checks/{checkId}/review", response_model=ReviewEdited,
+        responses={
+            401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError},
+            409: {"model": ReviewConflict}, 422: {"model": ApiError}, 502: {"model": ApiError},
+            503: {"model": ApiError}, 504: {"model": ApiError},
+        },
+    )
+    def editCheckReview(
+        checkId: str, body: EditReview, request: Request, teacher: TeacherSession = Depends(currentTeacher),
+    ) -> ReviewEdited | Response:
+        with sessionFactory() as db:
+            requireOwnedCheck(db, checkId, teacher.teacherId)
+        traceId = getTraceId(request)
+        upstream = sendGradingRequest(
+            settings, "PATCH", f"/internal/v1/checks/{checkId}/review", traceId, gradingTransport,
+            body={**body.model_dump(mode="json", exclude_none=True), "actorId": teacher.teacherId},
+        )
+        if upstream.status_code == 409:
+            return reviewConflictResponse(upstream, traceId)
+        receipt = readGradingModel(upstream, ReviewEdited)
+        if receipt.checkId != checkId or receipt.editId != body.editId or receipt.resultRev <= body.baseRev:
+            raise invalidGradingResponse()
+        return receipt
+
+    @v1.post(
+        "/checks/{checkId}/publish", response_model=ReviewRevision,
+        responses={
+            401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError},
+            409: {"model": ReviewConflict}, 422: {"model": ApiError}, 502: {"model": ApiError},
+            503: {"model": ApiError}, 504: {"model": ApiError},
+        },
+    )
+    def publishCheckReview(
+        checkId: str, body: PublishReview, request: Request, teacher: TeacherSession = Depends(currentTeacher),
+    ) -> ReviewRevision | Response:
+        with sessionFactory() as db:
+            requireOwnedCheck(db, checkId, teacher.teacherId)
+        traceId = getTraceId(request)
+        upstream = sendGradingRequest(
+            settings, "POST", f"/internal/v1/checks/{checkId}/publish", traceId, gradingTransport,
+            body={"resultRev": body.resultRev, "actorId": teacher.teacherId},
+        )
+        if upstream.status_code == 409:
+            return reviewConflictResponse(upstream, traceId)
+        receipt = readGradingModel(upstream, ReviewRevision)
+        if (receipt.checkId, receipt.resultRev) != (checkId, body.resultRev):
+            raise invalidGradingResponse()
+        return receipt
+
+    @v1.get(
+        "/checks/{checkId}/markdown", response_class=Response,
+        responses={
+            200: {"content": {"text/markdown": {"schema": {"type": "string"}}}},
+            401: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError},
+            502: {"model": ApiError}, 503: {"model": ApiError}, 504: {"model": ApiError},
+        },
+    )
+    def downloadCheckMarkdown(
+        checkId: str, rev: Annotated[int, Query(ge=1)], request: Request,
+        teacher: TeacherSession = Depends(currentTeacher),
+    ) -> Response:
+        with sessionFactory() as db:
+            requireOwnedCheck(db, checkId, teacher.teacherId)
+        upstream = sendGradingRequest(
+            settings, "GET", f"/internal/v1/checks/{checkId}/markdown", getTraceId(request), gradingTransport,
+            params={"rev": rev},
+        )
+        artifact = readGradingModel(upstream, PublishedMarkdown)
+        if (artifact.checkId, artifact.resultRev) != (checkId, rev):
+            raise invalidGradingResponse()
+        return Response(
+            content=loadMarkdown(settings, artifact.markdownRef), media_type="text/markdown",
+            headers={
+                "Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="feedback-r{rev}.md"',
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

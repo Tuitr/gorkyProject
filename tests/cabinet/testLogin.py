@@ -6,6 +6,7 @@ Tests use a cheap Argon2id (time_cost=1, small memory) so they stay fast; the ty
 import hashlib
 import json
 import logging
+import os
 import uuid
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -42,6 +43,7 @@ from cabinet.settings import DB_SCHEMA, Settings
 from cabinet.uploads import SubmissionDocument, UploadFileRecord, UploadRecord, storeUpload
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE
 from contracts.v1.events.checks import AssignmentPublishedEvent, AttemptSubmittedEvent, TeacherRequirement, checksEventAdapter
+from shared.buckets import RESULTS_BUCKET
 from shared.clock import ManualClock
 
 PASSWORD = "correct horse battery staple"
@@ -1051,6 +1053,100 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
         assert len(requested) == 1
         assert requested[0].url.path == f"/internal/v1/assignments/{assignmentId}/report"
         assert requested[0].url.params["rev"] == "1"
+
+
+@pytest.fixture
+def reviewedCheck(cabinetSessions: sessionmaker[Session], clock: ManualClock) -> tuple[str, str]:
+    owner = addTeacher(cabinetSessions, "teacher.owner")
+    classId, studentId, assignmentId, attemptId, checkId = (str(uuid.uuid4()) for _ in range(5))
+    with cabinetSessions.begin() as db:
+        db.add(ClassRecord(classId=classId, teacherId=owner, name="8А"))
+        db.flush()
+        db.add(StudentRecord(classId=classId, studentId=studentId, name="Иванов Иван"))
+        db.add(AssignmentRecord(
+            classId=classId, assignmentId=assignmentId, assignmentRev=1, assignmentDate=clock.now().date(),
+            requirements=[], bucket="sources", objectKey="test-variant", sha256="0" * 64,
+        ))
+        db.flush()
+        db.add(AttemptRecord(
+            attemptId=attemptId, assignmentId=assignmentId, studentId=studentId, sha256="0" * 64,
+            bucket="sources", objectKey="test-submission", submittedAt=clock.now(),
+        ))
+        db.flush()
+        db.add(CheckRecord(checkId=checkId, attemptId=attemptId, assignmentId=assignmentId, assignmentRev=1))
+    return checkId, owner
+
+
+def testTeacherEditsPublishesAndDownloadsAnExplicitRevision(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+) -> None:
+    checkId, owner = reviewedCheck
+    settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
+    adminSettings = replace(
+        settings, s3AccessKeyId=os.environ.get("S3_ACCESS_KEY_ID", "gorky-dev"),
+        s3SecretAccessKey=os.environ.get("S3_SECRET_ACCESS_KEY", "gorky-dev-secret"),
+    )
+    original = "# Исходный отзыв\n".encode()
+    key = f"review-tests/{checkId}/r1.md"
+    edit = {"baseRev": 1, "editId": "edit-1", "changes": [{"type": "remove_issue", "issueId": "i1"}]}
+
+    def grading(request: Request) -> Response:
+        assert request.headers["Authorization"] == "Bearer test-cabinet"
+        path = f"/internal/v1/checks/{checkId}"
+        if request.method == "PATCH":
+            assert request.url.path == f"{path}/review"
+            body = json.loads(request.content)
+            if body["editId"] == "stale-edit":
+                return Response(409, json={
+                    "code": "conflict", "message": "internal details", "retryable": False,
+                    "traceId": "grading", "resultRev": 2,
+                })
+            assert body == {**edit, "actorId": owner}
+            return Response(200, json={"checkId": checkId, "editId": "edit-1", "resultRev": 2})
+        if request.method == "POST":
+            assert request.url.path == f"{path}/publish"
+            assert json.loads(request.content) == {"resultRev": 1, "actorId": owner}
+            return Response(200, json={"checkId": checkId, "resultRev": 1})
+        assert request.method == "GET" and request.url.path == f"{path}/markdown"
+        if request.url.params["rev"] == "2":
+            return Response(404, json={
+                "code": "not_found", "message": "Revision is a draft", "retryable": False, "traceId": "grading",
+            })
+        assert request.url.params["rev"] == "1"
+        return Response(200, json={
+            "checkId": checkId, "resultRev": 1,
+            "markdownRef": {"bucket": RESULTS_BUCKET, "key": key, "sha256": hashlib.sha256(original).hexdigest()},
+        })
+
+    app = createApp(
+        settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock,
+        gradingTransport=MockTransport(grading),
+    )
+    with TestClient(app, base_url="https://testserver") as client, closing(buildS3Client(adminSettings)) as s3:
+        if RESULTS_BUCKET not in {bucket.get("Name") for bucket in s3.list_buckets().get("Buckets", [])}:
+            s3.create_bucket(Bucket=RESULTS_BUCKET)
+        s3.put_object(Bucket=RESULTS_BUCKET, Key=key, Body=original)
+        try:
+            assert login(client, "teacher.owner", PASSWORD)[0] == 200
+            path = f"/v1/checks/{checkId}"
+            changed = client.patch(f"{path}/review", json=edit)
+            assert changed.status_code == 200, changed.text
+            assert changed.json() == {"checkId": checkId, "editId": "edit-1", "resultRev": 2}
+            stale = client.patch(f"{path}/review", json={**edit, "editId": "stale-edit"})
+            assert stale.status_code == 409 and stale.json()["resultRev"] == 2
+            assert "internal details" not in stale.text
+
+            published = client.post(f"{path}/publish", json={"resultRev": 1})
+            assert published.status_code == 200, published.text
+            assert published.json() == {"checkId": checkId, "resultRev": 1}
+            assert client.get(f"{path}/markdown?rev=2").status_code == 404
+            downloaded = client.get(f"{path}/markdown?rev=1")
+            assert downloaded.status_code == 200, downloaded.text
+            assert downloaded.headers["content-type"].startswith("text/markdown")
+            assert downloaded.headers["content-disposition"].startswith("attachment;")
+            assert downloaded.content == original
+        finally:
+            s3.delete_object(Bucket=RESULTS_BUCKET, Key=key)
 
 
 def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
