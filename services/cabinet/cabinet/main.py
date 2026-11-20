@@ -44,6 +44,7 @@ from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import TeacherRequirement
 from contracts.v1.grading.checks import CheckStatus
 from shared.clock import Clock, SystemClock
+from shared.dotenv import loadDotEnv
 from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
 
 COOKIE = "__Host-cabinet"
@@ -95,7 +96,9 @@ def createApp(
     clock: Clock | None = None,
     gradingTransport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
-    settings = settings if settings is not None else Settings.fromEnv()
+    if settings is None:
+        loadDotEnv()
+        settings = Settings.fromEnv()
     if sessionFactory is None:
         sessionFactory = sessionmaker(create_engine(settings.databaseUrl), expire_on_commit=False)
     sessionClock = clock or SystemClock()

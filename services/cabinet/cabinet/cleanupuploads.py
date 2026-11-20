@@ -15,6 +15,7 @@ from cabinet.documents import buildS3Client
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, lockUploadStorage
 from shared.buckets import SOURCES_BUCKET
+from shared.dotenv import loadDotEnv
 
 LOGGER = logging.getLogger(__name__)
 UUID_KEY = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
@@ -59,6 +60,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("uploadId", help="the UUID in sources/uploads/<uploadId>/")
     args = parser.parse_args()
+    loadDotEnv()
     settings = Settings.fromEnv()
     engine = create_engine(settings.databaseUrl)
     try:

@@ -16,6 +16,7 @@ from cabinet.outbox import OutboxRecord
 from cabinet.settings import Settings
 from contracts.v1.events.checks import DATA_FIELD, STREAM_NAME
 from shared.clock import Clock, SystemClock
+from shared.dotenv import loadDotEnv
 from shared.httperrors import TRACE_ID
 
 LOGGER = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ def runPublisher(
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    loadDotEnv()
     settings = Settings.fromEnv()
     engine = create_engine(settings.databaseUrl, pool_pre_ping=True)
     try:

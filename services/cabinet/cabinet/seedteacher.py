@@ -14,12 +14,14 @@ from cabinet.auth.passwords import Passwords
 from cabinet.main import buildAccounts
 from cabinet.settings import Settings
 from shared.clock import SystemClock
+from shared.dotenv import loadDotEnv
 
 DEMO_LOGIN = "teacher.demo"
 DEMO_NAME = "Демо Учитель"
 
 
 def main() -> int:
+    loadDotEnv()
     password = os.environ.get("CABINET_DEMO_TEACHER_PASSWORD")
     if not password:
         print("Set CABINET_DEMO_TEACHER_PASSWORD (see .env.example)", file=sys.stderr)

@@ -17,6 +17,7 @@ from references.gateway.service import ReviewService
 from references.gateway.settings import GatewaySettings, buildTransport
 from references.gateway.transports.base import GatewayError, ModelTransport
 from shared.clock import Clock, SystemClock
+from shared.dotenv import loadDotEnv
 from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
 from shared.servicetokens import ServiceIdentity, ServiceTokenRegistry, requireRight
 
@@ -38,7 +39,9 @@ def createApp(
     clock: Clock | None = None,
     prompts: PromptCatalog | None = None,
 ) -> FastAPI:
-    settings = settings if settings is not None else GatewaySettings.fromEnv()
+    if settings is None:
+        loadDotEnv()
+        settings = GatewaySettings.fromEnv()
     clock = clock if clock is not None else SystemClock()
     if sessionFactory is None:
         sessionFactory = sessionmaker(create_engine(settings.databaseUrl), expire_on_commit=False)
