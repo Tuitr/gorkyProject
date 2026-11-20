@@ -45,7 +45,7 @@ from contracts.v1.cabinet.reviews import EditReview, PublishReview, ReviewConfli
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
-from contracts.v1.events.checks import TeacherRequirement
+from contracts.v1.events.checks import Subject, TeacherRequirement
 from contracts.v1.grading.assignmentreferences import AssignmentReferences
 from contracts.v1.grading.assignmentreport import AssignmentReport as GradingReport
 from contracts.v1.grading.checks import CheckReady, CheckStatus
@@ -263,14 +263,16 @@ def createApp(
         requirements: Annotated[Json[list[TeacherRequirement]], Form()],
         assignmentDate: Annotated[date | None, Form()] = None,
         assignmentId: Annotated[str | None, Form(min_length=36, max_length=36, pattern=r"^[0-9a-f-]+$")] = None,
+        subject: Annotated[Subject | None, Form()] = None,
         teacher: TeacherSession = Depends(currentTeacher),
         event: EventContext = Depends(eventContext),
     ) -> AssignmentVersion:
+        """subject: math or physics; without it a new assignment is math and a new revision keeps its subject."""
         with sessionFactory.begin() as db:
             requireOwnedClass(db, classId, teacher.teacherId, lockForWrite=True)
             return storeAssignment(
                 db, settings, classId, assignmentId, assignmentDate or event.occurredAt.date(),
-                requirements, readDocx(file), event,
+                requirements, readDocx(file), event, subject,
             )
 
     @v1.post(

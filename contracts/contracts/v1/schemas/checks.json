@@ -66,6 +66,15 @@
           },
           "title": "Requirements",
           "type": "array"
+        },
+        "subject": {
+          "default": "math",
+          "enum": [
+            "math",
+            "physics"
+          ],
+          "title": "Subject",
+          "type": "string"
         }
       },
       "required": [

@@ -4,7 +4,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
-from contracts.v1.events.checks import NonEmptyStr, Revision
+from contracts.v1.events.checks import NonEmptyStr, Revision, Subject
 
 
 class AssignmentVersion(BaseModel):
@@ -16,3 +16,4 @@ class AssignmentVersion(BaseModel):
 
 class AssignmentSummary(AssignmentVersion):
     assignmentDate: date
+    subject: Subject = "math"

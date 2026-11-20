@@ -443,9 +443,9 @@ def testClassAssignmentListUsesLatestActiveRevisions(
     assert listed.status_code == 200
     assert listed.headers["Cache-Control"] == "no-store"
     assert listed.json() == [
-        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11"},
-        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10"},
-        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10"},
+        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11", "subject": "math"},
+        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math"},
+        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10", "subject": "math"},
     ]
     assert client.delete(f"/v1/classes/{classId}").status_code == 204
     missing = client.get(path)
@@ -520,6 +520,47 @@ def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session
                 with closing(s3.get_object(Bucket=version.bucket, Key=version.objectKey)["Body"]) as body:
                     assert body.read() == original
                 assert version.sha256 == hashlib.sha256(original).hexdigest()
+        finally:
+            for version in versions:
+                s3.delete_object(Bucket=version.bucket, Key=version.objectKey)
+
+
+def testPhysicsAssignmentKeepsItsSubject(cabinetSessions: sessionmaker[Session], clock: ManualClock) -> None:
+    """subject chooses the solver and review prompts in grading; a revision without subject keeps it."""
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    document = assignmentDocx("1. Сколько теплоты нужно, чтобы нагреть 2 кг воды на 10 °C?")
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        path = f"/v1/classes/{classId}/assignments"
+
+        unknown = client.post(
+            path, data={"requirements": "[]", "subject": "chemistry"}, files={"file": ("kr.docx", document)},
+        )
+        assert unknown.status_code == 422
+        first = client.post(path, data={"requirements": "[]", "subject": "physics"}, files={"file": ("kr.docx", document)})
+        assert first.status_code == 201, first.text
+        assignmentId = first.json()["assignmentId"]
+        second = client.post(
+            path, data={"requirements": "[]", "assignmentId": assignmentId}, files={"file": ("kr.docx", document)},
+        )
+        assert second.status_code == 201, second.text
+        math = client.post(path, data={"requirements": "[]"}, files={"file": ("math.docx", document)})
+        assert math.status_code == 201, math.text
+
+        listed = {item["assignmentId"]: item["subject"] for item in client.get(path).json()}
+        assert listed == {assignmentId: "physics", math.json()["assignmentId"]: "math"}
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        versions = db.scalars(select(AssignmentRecord).order_by(AssignmentRecord.objectKey)).all()
+        try:
+            events = [row.data["payload"] for row in db.scalars(select(OutboxRecord).order_by(OutboxRecord.sequence))]
+            assert [(event["assignmentRev"], event["subject"]) for event in events] == [  # type: ignore[index]
+                (1, "physics"), (2, "physics"), (1, "math"),
+            ]
         finally:
             for version in versions:
                 s3.delete_object(Bucket=version.bucket, Key=version.objectKey)

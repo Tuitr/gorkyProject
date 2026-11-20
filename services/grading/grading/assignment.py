@@ -11,6 +11,21 @@ from pydantic import JsonValue
 from grading.intake import AssignmentPublishedInput
 from grading.word import W, WordReadError, documentBody, paragraphText
 
+SUBJECT_CONSTRAINT = "subject"
+"""Reference constraint that names a subject other than math, for example {"subject": "physics"}.
+
+Math tasks keep empty constraints, so their reference keys and solvers did not change when physics came."""
+
+
+def subjectConstraints(subject: str) -> dict[str, JsonValue]:
+    return {} if subject == "math" else {SUBJECT_CONSTRAINT: subject}
+
+
+def subjectOf(task: "AssignmentTask") -> str:
+    subject = task.constraints.get(SUBJECT_CONSTRAINT)
+    return subject if isinstance(subject, str) else "math"
+
+
 # A6.2 prints numbers in the main document. Require a boundary so 2.5 stays a number.
 TASK_HEADER = re.compile(r"^(?:Задание\s+)?([1-9][0-9]*)[.)](?:\s+|$)", re.IGNORECASE)
 
@@ -78,6 +93,7 @@ def readAssignment(
             taskNumber=number,
             statement="\n".join(lines),
             requirements=tuple(item.text for item in published.requirements if item.taskNumber in (None, number)),
+            constraints=subjectConstraints(published.subject),
         )
         for number, lines in statements.items()
     )

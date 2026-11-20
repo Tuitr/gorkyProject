@@ -14,7 +14,7 @@ from cabinet.documents import buildS3Client, storeDocx
 from cabinet.outbox import EventContext, enqueueEvent
 from cabinet.settings import Settings
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
-from contracts.v1.events.checks import AssignmentPublishedEvent, AssignmentPublishedPayload, TeacherRequirement
+from contracts.v1.events.checks import AssignmentPublishedEvent, AssignmentPublishedPayload, Subject, TeacherRequirement
 from shared.httperrors import ApiProblem
 
 
@@ -29,6 +29,7 @@ class AssignmentRecord(Base):
     )
     assignmentDate: Mapped[date] = mapped_column("assignment_date", Date)
     requirements: Mapped[list[dict[str, str | None]]] = mapped_column(JSONB)
+    subject: Mapped[str] = mapped_column(String(16), server_default="math")
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     sha256: Mapped[str] = mapped_column(String(64))
@@ -37,19 +38,25 @@ class AssignmentRecord(Base):
 
 def listActiveAssignments(db: Session, classId: str) -> list[AssignmentSummary]:
     latest = (
-        select(AssignmentRecord.assignmentId, AssignmentRecord.assignmentRev, AssignmentRecord.assignmentDate)
+        select(
+            AssignmentRecord.assignmentId, AssignmentRecord.assignmentRev, AssignmentRecord.assignmentDate,
+            AssignmentRecord.subject,
+        )
         .where(AssignmentRecord.classId == classId, AssignmentRecord.deletedAt.is_(None))
         .ext(distinct_on(AssignmentRecord.assignmentId))
         .order_by(AssignmentRecord.assignmentId, AssignmentRecord.assignmentRev.desc())
         .subquery()
     )
     rows = db.execute(
-        select(latest.c.assignmentId, latest.c.assignmentRev, latest.c.assignmentDate)
+        select(latest.c.assignmentId, latest.c.assignmentRev, latest.c.assignmentDate, latest.c.subject)
         .order_by(latest.c.assignmentDate.desc(), latest.c.assignmentId)
     )
     return [
-        AssignmentSummary(assignmentId=assignmentId, assignmentRev=revision, assignmentDate=assignmentDate)
-        for assignmentId, revision, assignmentDate in rows
+        AssignmentSummary(
+            assignmentId=assignmentId, assignmentRev=revision, assignmentDate=assignmentDate,
+            subject="physics" if subject == "physics" else "math",
+        )
+        for assignmentId, revision, assignmentDate, subject in rows
     ]
 
 
@@ -62,7 +69,9 @@ def storeAssignment(
     requirements: list[TeacherRequirement],
     original: bytes,
     eventContext: EventContext,
+    subject: Subject | None = None,
 ) -> AssignmentVersion:
+    """subject None keeps the subject of the previous revision; a new assignment without one is math."""
     if any("\x00" in item.text or "\x00" in (item.taskNumber or "") for item in requirements):
         raise ApiProblem("invalid_input", "Requirements must not contain null characters")
 
@@ -88,6 +97,15 @@ def storeAssignment(
         )
         assert latest is not None
         revision = latest + 1
+        if subject is None:
+            previous = db.scalar(
+                select(AssignmentRecord.subject).where(
+                    AssignmentRecord.assignmentId == assignmentId, AssignmentRecord.assignmentRev == latest,
+                )
+            )
+            subject = "physics" if previous == "physics" else "math"
+    if subject is None:
+        subject = "math"
 
     key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}.docx"
     with closing(buildS3Client(settings)) as client:
@@ -98,6 +116,7 @@ def storeAssignment(
         classId=classId,
         assignmentDate=assignmentDate,
         requirements=[{"text": item.text, "taskNumber": item.taskNumber} for item in requirements],
+        subject=subject,
         bucket=docRef.bucket,
         objectKey=docRef.key,
         sha256=docRef.sha256,
@@ -107,6 +126,7 @@ def storeAssignment(
         traceId=eventContext.traceId, occurredAt=eventContext.occurredAt,
         payload=AssignmentPublishedPayload(
             assignmentId=assignmentId, assignmentRev=revision, docRef=docRef, requirements=requirements,
+            subject=subject,
         ),
     ))
     return AssignmentVersion(assignmentId=assignmentId, assignmentRev=revision)

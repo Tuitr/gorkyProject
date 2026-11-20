@@ -64,6 +64,7 @@ class AssignmentPublishedInput(BaseModel):
     assignmentRev: Revision
     docRef: IncomingDocRef
     requirements: list[IncomingRequirement]
+    subject: Literal["math", "physics"] = "math"
 
 
 class AttemptSubmittedInput(BaseModel):

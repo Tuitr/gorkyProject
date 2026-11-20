@@ -63,6 +63,12 @@ class TeacherRequirement(BaseModel):
     taskNumber: NonEmptyStr | None = None
 
 
+Subject = Literal["math", "physics"]
+"""The school subject of an assignment. It chooses the solver prompt, the reference value schema and the review
+prompt: math gives scalar.v1 answers and review.v2, physics gives quantity.v1 answers (number and unit) and
+review.v3. An event without subject is math, as every assignment published before the field existed."""
+
+
 class AssignmentPublishedPayload(BaseModel):
     """A new revision of an assignment is ready: the worker may parse its tasks and request references."""
 
@@ -72,6 +78,7 @@ class AssignmentPublishedPayload(BaseModel):
     assignmentRev: Revision
     docRef: DocRef
     requirements: list[TeacherRequirement]
+    subject: Subject = "math"
 
 
 class AttemptSubmittedPayload(BaseModel):
