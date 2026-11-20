@@ -8,7 +8,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from contracts.v1.grading.checkresult import CheckOutcome
+from contracts.v1.grading.checkresult import CheckOutcome, PublishedCheck
 from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
@@ -17,12 +17,14 @@ from grading.feedback import composeOverallReview
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
+from grading.markdown import renderCheckMarkdown
+from grading.markdownStorage import MarkdownStorage
 from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
 from grading.results import ResultStore
 from grading.review import PROMPT_VERSION, reviewTasks, sendReview
 from grading.stream import StreamConsumer, StreamDelivery
 from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
-from grading.tables import AssignmentJob
+from grading.tables import AssignmentJob, CheckJob, CheckResultRevision
 
 parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
 submissionReadingAdapter = TypeAdapter(SubmissionReading)
@@ -256,6 +258,34 @@ class GradingWorker:
         if overallReview is None:
             overallReview = composeOverallReview(prepared.tasks, prepared.reading, results, prepared.references)
         return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease)
+
+    def completeCheck(
+        self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], storage: MarkdownStorage, *,
+        transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview,
+    ) -> PublishedCheck | None:
+        """Resume from the stored calculation when an artifact write needs a retry."""
+        draft = self.calculateCheck(lease, loadDocument, transport=transport)
+        if draft is None:
+            return None
+        return self.publishCheckResult(draft.checkId, draft.resultRev, storage)
+
+    def publishCheckResult(self, checkId: str, resultRev: int, storage: MarkdownStorage) -> PublishedCheck:
+        existing = self.results.read(checkId, resultRev, storage.require)
+        if isinstance(existing, PublishedCheck):
+            return existing
+        if existing is None:
+            raise ValueError("no result revision to publish")
+        with Session(self.engine) as session:
+            row = session.get_one(CheckResultRevision, (checkId, resultRev))
+            check = session.get_one(CheckJob, checkId)
+            assignment = session.get_one(AssignmentJob, (check.assignmentId, check.assignmentRev))
+            outcome = CheckOutcome.model_validate(row.outcome)
+            reading = submissionReadingAdapter.validate_python(check.stageData)
+            if assignment.stageData is None:
+                raise ValueError("no parsed assignment for the result revision")
+            tasks = parsedTasksAdapter.validate_python(assignment.stageData["tasks"])
+        ref = storage.save(checkId, resultRev, renderCheckMarkdown(outcome, reading, tasks))
+        return self.results.publish(checkId, resultRev, ref, storage.require)
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
         return self.parseSubmissionDetails(lease, loadDocument).steps

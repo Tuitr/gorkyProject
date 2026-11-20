@@ -1,4 +1,4 @@
-"""Verify the exact Markdown bytes in the grading results bucket."""
+"""Write immutable Markdown and verify its bytes in the results bucket."""
 
 import hashlib
 import os
@@ -45,3 +45,26 @@ class MarkdownStorage:
             raise ArtifactUnavailable("cannot read the result artifact") from error
         if response["ContentLength"] == 0 or digest.hexdigest() != ref.sha256:
             raise ArtifactUnavailable("result artifact bytes differ from the saved reference")
+
+    def save(self, checkId: str, resultRev: int, markdown: str) -> MarkdownRef:
+        if resultRev < 1 or not markdown.strip():
+            raise ValueError("expected a positive revision and non-empty Markdown")
+        body = markdown.encode("utf-8")
+        checkKey = hashlib.sha256(checkId.encode("utf-8")).hexdigest()
+        ref = MarkdownRef(
+            bucket="results", key=f"checks/{checkKey}/{resultRev}.md", sha256=hashlib.sha256(body).hexdigest(),
+        )
+        try:
+            self.client.put_object(
+                Bucket=ref.bucket, Key=ref.key, Body=body, IfNoneMatch="*",
+                ContentType="text/markdown; charset=utf-8",
+                ContentDisposition=f'attachment; filename="review-{resultRev}.md"',
+            )
+        except ClientError as error:
+            if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 412:
+                raise ArtifactUnavailable("cannot write the result artifact") from error
+            # A previous attempt may have uploaded the file before the database commit.
+            self.require(ref)
+        except BotoCoreError as error:
+            raise ArtifactUnavailable("cannot write the result artifact") from error
+        return ref
