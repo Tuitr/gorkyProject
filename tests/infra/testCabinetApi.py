@@ -27,6 +27,11 @@ def testCabinetServesPublicAuthContract() -> None:
             "/v1/assignments/{assignmentId}", "/v1/attempts/{attemptId}",
         ):
             assert "204" in schema["paths"][path]["delete"]["responses"]
+        assignmentList = schema["paths"]["/v1/classes/{classId}/assignments"]["get"]["responses"]
+        assert {"200", "401", "404"} <= assignmentList.keys()
+        assert assignmentList["200"]["content"]["application/json"]["schema"]["items"]["$ref"] == (
+            "#/components/schemas/AssignmentSummary"
+        )
         checks = schema["paths"]["/v1/checks/{checkId}"]["get"]["responses"]
         assert checks["200"]["content"]["application/json"]["schema"]["discriminator"]["propertyName"] == "state"
         for status in ("401", "422", "429"):

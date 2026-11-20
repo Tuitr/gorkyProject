@@ -417,6 +417,39 @@ def assignmentDocx(title: str, *signatures: str) -> bytes:
     return output.getvalue()
 
 
+def testClassAssignmentListUsesLatestActiveRevisions(
+    client: TestClient, cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner@example.org")
+    assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+    classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+    otherClassId = client.post("/v1/classes", json={"name": "8Б"}).json()["classId"]
+    path = f"/v1/classes/{classId}/assignments"
+    first, second, newest, removed, other = (str(uuid.UUID(int=i)) for i in range(1, 6))
+    with cabinetSessions.begin() as db:
+        for assignmentId, revision, day in (
+            (second, 1, 10), (first, 1, 12), (newest, 1, 11), (first, 2, 10), (removed, 1, 13), (other, 1, 14),
+        ):
+            db.add(AssignmentRecord(
+                assignmentId=assignmentId, assignmentRev=revision, assignmentDate=date(2025, 12, day),
+                classId=otherClassId if assignmentId == other else classId,
+                requirements=[], bucket="sources", objectKey=f"{assignmentId}/{revision}", sha256="0" * 64,
+                deletedAt=clock.now() if assignmentId == removed else None,
+            ))
+
+    listed = client.get(path)
+    assert listed.status_code == 200
+    assert listed.headers["Cache-Control"] == "no-store"
+    assert listed.json() == [
+        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11"},
+        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10"},
+        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10"},
+    ]
+    assert client.delete(f"/v1/classes/{classId}").status_code == 204
+    missing = client.get(path)
+    assert missing.status_code == 404 and missing.json()["code"] == "not_found"
+
+
 def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session], clock: ManualClock) -> None:
     addTeacher(cabinetSessions, "teacher.owner@example.org")
     addTeacher(cabinetSessions, "teacher.other@example.org")

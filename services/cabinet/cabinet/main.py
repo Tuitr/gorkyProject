@@ -17,7 +17,9 @@ from sqlalchemy import create_engine, delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from cabinet.assignments import AssignmentRecord, deleteAssignment, requireOwnedAssignment, storeAssignment
+from cabinet.assignments import (
+    AssignmentRecord, deleteAssignment, listActiveAssignments, requireOwnedAssignment, storeAssignment,
+)
 from cabinet.attempts import deleteAttempt
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
@@ -34,7 +36,7 @@ from cabinet.reports import combineReport, deletedReportCheckIds, readReportRost
 from cabinet.reviews import loadMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
-from contracts.v1.cabinet.assignments import AssignmentVersion
+from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.registration import TeacherRegistration
@@ -235,6 +237,12 @@ def createApp(
         with sessionFactory.begin() as db:
             deleteStudent(db, classId, studentId, teacher.teacherId, sessionClock.now())
         return Response(status_code=204)
+
+    @v1.get("/classes/{classId}/assignments", responses={401: {"model": ApiError}, 404: {"model": ApiError}})
+    def listClassAssignments(classId: str, teacher: TeacherSession = Depends(currentTeacher)) -> list[AssignmentSummary]:
+        with sessionFactory() as db:
+            requireOwnedClass(db, classId, teacher.teacherId)
+            return listActiveAssignments(db, classId)
 
     @v1.post(
         "/classes/{classId}/assignments",
