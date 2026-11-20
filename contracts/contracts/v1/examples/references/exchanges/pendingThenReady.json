@@ -1,0 +1,39 @@
+{
+  "description": "The reference is still being prepared: POST answers 202 pending, GET after retryAfterS answers ready with the same referenceId.",
+  "request": {
+    "assignmentId": "demo1",
+    "assignmentRev": 1,
+    "taskId": "t2",
+    "statement": "Длина вектора (6; 8)",
+    "constraints": {}
+  },
+  "steps": [
+    {
+      "waitS": 0,
+      "method": "POST",
+      "path": "/internal/v1/references",
+      "status": 202,
+      "body": {
+        "referenceId": "ref-slow-t2",
+        "state": "pending",
+        "retryAfterS": 10
+      }
+    },
+    {
+      "waitS": 10,
+      "method": "GET",
+      "path": "/internal/v1/references/{referenceId}",
+      "status": 200,
+      "body": {
+        "referenceId": "ref-slow-t2",
+        "state": "ready",
+        "source": "fixture",
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "10"
+        },
+        "solverVersion": null
+      }
+    }
+  ]
+}

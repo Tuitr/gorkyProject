@@ -1,0 +1,28 @@
+{
+  "description": "Open mini set task demo1/1: the registry answers ready at once with the hand-checked value (C5.1).",
+  "request": {
+    "assignmentId": "demo1",
+    "assignmentRev": 1,
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (15; −8).",
+    "constraints": {}
+  },
+  "steps": [
+    {
+      "waitS": 0,
+      "method": "POST",
+      "path": "/internal/v1/references",
+      "status": 200,
+      "body": {
+        "referenceId": "ref-demo1-t1",
+        "state": "ready",
+        "source": "fixture",
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "17"
+        },
+        "solverVersion": null
+      }
+    }
+  ]
+}

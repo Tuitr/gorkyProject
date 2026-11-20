@@ -1,0 +1,38 @@
+{
+  "description": "Answer without steps: answer correct, reasoning not_shown.",
+  "caseId": "demo1Student2Task1",
+  "request": {
+    "requestId": "demo1Student2Task1-review",
+    "promptVersion": "review.v2",
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (15; −8).",
+    "rubric": [],
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: $17$"
+      }
+    ],
+    "reference": {
+      "referenceId": "ref-demo1-t1",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "17"
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "schemaVersion": "taskResult.v1",
+    "taskResult": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "not_shown",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    },
+    "modelId": "fixture",
+    "providerRequestId": null
+  }
+}

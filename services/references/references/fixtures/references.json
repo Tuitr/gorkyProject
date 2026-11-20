@@ -45,5 +45,53 @@
       "state": "validation_failed",
       "reasonCode": "independent_tests_failed"
     }
+  },
+  {
+    "fixtureId": "demo1Task1",
+    "statement": "Найдите длину вектора a⃗ = (15; −8).",
+    "constraints": {},
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "17"
+      }
+    }
+  },
+  {
+    "fixtureId": "demo1Task2",
+    "statement": "Даны векторы a⃗ = (6; −1) и b⃗ = (6; 6). Найдите длину вектора a⃗ + b⃗.",
+    "constraints": {},
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "13"
+      }
+    }
+  },
+  {
+    "fixtureId": "demo1Task3",
+    "statement": "Найдите скалярное произведение векторов a⃗ = (9; −1) и b⃗ = (1; 2).",
+    "constraints": {},
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "7"
+      }
+    }
+  },
+  {
+    "fixtureId": "e2e1Task1",
+    "statement": "Найдите длину вектора a⃗ = (−5; −12).",
+    "constraints": {},
+    "outcome": {
+      "state": "ready",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "13"
+      }
+    }
   }
 ]

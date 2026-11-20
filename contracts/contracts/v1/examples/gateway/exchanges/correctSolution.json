@@ -1,0 +1,46 @@
+{
+  "description": "Full correct solution of demo1/1: answer correct, reasoning valid, free method.",
+  "caseId": "demo1Student1Task1",
+  "request": {
+    "requestId": "demo1Student1Task1-review",
+    "promptVersion": "review.v2",
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (15; −8).",
+    "rubric": [],
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$|\\vec a| = \\sqrt{15^2 + (-8)^2}$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$= \\sqrt{225 + 64} = \\sqrt{289} = 17$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $17$"
+      }
+    ],
+    "reference": {
+      "referenceId": "ref-demo1-t1",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "17"
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "schemaVersion": "taskResult.v1",
+    "taskResult": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    },
+    "modelId": "fixture",
+    "providerRequestId": null
+  }
+}

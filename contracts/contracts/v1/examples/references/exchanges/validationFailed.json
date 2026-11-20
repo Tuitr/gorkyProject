@@ -1,0 +1,34 @@
+{
+  "description": "The candidate reference failed its independent tests: pending first, then validation_failed with reasonCode; the task goes to manual review.",
+  "request": {
+    "assignmentId": "demo1",
+    "assignmentRev": 1,
+    "taskId": "t4",
+    "statement": "Длина вектора (5; 12)",
+    "constraints": {}
+  },
+  "steps": [
+    {
+      "waitS": 0,
+      "method": "POST",
+      "path": "/internal/v1/references",
+      "status": 202,
+      "body": {
+        "referenceId": "ref-failing-t4",
+        "state": "pending",
+        "retryAfterS": 10
+      }
+    },
+    {
+      "waitS": 10,
+      "method": "GET",
+      "path": "/internal/v1/references/{referenceId}",
+      "status": 200,
+      "body": {
+        "referenceId": "ref-failing-t4",
+        "state": "validation_failed",
+        "reasonCode": "independent_tests_failed"
+      }
+    }
+  ]
+}

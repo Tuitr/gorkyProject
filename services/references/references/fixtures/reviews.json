@@ -17,5 +17,217 @@
       "issues": [],
       "needsReview": false
     }
+  },
+  {
+    "fixtureId": "demo1Student1Task1",
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (15; −8).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$|\\vec a| = \\sqrt{15^2 + (-8)^2}$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$= \\sqrt{225 + 64} = \\sqrt{289} = 17$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $17$"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "demo1Student1Task2",
+    "taskId": "t2",
+    "statement": "Даны векторы a⃗ = (6; −1) и b⃗ = (6; 6). Найдите длину вектора a⃗ + b⃗.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$\\vec a + \\vec b = (6 + 6; -1 + 6) = (12; 5)$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$|\\vec a + \\vec b| = \\sqrt{12^2 + 5^2} = \\sqrt{144 + 25} = \\sqrt{169} = 13$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $13$"
+      }
+    ],
+    "content": {
+      "taskId": "t2",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "demo1Student1Task3",
+    "taskId": "t3",
+    "statement": "Найдите скалярное произведение векторов a⃗ = (9; −1) и b⃗ = (1; 2).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$\\vec a \\cdot \\vec b = 9 \\cdot 1 + (-1) \\cdot 2$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$= 9 - 2 = 7$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $7$"
+      }
+    ],
+    "content": {
+      "taskId": "t3",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "demo1Student2Task1",
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (15; −8).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "Ответ: $17$"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "not_shown",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "demo1Student2Task2",
+    "taskId": "t2",
+    "statement": "Даны векторы a⃗ = (6; −1) и b⃗ = (6; 6). Найдите длину вектора a⃗ + b⃗.",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$\\vec a + \\vec b = (6 + 6; -1 + 6) = (12; 6)$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$|\\vec a + \\vec b| = \\sqrt{12^2} + 6^2 = \\sqrt{144 + 36} = \\sqrt{180}$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $\\sqrt{180}$"
+      }
+    ],
+    "content": {
+      "taskId": "t2",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s1",
+          "category": "arithmetic",
+          "comment": "Ошибка в сумме вторых координат: −1 + 6 = 5",
+          "correction": "a⃗ + b⃗ = (12; 5)"
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s2",
+          "category": "notation",
+          "comment": "Корень взят только от первого слагаемого",
+          "correction": "|a⃗ + b⃗| = √(12² + 5²)"
+        },
+        {
+          "issueId": "i3",
+          "stepId": "s3",
+          "category": "answer",
+          "comment": "Неверный ответ из-за ошибки в координатах суммы",
+          "correction": "Ответ: 13",
+          "causedByIssueId": "i1"
+        }
+      ],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "e2e1Student1Task1",
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (−5; −12).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$|\\vec a| = \\sqrt{(-5)^2 + (-12)^2}$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$= \\sqrt{25 + 144} = \\sqrt{169} = 13$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $13$"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "valid",
+      "method": "optional",
+      "issues": [],
+      "needsReview": false
+    }
+  },
+  {
+    "fixtureId": "e2e1Student2Task1",
+    "taskId": "t1",
+    "statement": "Найдите длину вектора a⃗ = (−5; −12).",
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$|\\vec a| = \\sqrt{(-5)^2 + (-12)^2}$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$= \\sqrt{25 + 144} = \\sqrt{169} = \\pm 13$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $13$"
+      }
+    ],
+    "content": {
+      "taskId": "t1",
+      "answer": "correct",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s2",
+          "category": "sign",
+          "comment": "Длина вектора не может быть отрицательной: √169 = 13, знак ± лишний",
+          "correction": "√169 = 13"
+        }
+      ],
+      "needsReview": false
+    }
   }
 ]

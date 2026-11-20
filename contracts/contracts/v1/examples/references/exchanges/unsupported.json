@@ -1,0 +1,23 @@
+{
+  "description": "No solver or fixture for this task: unsupported with reasonCode unknown_task; the task goes to manual review.",
+  "request": {
+    "assignmentId": "demo1",
+    "assignmentRev": 1,
+    "taskId": "t3",
+    "statement": "Найдите угол между векторами a⃗ = (1; 0) и b⃗ = (0; 1).",
+    "constraints": {}
+  },
+  "steps": [
+    {
+      "waitS": 0,
+      "method": "POST",
+      "path": "/internal/v1/references",
+      "status": 200,
+      "body": {
+        "referenceId": "ref-unknown-t3",
+        "state": "unsupported",
+        "reasonCode": "unknown_task"
+      }
+    }
+  ]
+}

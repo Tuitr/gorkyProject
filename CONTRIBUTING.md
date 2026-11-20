@@ -149,6 +149,10 @@ uv run python -m dataset.generate --seed 20261120 --out <пустой катал
   `tests/references/testOpenSetKeys.py` берёт условие из Word-файла, считает значение заново и сравнивает
   манифест с ключами, называя `caseId` расхождения. После смены seed, версии или заданий открытых выборок
   ключи пересчитывают вручную, а не копируют из манифеста.
+- Фикстуры № 3 для открытых выборок (`services/references/references/fixtures/references.json` и `reviews.json`)
+  совпадают с этими ключами и с ответами манифеста. Обмены для № 2 лежат в `contracts/v1/examples/references/exchanges/`
+  и `contracts/v1/examples/gateway/exchanges/`: поставщик прогоняет их через свои маршруты
+  (`tests/references/testServiceFixtures.py`), клиент № 2 читает те же файлы (`tests/grading/testServiceExamples.py`).
 
 ### Мини-набор mini.v1 для разработки и сверки
 

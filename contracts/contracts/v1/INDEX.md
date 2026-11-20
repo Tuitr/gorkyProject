@@ -12,8 +12,8 @@
 | Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | черновик для стыка B5.1 и A7.1. Кабинет читает его через `GET /v1/checks/{checkId}` |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | черновик от № 3, ждёт подтверждения № 2 |
 | Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | `review.v1.md` — черновик от № 3, ждёт № 2 |
-| API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/` | № 3 | № 2 | готово |
-| Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py`, `openapi/gateway.json`, `examples/gateway/` | № 3 | № 2 | готово |
+| API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/`; обмены для № 2 (ready, pending → ready, unsupported, validation_failed) — `examples/references/exchanges/` | № 3 | № 2 | готово |
+| Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py`, `openapi/gateway.json`, `examples/gateway/`; ответы по известным stepId мини-набора — `examples/gateway/exchanges/` | № 3 | № 2 | готово |
 | Управляемые отказы шлюза: 429 и успех, 429 до конца, таймаут, не JSON | `examples/gateway/failures/` (запрос, ответы, число вызовов) | № 3 | № 2 | готово; включаются только `GATEWAY_TRANSPORT=fixture` и `GATEWAY_FAILURE_SCENARIOS=1` |
 | Метаданные версии солвера в S3 `references/solvers/<solverVersion>/` | `references/solverartifact.py`, `examples/solvers/` | № 3 (пишет один раз при публикации) | № 3 (читает); № 2 видит только `solverVersion` | зарезервировано, солверов пока нет |
 

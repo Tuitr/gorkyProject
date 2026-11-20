@@ -1,0 +1,71 @@
+{
+  "description": "Two independent errors and one consequence: i3 points to its root i1 through causedByIssueId.",
+  "caseId": "demo1Student2Task2",
+  "request": {
+    "requestId": "demo1Student2Task2-review",
+    "promptVersion": "review.v2",
+    "taskId": "t2",
+    "statement": "Даны векторы a⃗ = (6; −1) и b⃗ = (6; 6). Найдите длину вектора a⃗ + b⃗.",
+    "rubric": [],
+    "steps": [
+      {
+        "stepId": "s1",
+        "markdown": "$\\vec a + \\vec b = (6 + 6; -1 + 6) = (12; 6)$"
+      },
+      {
+        "stepId": "s2",
+        "markdown": "$|\\vec a + \\vec b| = \\sqrt{12^2} + 6^2 = \\sqrt{144 + 36} = \\sqrt{180}$"
+      },
+      {
+        "stepId": "s3",
+        "markdown": "Ответ: $\\sqrt{180}$"
+      }
+    ],
+    "reference": {
+      "referenceId": "ref-demo1-t2",
+      "schemaId": "scalar.v1",
+      "value": {
+        "exact": "13"
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "schemaVersion": "taskResult.v1",
+    "taskResult": {
+      "taskId": "t2",
+      "answer": "incorrect",
+      "reasoning": "invalid",
+      "method": "optional",
+      "issues": [
+        {
+          "issueId": "i1",
+          "stepId": "s1",
+          "category": "arithmetic",
+          "comment": "Ошибка в сумме вторых координат: −1 + 6 = 5",
+          "correction": "a⃗ + b⃗ = (12; 5)",
+          "causedByIssueId": null
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s2",
+          "category": "notation",
+          "comment": "Корень взят только от первого слагаемого",
+          "correction": "|a⃗ + b⃗| = √(12² + 5²)",
+          "causedByIssueId": null
+        },
+        {
+          "issueId": "i3",
+          "stepId": "s3",
+          "category": "answer",
+          "comment": "Неверный ответ из-за ошибки в координатах суммы",
+          "correction": "Ответ: 13",
+          "causedByIssueId": "i1"
+        }
+      ],
+      "needsReview": false
+    },
+    "modelId": "fixture",
+    "providerRequestId": null
+  }
+}
