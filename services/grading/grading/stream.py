@@ -72,6 +72,9 @@ class StreamConsumer:
         logger.info("Validated grading event messageId=%s traceId=%.128r type=%s", messageId, event.traceId, event.type)
         return StreamDelivery(messageId=messageId, event=event)
 
+    def acknowledge(self, messageId: str) -> None:
+        self.client.xack(self.streamName, CONSUMER_GROUP, messageId)
+
     def _reject(self, messageId: str, reason: str, traceId: str | None = None) -> None:
         logger.warning("Rejected grading entry messageId=%s reason=%s traceId=%.128r", messageId, reason, traceId)
-        self.client.xack(self.streamName, CONSUMER_GROUP, messageId)
+        self.acknowledge(messageId)
