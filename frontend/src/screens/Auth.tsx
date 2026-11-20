@@ -72,7 +72,6 @@ function AuthScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
           &gt;_
         </span>
         <b>Spirit Code</b>
-        <span className="muted">· Проверка работ</span>
       </div>
 
       <form className="auth__card" onSubmit={submit} noValidate>

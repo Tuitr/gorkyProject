@@ -3,7 +3,6 @@ import './App.css'
 import './mvp.css'
 import { href, useRoute } from './router'
 import { shortName, useStore } from './store'
-import { Donut } from './ui'
 import { AssignmentForm } from './screens/AssignmentForm'
 import { ClassReport } from './screens/ClassReport'
 import { Classes } from './screens/Classes'
@@ -62,9 +61,6 @@ export default function App() {
   if (path[0] === 'print') return <PrintView path={path.slice(1)} />
 
   const open = state.review.filter((r) => !r.resolved).length
-  const handed = state.submissions.filter((s) => s.pages.length && s.status !== 'none')
-  const processed = handed.filter((s) => s.status === 'processed').length
-  const approved = handed.filter((s) => s.approved).length
   const section = path[0] === 'a' || path[0] === 'new' ? '' : (path[0] ?? '')
   const link = (to: string, label: string, extra?: ReactNode) => (
     <a
@@ -84,7 +80,7 @@ export default function App() {
           <span className="logo__mark" aria-hidden="true">
             &gt;_
           </span>
-          Spirit Code <span className="logo__sub">· Проверка работ</span>
+          Spirit Code
         </a>
         <nav className="shell__nav" aria-label="Основная навигация">
           {link('', 'Работы')}
@@ -92,18 +88,6 @@ export default function App() {
           {link('queue', 'Спорные места', open ? <span className="count">{open}</span> : null)}
         </nav>
         <div className="shell__user">
-          <div
-            className="shell__progress"
-            title={`Проверено ${processed} из ${handed.length} сданных работ, утверждено ${approved}`}
-          >
-            <Donut done={processed} total={handed.length} size={30} bare label={`Проверено ${processed} из ${handed.length}`} />
-            <span>
-              <b>
-                {processed} из {handed.length}
-              </b>{' '}
-              проверено
-            </span>
-          </div>
           <a
             href={href('quick')}
             className={`shell__quiet${section === 'quick' ? ' is-active' : ''}`}
