@@ -6,11 +6,13 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import Engine, create_engine
 
+from contracts.v1.grading.assignmentreferences import AssignmentReferences
 from contracts.v1.grading.assignmentreport import AssignmentReport
 from contracts.v1.grading.checkresult import CheckStatus, PublishedCheck
 from contracts.v1.grading.reviewedit import RESULT_REV_HEADER, ReviewEditReceipt, ReviewEditRequest
 from contracts.v1.grading.reviewpublication import PublishReviewReceipt, PublishReviewRequest
 from grading.markdownStorage import MarkdownStorage
+from grading.referenceView import ReferenceReader
 from grading.reports import ReportStore
 from grading.resultArtifacts import publishResultArtifact
 from grading.results import ArtifactUnavailable, ResultStore
@@ -26,6 +28,7 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
     database = engine if engine is not None else create_engine(settings.databaseUrl, hide_parameters=True)
     store = ResultStore(database)
     reports = ReportStore(database)
+    referenceReader = ReferenceReader(database)
     editor = ReviewEditor(database)
     markdown = storage if storage is not None else MarkdownStorage.fromEnv()
     app = FastAPI(title="Grading Results API", version="1.0.0")
@@ -54,6 +57,14 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
         if report is None:
             raise ApiProblem("not_found", "Assignment or report snapshot not found")
         return report
+
+    @app.get("/internal/v1/assignments/{id}/references")
+    def getReferences(id: str, caller: Annotated[ServiceIdentity, Depends(requireRight("checks.read"))],
+                      assignmentRev: Annotated[int | None, Query(ge=1)] = None) -> AssignmentReferences:
+        references = referenceReader.read(id, assignmentRev)
+        if references is None:
+            raise ApiProblem("not_found", "Assignment revision not found")
+        return references
 
     @app.patch("/internal/v1/checks/{id}/review", response_model=ReviewEditReceipt)
     def editReview(id: str, edit: ReviewEditRequest, request: Request,

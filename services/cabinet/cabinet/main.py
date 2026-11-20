@@ -46,6 +46,7 @@ from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import TeacherRequirement
+from contracts.v1.grading.assignmentreferences import AssignmentReferences
 from contracts.v1.grading.assignmentreport import AssignmentReport as GradingReport
 from contracts.v1.grading.checks import CheckReady, CheckStatus
 from shared.clock import Clock, SystemClock
@@ -390,6 +391,33 @@ def createApp(
         with sessionFactory() as db:
             roster, checks = readReportRoster(db, classId, assignmentId, rev)
         return combineReport(assignmentId, rev, roster, checks, summary)
+
+    @v1.get(
+        "/assignments/{assignmentId}/references",
+        responses={
+            401: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError},
+            502: {"model": ApiError}, 503: {"model": ApiError}, 504: {"model": ApiError},
+        },
+    )
+    def readAssignmentReferences(
+        assignmentId: str, rev: Annotated[int, Query(ge=1, le=2_147_483_647)], request: Request,
+        teacher: TeacherSession = Depends(currentTeacher),
+    ) -> AssignmentReferences:
+        """Reference answers grading checks this revision against (reference registry of developer 3)."""
+        with sessionFactory() as db:
+            requireOwnedAssignment(db, assignmentId, rev, teacher.teacherId)
+        upstream = sendGradingRequest(
+            settings, "GET", f"/internal/v1/assignments/{assignmentId}/references", getTraceId(request),
+            gradingTransport, params={"assignmentRev": rev},
+        )
+        if upstream.status_code == 404 and upstream.headers.get("content-type", "").startswith("application/json") \
+                and upstream.json().get("code") == "not_found":
+            # The outbox has not delivered this revision to grading yet.
+            return AssignmentReferences(assignmentId=assignmentId, assignmentRev=rev, state="queued", tasks=[])
+        references = readGradingModel(upstream, AssignmentReferences)
+        if (references.assignmentId, references.assignmentRev) != (assignmentId, rev):
+            raise invalidGradingResponse()
+        return references
 
     @v1.patch(
         "/checks/{checkId}/review", response_model=ReviewEdited,

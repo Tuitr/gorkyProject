@@ -1722,3 +1722,43 @@ def testOutboxRollsBackWithDomainRecordsAndBackfillsExistingChecks(
         finally:
             for bucket, key in refs:
                 s3.delete_object(Bucket=bucket, Key=key)
+
+
+def testTeacherSeesTheReferenceAnswersOfAnAssignment(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+) -> None:
+    checkId, _ = reviewedCheck
+    addTeacher(cabinetSessions, "teacher.other@example.org")
+    with cabinetSessions() as db:
+        assignmentId = db.execute(select(CheckRecord.assignmentId).where(CheckRecord.checkId == checkId)).scalar_one()
+    ready = {"assignmentId": assignmentId, "assignmentRev": 1, "state": "ready", "tasks": [
+        {"taskId": "t1", "taskNumber": "1", "statement": "Найдите длину вектора (5; 12).", "state": "ready",
+         "answer": "13", "schemaId": "scalar.v1", "value": {"exact": "13"}, "reasonCode": None},
+    ]}
+    replies = [Response(404, json={"code": "not_found", "message": "-", "retryable": False, "traceId": "g"}),
+               Response(200, json=ready), Response(200, json={**ready, "assignmentRev": 2})]
+    requests: list[Request] = []
+
+    def grading(request: Request) -> Response:
+        requests.append(request)
+        return replies.pop(0)
+
+    app = createApp(
+        replace(Settings.fromEnv(), gradingServiceToken="test-cabinet"), sessionFactory=cabinetSessions,
+        passwords=Passwords(CountingHasher()), clock=clock, gradingTransport=MockTransport(grading),
+    )
+    path = f"/v1/assignments/{assignmentId}/references?rev=1"
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.other@example.org", PASSWORD)[0] == 200
+        assert client.get(path).status_code == 404 and not requests
+
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        waiting = client.get(path)
+        assert waiting.status_code == 200 and waiting.json() == {
+            "assignmentId": assignmentId, "assignmentRev": 1, "state": "queued", "tasks": [],
+        }
+        assert client.get(path).json() == ready
+        assert client.get(path).status_code == 502, "another revision from grading is refused"
+    assert {(request.url.path, request.url.params["assignmentRev"]) for request in requests} == {
+        (f"/internal/v1/assignments/{assignmentId}/references", "1"),
+    }

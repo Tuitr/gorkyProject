@@ -22,20 +22,25 @@ import pytest
 import uvicorn
 from botocore.client import Config
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from contracts.v1.events.checks import DATA_FIELD
+from contracts.v1.grading.assignmentreferences import AssignmentReferences
 from contracts.v1.grading.checkresult import PublishedCheck
 from dataset.generate import DEFAULT_SEED, GeneratedDataset, generateDataset
 from grading.intake import IncomingDocRef
+from grading.main import createApp as createGradingApi
 from grading.markdownStorage import MarkdownStorage
+from grading.referenceView import ReferenceReader
 from grading.results import ResultStore
 from grading.runner import GradingRunner, isLeaseLost, isPermanent
 from grading.sources import SourceChanged, SourceDocuments, SourceUnavailable
 from grading.stream import StreamConsumer
 from grading.tables import AssignmentJob, CheckJob
+from grading.settings import Settings as GradingSettings
 from grading.worker import GradingWorker
 from references.gateway.main import createApp as createGateway
 from references.gateway.settings import GatewaySettings
@@ -195,6 +200,22 @@ def testWorkerPublishesBothDemoChecks(
         assert jobState(gradingEngine, checkId) == published.state
     assert not runner.attempts
 
+    # The teacher sees the reference answers of the registry through the results API.
+    api = TestClient(createGradingApi(
+        GradingSettings(serviceTokensJson=json.dumps({"cabinet": {"serviceName": "cabinet", "rights": ["checks.read"]}})),
+        engine=gradingEngine, storage=storage,
+    ))
+    url = f"/internal/v1/assignments/{events.assignmentId}/references"
+    shown = api.get(url, params={"assignmentRev": 1}, headers={"Authorization": "Bearer cabinet"})
+    assert shown.status_code == 200, shown.text
+    references = AssignmentReferences.model_validate(shown.json())
+    assert references.state == "ready"
+    assert {task.taskId: (task.state, task.answer) for task in references.tasks} == {
+        "t1": ("ready", "17"), "t2": ("ready", "13"), "t3": ("ready", "7"),
+    }
+    assert api.get(url, params={"assignmentRev": 2}, headers={"Authorization": "Bearer cabinet"}).status_code == 404
+    assert api.get(url).status_code == 401
+
 
 def testUnreadableAssignmentSendsItsChecksToTheTeacher(
     gradingEngine: Engine, gradingStream: tuple[Redis, str], services: FixtureTransport, storage: MarkdownStorage,
@@ -213,6 +234,8 @@ def testUnreadableAssignmentSendsItsChecksToTheTeacher(
     assert assignment.stageData == {"error": "AssignmentReadError", "attempts": 1}
     assert check.completedStage == "assignment_failed"
     assert services.calls == []
+    failed = ReferenceReader(gradingEngine).read(events.assignmentId, 1)
+    assert failed is not None and (failed.state, failed.tasks) == ("failed", [])
 
 
 def testTemporaryFailureRepeatsThenGivesUp(

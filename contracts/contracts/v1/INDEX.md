@@ -146,6 +146,14 @@
 Недоступность `grading` даёт `503`, таймаут запроса — `504`, невалидный ответ или несовпадение `checkId`
 либо `attemptId` — `502` с кодом `grading_invalid_response`. Кабинет передаёт `X-Trace-Id` в `grading`.
 
+### Эталонные ответы варианта
+
+`GET /v1/assignments/{assignmentId}/references?rev=N` проверяет владельца ревизии и возвращает тело
+`GET /internal/v1/assignments/{assignmentId}/references?assignmentRev=N` (право `checks.read`, модель
+`grading/assignmentreferences.py`): состояние подготовки варианта и по каждому заданию номер, условие и эталон
+реестра № 3. Готовый `scalar.v1` дублируется строкой `answer`; не готовый эталон называет `state` и `reasonCode`.
+Пока `grading` не получил ревизию, кабинет отвечает `state: queued` без заданий.
+
 ### Отчёт по классу
 
 `GET /v1/assignments/{assignmentId}/report?rev=N` проверяет владельца ревизии варианта `N` и читает

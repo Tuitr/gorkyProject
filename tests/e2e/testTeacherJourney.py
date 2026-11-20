@@ -273,6 +273,16 @@ def testTeacherChecksCorrectsAndDownloadsFeedback(e2eStand: str) -> None:
             journey.at("E3.1", checkId)
             checks[studentId] = waitForCheck(journey, checkId, lambda check: check["state"] == "ready")
 
+        journey.at("E3.1", "references")
+
+        def preparedReferences() -> dict[str, Any] | None:
+            shown: dict[str, Any] = journey.expect(200, "GET", f"/v1/assignments/{assignmentId}/references",
+                                                   params={"rev": assignmentRev})
+            return shown if shown["state"] in ("ready", "needs_review", "failed") else None
+
+        shownReferences = journey.until("the reference answers", preparedReferences)
+        assert [(task["state"], task["answer"]) for task in shownReferences["tasks"]] == [("ready", "13")]
+
         journey.at("E3.2")
         cleanCheck, flaggedCheck = checks[cleanId], checks[flaggedId]
         for check, case in ((cleanCheck, clean), (flaggedCheck, flagged)):
