@@ -87,8 +87,13 @@ assert ApiError.model_validate_json(wire) == error
 
 Фронтенду доступны [Swagger UI](http://127.0.0.1:18080/docs) и [OpenAPI](http://127.0.0.1:18080/openapi.json).
 Публичные операции начинаются с `/v1`. В сети Compose адрес кабинета для других сервисов — `http://cabinet:8000`.
-Для подключения следующих сервисов зарезервированы имена `grading:8000`, `references:8000` и `gateway:8000`.
-Они появятся в сети по мере добавления соответствующих сервисов в Compose.
+
+Стенд по умолчанию — хранилища, кабинет и outbox publisher: его используют тесты, которые очищают схемы сервисов.
+Профиль `full` добавляет `grading:8000` (API результатов), `grading-worker`, `references:8000` и `gateway:8000`,
+и загруженный учителем DOCX доходит до результата и Markdown:
+`docker compose -f deploy/compose.yaml --profile full up -d --build --wait`. На нём работают фронтенд и ручные
+проверки. Под pytest полный профиль не держим: воркер стенда разбирал бы задания тестов `tests/grading`.
+Шлюз отвечает записанными fixture, пока в сессии не заданы `GATEWAY_TRANSPORT=gigachat` и `GIGACHAT_AUTH_KEY`.
 
 Пример ответа `401` на `POST /v1/sessions`:
 
@@ -215,10 +220,12 @@ uv run python -m dataset.generate --seed 20261120 --out <пустой катал
   Пропуск таких тестов не допускается.
 - Строгая типизация: `uv run mypy` (настройки и список целей в корневом `pyproject.toml`).
 
-При пуше в `stepan` GitHub Actions поднимает отдельный Compose-проект с динамическими портами.
-Workflow [Cabinet checks](.github/workflows/cabinet.yml) запускает mypy, тесты кабинета и контрактов,
-затем HTTP-сценарий с передачей через Redis и S3. По завершении удаляются контейнеры и тома текущего запуска.
-Приёмку отчётов, правок и Markdown выполняют на стенде с `grading`.
+При пуше и pull request в `main` workflow [Backend checks](.github/workflows/backend.yml) поднимает отдельный
+Compose-проект с динамическими портами и выполняет три обязательные стадии: строгий mypy, все тесты кроме
+сквозного (`-m "not e2e"`), затем сквозной сценарий (`-m e2e`) на своём изолированном полном стенде.
+Отдельный шаг проверяет по JUnit-отчёту, что сценарий выполнен и не пропущен. Отчёты `reports/*.xml`,
+цепочка идентификаторов `reports/e2e-journey.json` и при сбое логи сервисов `reports/e2e-stand.log`
+сохраняются артефактом `backend-test-reports`. По завершении удаляются контейнеры и тома только этого запуска.
 
 ### Быстрые и сквозные проверки
 
@@ -233,14 +240,38 @@ Workflow [Cabinet checks](.github/workflows/cabinet.yml) запускает mypy
 перед коммитом.
 
 Маркер `e2e` зарегистрирован в `pyproject.toml`; из-за `--strict-markers` опечатка в имени маркера роняет сбор.
-Пока сценария нет, `uv run pytest -m e2e` выбирает ноль тестов — пустой зелёный тест-заглушку не добавляем.
 
-Будущий E2E (шаги E1–E5):
+### Сквозной сценарий E2E
 
-- лежит в `tests/e2e/`, каждый тест помечен `@pytest.mark.e2e` (или `pytestmark = pytest.mark.e2e` на модуль);
-- работает с поднятым стендом Compose через настоящий HTTP, Redis, PostgreSQL и S3;
-- при недоступном стенде падает с подсказкой команды запуска, как тесты реестра эталонов;
-- не исключается через `addopts`, `-m` по умолчанию, `skip` или `skipif`.
+`tests/e2e/testTeacherJourney.py` проходит путь учителя по публичному `/v1`: регистрация и вход, класс и два
+ученика, вариант и ZIP открытого набора `mini.v1` (`e2e1`), привязка работ, повторная загрузка того же DOCX,
+результаты проверки, отчёт по классу, правка учителя и её повтор, публикация и скачивание Markdown. Внутри
+работают настоящие кабинет, outbox, Redis, воркер `grading`, реестр эталонов, шлюз (fixture, без платной
+модели), PostgreSQL и S3.
+
+Фикстура `e2eStand` (`tests/e2e/conftest.py`) сама поднимает отдельный Compose-проект `gorky-e2e-<id>` с
+профилем `full`, своими томами и свободными портами, ждёт готовности и удаляет его после прогона. Поэтому
+сценарий не видит стенд разработчика и старые результаты, а два запуска не делят данные. Нужен Docker.
+
+| Задача | Команда |
+|---|---|
+| Воспроизвести проверку целиком (как CI) | `docker compose -f deploy/compose.yaml up -d --build --wait`, затем `uv run mypy` и `uv run pytest` |
+| Только сценарий | `uv run pytest -m e2e -rs` |
+| Не пересобирать образы `gorky-*:dev` | `E2E_BUILD=0 uv run pytest -m e2e` |
+| Оставить стенд сценария для разбора | `E2E_KEEP=1 uv run pytest -m e2e -s` |
+| Сценарий на уже поднятом полном стенде | `E2E_CABINET_URL=http://127.0.0.1:18080 uv run pytest -m e2e` |
+
+В итоге прогона не должно быть `skipped` для этого сценария. Где искать последний этап сбоя:
+
+1. Сообщение теста начинается с `E2E step E…` и содержит последний HTTP-статус, `traceId`, `checkId`,
+   наблюдаемое состояние проверки и имя Compose-проекта. Токенов, cookie и текста решений в нём нет.
+2. Каждый запрос сценария идёт со своим `X-Trace-Id` (`e2e-…`). Кабинет передаёт его в `grading`, событие
+   `checks.v1` несёт его в `traceId`: `docker compose -p <project> --profile full logs cabinet grading-worker | grep <traceId>`.
+3. Этап проверки виден по `checkId`: `GET /v1/checks/<checkId>` даёт `state` и `reason`, а в базе —
+   `grading.check_jobs.state` и `completed_stage`; ошибки воркера пишутся в лог `grading-worker` с `traceId`.
+4. Ответ шлюза — лог `gateway` (события `review.*` с `requestId` и `traceId`), эталон — лог `references`.
+
+Протокол совместной приёмки: [docs/acceptance/backend.md](docs/acceptance/backend.md).
 
 ## Коммиты
 
