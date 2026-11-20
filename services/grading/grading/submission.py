@@ -8,6 +8,7 @@ from typing import Literal
 from xml.etree.ElementTree import Element
 
 from grading.assignment import AssignmentTask
+from grading.formulas import MathParagraph, ReadStatus
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
 from grading.word import W, WordReadError, documentBody, paragraphText
 
@@ -26,13 +27,14 @@ class CellAddress:
 
 @dataclass(frozen=True)
 class SourceAnchor:
-    """Paragraph index within its container and half-open Unicode character offsets."""
+    """Half-open source offsets. The mathObjects projection counts each OMML equation as one character."""
 
     docRef: IncomingDocRef
     cells: tuple[CellAddress, ...]
     paragraphIndex: int
     start: int
     end: int
+    projection: Literal["text", "mathObjects"] = "text"
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,7 @@ class SolutionStep:
     stepId: str
     markdown: str
     sourceAnchor: SourceAnchor
-    readStatus: Literal["read"]
+    readStatus: ReadStatus
 
 
 def verifiedBody(document: bytes, ref: IncomingDocRef) -> Element:
@@ -74,16 +76,31 @@ def childAt(parent: Element, name: str, index: int) -> Element:
     return children[index]
 
 
-def resolveAnchor(document: bytes, anchor: SourceAnchor) -> str:
+def anchoredParagraph(document: bytes, anchor: SourceAnchor) -> Element:
     container = verifiedBody(document, anchor.docRef)
     for address in anchor.cells:
         table = childAt(container, "tbl", address.table)
         row = childAt(table, "tr", address.row)
         container = childAt(row, "tc", address.cell)
-    raw = paragraphText(childAt(container, "p", anchor.paragraphIndex))
+    return childAt(container, "p", anchor.paragraphIndex)
+
+
+def resolveAnchor(document: bytes, anchor: SourceAnchor) -> str:
+    paragraph = anchoredParagraph(document, anchor)
+    raw = MathParagraph.fromWord(paragraph).source if anchor.projection == "mathObjects" else paragraphText(paragraph)
     if not 0 <= anchor.start < anchor.end <= len(raw):
         raise WordReadError("source anchor points outside the paragraph")
     return raw[anchor.start:anchor.end]
+
+
+def resolveEquations(document: bytes, anchor: SourceAnchor) -> tuple[Element, ...]:
+    """Return the original equation subtrees in this fragment, including unsupported structures."""
+    if anchor.projection == "text":
+        return ()
+    paragraph = MathParagraph.fromWord(anchoredParagraph(document, anchor))
+    if not 0 <= anchor.start < anchor.end <= len(paragraph.source):
+        raise WordReadError("source anchor points outside the paragraph")
+    return tuple(eq for pos, eq in paragraph.objects.items() if anchor.start <= pos < anchor.end)
 
 
 def readSubmission(
@@ -95,7 +112,8 @@ def readSubmission(
     counts: dict[str, int] = {}
     steps = []
     for cells, index, paragraph in locatedParagraphs(body):
-        raw = paragraphText(paragraph)
+        content = MathParagraph.fromWord(paragraph)
+        raw = content.source
         for line in TEXT_LINE.finditer(raw):
             start, end = line.span()
             heading = TASK_HEADING.match(line.group())
@@ -106,13 +124,13 @@ def readSubmission(
                 start += heading.end()
                 if raw[start:end].strip() == current.statement:
                     continue
-            markdown = raw[start:end].strip()
-            if current is None or not markdown:
+            if current is None or not raw[start:end].strip():
                 continue
+            markdown, status = content.render(start, end)
             ordinal = counts.get(current.taskId, 0) + 1
             counts[current.taskId] = ordinal
-            anchor = SourceAnchor(submitted.docRef, cells, index, start, end)
-            steps.append(SolutionStep(current.taskId, f"s{ordinal}", markdown, anchor, "read"))
+            anchor = SourceAnchor(submitted.docRef, cells, index, start, end, "mathObjects" if content.objects else "text")
+            steps.append(SolutionStep(current.taskId, f"s{ordinal}", markdown, anchor, status))
     if current is None:
         raise WordReadError("missing submission task heading")
     return tuple(steps)

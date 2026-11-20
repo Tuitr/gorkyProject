@@ -18,6 +18,7 @@ from grading.tables import AssignmentJob
 
 parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[AssignmentTask, ...])
 solutionStepsAdapter: TypeAdapter[tuple[SolutionStep, ...]] = TypeAdapter(tuple[SolutionStep, ...])
+SUBMISSION_PARSE_VERSION = 2  # The original checkpoint omitted OMML, including equation-only lines.
 
 
 class GradingWorker:
@@ -70,8 +71,12 @@ class GradingWorker:
         if not isinstance(lease.key, str):
             raise ValueError("expected a submission check job")
         if lease.completedStage == "submission_parsed" and lease.stageData is not None:
-            return solutionStepsAdapter.validate_python(lease.stageData["steps"])
-        if lease.completedStage is not None:
+            version = lease.stageData.get("parserVersion", 1)
+            if version == SUBMISSION_PARSE_VERSION:
+                return solutionStepsAdapter.validate_python(lease.stageData["steps"])
+            if version != 1:
+                raise ValueError("unsupported submission parser checkpoint version")
+        elif lease.completedStage is not None:
             raise ValueError("unexpected checkpoint for submission parsing")
         submitted = AttemptSubmittedInput.model_validate(lease.payload)
         with Session(self.engine) as session:
@@ -80,6 +85,7 @@ class GradingWorker:
                 raise ValueError("parsed tasks are unavailable for the submitted assignment revision")
             tasks = parsedTasksAdapter.validate_python(assignment.stageData["tasks"])
         steps = readSubmission(submitted, loadDocument(submitted.docRef), tasks)
-        if not self.jobs.checkpoint(lease, "submission_parsed", {"steps": solutionStepsAdapter.dump_python(steps, mode="json")}):
+        data = {"parserVersion": SUBMISSION_PARSE_VERSION, "steps": solutionStepsAdapter.dump_python(steps, mode="json")}
+        if not self.jobs.checkpoint(lease, "submission_parsed", data):
             raise RuntimeError("check lease expired before the submission parse could be saved")
         return steps
