@@ -8,7 +8,9 @@ GET returns the stored state of the same referenceId until it is final.
 
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator, model_validator
+
+from contracts.v1.references.quantity import UnitError, formatQuantity, parseNumber, parseUnit
 
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 FamilyId = Annotated[str, Field(pattern=r"^[a-z][A-Za-z0-9]{0,63}$")]
@@ -41,8 +43,59 @@ class ScalarValueV1(BaseModel):
     exact: NonEmptyStr
 
 
-VALUE_SCHEMAS: dict[str, type[BaseModel]] = {"scalar.v1": ScalarValueV1}
+DEFAULT_REL_TOLERANCE = 0.02
+
+
+class QuantityValueV1(BaseModel):
+    """schemaId=quantity.v1: a physical answer, a number with a unit (see quantity.py).
+
+    value is a decimal number written in `unit`, for example {"value": "84000", "unit": "Дж"}; unit is "" for a
+    pure number. relTolerance is the relative error accepted for an answer: 0.02 means ±2 % of value, because
+    a physics answer is usually rounded (a table constant, g = 9,8 or 10). Any equivalent unit is accepted:
+    84 кДж equals 84000 Дж.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    value: NonEmptyStr
+    unit: str
+    relTolerance: Annotated[float, Field(gt=0, le=0.1)] = DEFAULT_REL_TOLERANCE
+
+    @field_validator("value")
+    @classmethod
+    def checkNumber(cls, value: str) -> str:
+        if parseNumber(value) is None:
+            raise ValueError(f"value {value!r} is not a decimal number")
+        return value
+
+    @field_validator("unit")
+    @classmethod
+    def checkUnit(cls, unit: str) -> str:
+        try:
+            parseUnit(unit)
+        except UnitError as error:
+            raise ValueError(str(error)) from error
+        return unit
+
+    def display(self) -> str:
+        """For the teacher and the feedback: "84000 Дж ± 2 %"."""
+        number = parseNumber(self.value)
+        assert number is not None
+        text = formatQuantity(number * parseUnit(self.unit).factor, self.unit)
+        return f"{text} ± {self.relTolerance * 100:g} %".replace(".", ",")
+
+
+VALUE_SCHEMAS: dict[str, type[BaseModel]] = {"scalar.v1": ScalarValueV1, "quantity.v1": QuantityValueV1}
 """Every schemaId a ready reference may carry. A new task family registers its value schema here."""
+
+
+def answerText(schemaId: str, value: dict[str, JsonValue]) -> str | None:
+    """The reference answer as the teacher reads it, or None for a schema without a short text."""
+    if schemaId == "scalar.v1":
+        return ScalarValueV1.model_validate(value).exact
+    if schemaId == "quantity.v1":
+        return QuantityValueV1.model_validate(value).display()
+    return None
 
 
 class ReferenceReady(BaseModel):

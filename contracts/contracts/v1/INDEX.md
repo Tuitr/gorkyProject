@@ -12,7 +12,7 @@
 | Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | эталоны [открытого mini.v1](../../../tools/dataset/releases/mini.v1/) сверены; разметка ожидает сверки № 2 |
 | Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | стык B5.1 и A7.1, сверен сквозным тестом `tests/e2e`. Кабинет читает его через `GET /v1/checks/{checkId}` |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | готово: № 2 принял схему в `grading/review.py` (B4.2) |
-| Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | готово: действует `review.v2.md` (№ 2, `grading/review.py`); `review.v1` снят |
+| Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | готово: действует `review.v2.md` (№ 2, `grading/review.py`), для физики `review.v3.md`; `review.v1` снят |
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/`; обмены для № 2 (ready, pending → ready, unsupported, validation_failed) — `examples/references/exchanges/` | № 3 | № 2 | готово |
 | Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py`, `openapi/gateway.json`, `examples/gateway/`; ответы по известным stepId мини-набора — `examples/gateway/exchanges/` | № 3 | № 2 | готово |
 | Управляемые отказы шлюза: 429 и успех, 429 до конца, таймаут, не JSON | `examples/gateway/failures/` (запрос, ответы, число вызовов) | № 3 | № 2 | готово; включаются только `GATEWAY_TRANSPORT=fixture` и `GATEWAY_FAILURE_SCENARIOS=1` |
@@ -151,7 +151,7 @@
 `GET /v1/assignments/{assignmentId}/references?rev=N` проверяет владельца ревизии и возвращает тело
 `GET /internal/v1/assignments/{assignmentId}/references?assignmentRev=N` (право `checks.read`, модель
 `grading/assignmentreferences.py`): состояние подготовки варианта и по каждому заданию номер, условие и эталон
-реестра № 3. Готовый `scalar.v1` дублируется строкой `answer`; не готовый эталон называет `state` и `reasonCode`.
+реестра № 3. Готовый эталон дублируется строкой `answer` (`scalar.v1` как есть, `quantity.v1` с единицей и допуском: `84000 Дж ± 2 %`); не готовый эталон называет `state` и `reasonCode`.
 Пока `grading` не получил ревизию, кабинет отвечает `state: queued` без заданий.
 
 ### Отчёт по классу

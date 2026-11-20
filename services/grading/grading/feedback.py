@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Collection, Mapping
 
 from contracts.v1.grading.taskresult import TaskResult
-from contracts.v1.references.reference import ReferenceReady, ReferenceResult, ScalarValueV1
+from contracts.v1.references.reference import ReferenceReady, ReferenceResult, answerText
 from grading.assignment import AssignmentTask
 from grading.review import anchoredIssues
 from grading.submission import SubmissionReading
@@ -64,10 +64,7 @@ def composeOverallReview(
         result = byTask.get(task.taskId)
         source = readings.get(task.taskId)
         reference = references.get(task.taskId)
-        exact = (
-            ScalarValueV1.model_validate(reference.value).exact
-            if isinstance(reference, ReferenceReady) and reference.schemaId == "scalar.v1" else None
-        )
+        exact = answerText(reference.schemaId, reference.value) if isinstance(reference, ReferenceReady) else None
         if result is not None and task.taskId in teacherVerdicts:
             lines = ["Задание пропущено. Допишите решение."] if result.answer == "skipped" else taskFeedback(
                 result, steps[task.taskId], exact

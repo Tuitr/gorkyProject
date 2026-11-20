@@ -5,7 +5,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from contracts.v1.grading.assignmentreferences import AssignmentReferences, PreparationState, TaskReference
-from contracts.v1.references.reference import ReferenceReady, ReferenceResult
+from contracts.v1.references.reference import ReferenceReady, ReferenceResult, answerText
 from grading.assignment import AssignmentTask
 from grading.tables import AssignmentJob
 
@@ -19,10 +19,9 @@ def taskReference(task: AssignmentTask, reference: ReferenceResult | None) -> Ta
     if reference is None:
         return shown
     if isinstance(reference, ReferenceReady):
-        exact = reference.value.get("exact")
         return shown.model_copy(update={
             "state": "ready", "schemaId": reference.schemaId, "value": reference.value,
-            "answer": exact if reference.schemaId == "scalar.v1" and isinstance(exact, str) else None,
+            "answer": answerText(reference.schemaId, reference.value),
         })
     return shown.model_copy(update={"state": reference.state, "reasonCode": getattr(reference, "reasonCode", None)})
 

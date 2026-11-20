@@ -23,7 +23,8 @@ class TaskReference(BaseModel):
     statement: str
     state: ReferenceState
     answer: str | None = None
-    """A ready scalar.v1 answer as written, for example "13" or "-3/4"."""
+    """A ready answer as the teacher reads it: scalar.v1 as written ("13", "-3/4"), quantity.v1 with its unit and
+    tolerance ("84000 Дж ± 2 %")."""
     schemaId: str | None = None
     value: dict[str, JsonValue] | None = None
     reasonCode: str | None = None
