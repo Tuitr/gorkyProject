@@ -3,12 +3,13 @@
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import Engine, create_engine
 
 from contracts.v1.grading.assignmentreport import AssignmentReport
 from contracts.v1.grading.checkresult import CheckStatus, PublishedCheck
 from contracts.v1.grading.reviewedit import RESULT_REV_HEADER, ReviewEditReceipt, ReviewEditRequest
+from contracts.v1.grading.reviewpublication import PublishReviewReceipt, PublishReviewRequest
 from grading.markdownStorage import MarkdownStorage
 from grading.reports import ReportStore
 from grading.resultArtifacts import publishResultArtifact
@@ -69,5 +70,31 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
         except ArtifactUnavailable as error:
             raise ApiProblem("unavailable", "The edit is saved and its Markdown is awaiting publication") from error
         return receipt
+
+    @app.post("/internal/v1/checks/{id}/publish")
+    def publishReview(id: str, publication: PublishReviewRequest,
+                      caller: Annotated[ServiceIdentity, Depends(requireRight("checks.publish"))]) -> PublishReviewReceipt:
+        try:
+            result = store.read(id, publication.resultRev, markdown.require)
+        except ArtifactUnavailable as error:
+            raise ApiProblem("unavailable", "The requested Markdown is currently unavailable") from error
+        if result is None:
+            raise ApiProblem("not_found", "Check or result revision not found")
+        if not isinstance(result, PublishedCheck):
+            raise ApiProblem("conflict", "The requested result revision is still awaiting Markdown")
+        store.recordAcceptance(id, publication.resultRev, actorId=publication.actorId)
+        return PublishReviewReceipt(checkId=id, resultRev=publication.resultRev, markdownRef=result.markdownRef)
+
+    @app.get("/internal/v1/checks/{id}/markdown", response_class=Response)
+    def downloadMarkdown(id: str, rev: Annotated[int, Query(ge=1)],
+                         caller: Annotated[ServiceIdentity, Depends(requireRight("checks.read"))]) -> Response:
+        ref = store.acceptedReference(id, rev)
+        if ref is None:
+            raise ApiProblem("not_found", "Published result revision not found")
+        try:
+            body = markdown.download(ref)
+        except ArtifactUnavailable as error:
+            raise ApiProblem("unavailable", "The published Markdown is currently unavailable") from error
+        return Response(body, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="review-{rev}.md"'})
 
     return app

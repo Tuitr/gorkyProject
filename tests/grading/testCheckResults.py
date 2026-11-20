@@ -16,10 +16,12 @@ from botocore.stub import Stubber
 from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
 from contracts.v1.events.checks import DATA_FIELD
 from contracts.v1.grading.assignmentreport import AssignmentReport
 from contracts.v1.grading.checkresult import PublishedCheck
+from contracts.v1.grading.reviewpublication import PublishReviewReceipt
 from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceReady
@@ -30,6 +32,7 @@ from grading.markdownStorage import MarkdownStorage
 from grading.results import ArtifactUnavailable, ResultConflict
 from grading.settings import Settings
 from grading.stream import StreamConsumer
+from grading.tables import CheckResultRevision
 from grading.worker import GradingWorker
 from shared.clock import ManualClock
 
@@ -83,7 +86,8 @@ def testRecoversDraftAndReadsPublishedRevisions(
     worker.prepareAssignment(assignmentLease, lambda _: assignment, requestReference=lambda _: reference)
 
     settings = Settings(serviceTokensJson=json.dumps({
-        "test": {"serviceName": "cabinet", "rights": ["checks.read", "checks.edit", "reports.read"]},
+        "test": {"serviceName": "cabinet", "rights": ["checks.read", "checks.edit", "checks.publish", "reports.read"]},
+        "read-only": {"serviceName": "reader", "rights": ["checks.read"]},
     }))
     api = TestClient(createApp(settings, engine=gradingEngine, storage=storage))
     url = f"/internal/v1/checks/{checkId}"
@@ -135,6 +139,23 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert "## Общий отзыв" in report and "Ответ отличается от эталона" in report
     assert "### Шаг s1" in report and "$2^2 + 1 = 4$" in report
     assert "Вычислите сумму" in report and "$2^2 + 1 = 5$" in report
+    publishUrl = url + "/publish"
+    downloadUrl = url + "/markdown"
+    publication = {"resultRev": 1, "actorId": "teacher"}
+    assert api.get(downloadUrl, params={"rev": 1}, headers=headers).status_code == 404
+    assert api.post(publishUrl, headers={"Authorization": "Bearer read-only"}, json=publication).status_code == 403
+    published = api.post(publishUrl, headers=headers, json=publication)
+    assert published.status_code == 200
+    assert PublishReviewReceipt.model_validate(published.json()) == PublishReviewReceipt(
+        checkId=checkId, resultRev=1, markdownRef=firstRef,
+    )
+    with Session(gradingEngine) as session:
+        initialAcceptance = session.get_one(CheckResultRevision, (checkId, 1)).acceptedAt
+    assert initialAcceptance is not None
+    assert api.post(publishUrl, headers=headers, json=publication).json() == published.json()
+    with Session(gradingEngine) as session:
+        accepted = session.get_one(CheckResultRevision, (checkId, 1))
+        assert accepted.acceptedAt == initialAcceptance and accepted.acceptedBy == "teacher"
     assert resume() == first
     with pytest.raises(ArtifactUnavailable, match="bytes differ"):
         storage.save(checkId, 1, "Этот текст нельзя положить по ключу опубликованного отчёта.")
@@ -154,6 +175,9 @@ def testRecoversDraftAndReadsPublishedRevisions(
         assert api.patch(url + "/review", headers=headers, json=edit).status_code == 503
         s3Failure.assert_no_pending_responses()
     assert api.get(url, headers=headers).json()["reason"] == "awaiting_artifact"
+    assert api.post(publishUrl, headers=headers, json={"resultRev": 2}).status_code == 409
+    assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 404
+    assert api.get(downloadUrl, params={"rev": 1}, headers=headers).content == report.encode("utf-8")
     assert api.get(reportUrl, headers=headers).json() == before.model_dump(mode="json")
     assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json")
     receipt = api.patch(url + "/review", headers=headers, json=edit)
@@ -183,8 +207,19 @@ def testRecoversDraftAndReadsPublishedRevisions(
     ]}
     assert api.patch(url + "/review", headers=headers, json=later).json()["resultRev"] == 4
     assert api.get(url, headers=headers).json()["overallReview"] == manualText
+    assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 404
+    publishedSecond = api.post(publishUrl, headers=headers, json={"resultRev": 2, "actorId": "teacher"})
+    assert publishedSecond.status_code == 200 and publishedSecond.json()["resultRev"] == 2
+    assert api.get(downloadUrl, params={"rev": 4}, headers=headers).status_code == 404
+    download = api.get(downloadUrl, params={"rev": 2}, headers=headers)
+    assert download.status_code == 200 and download.headers["Content-Type"] == "text/markdown; charset=utf-8"
+    assert download.content == revised.encode("utf-8")
+    oldDownload = api.get(downloadUrl, params={"rev": 1}, headers=headers)
+    assert oldDownload.content == report.encode("utf-8")
+    assert oldDownload.headers["Content-Disposition"] == 'attachment; filename="review-1.md"'
     storage.client.put_object(Bucket="results", Key=secondRef.key, Body=b"different bytes")
     assert api.get(url, params={"resultRev": 2}, headers=headers).status_code == 503
+    assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 503
     assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json")
 
 

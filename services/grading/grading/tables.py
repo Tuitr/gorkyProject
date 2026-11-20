@@ -67,6 +67,7 @@ class CheckResultRevision(Base):
     outcome: Mapped[dict[str, object]] = mapped_column(JSONB)
     markdownRef: Mapped[dict[str, object] | None] = mapped_column("markdown_ref", JSONB(none_as_null=True))
     acceptedAt: Mapped[datetime | None] = mapped_column("accepted_at", DateTime(timezone=True))
+    acceptedBy: Mapped[str | None] = mapped_column("accepted_by", Text)
 
 
 class AssignmentReportSnapshot(Base):

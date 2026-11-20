@@ -2,7 +2,9 @@
 
 import hashlib
 import os
+from collections.abc import Callable
 from contextlib import closing
+from io import BytesIO
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -35,12 +37,22 @@ class MarkdownStorage:
         ))
 
     def require(self, ref: MarkdownRef) -> None:
+        self._verify(ref)
+
+    def download(self, ref: MarkdownRef) -> bytes:
+        with BytesIO() as buffer:
+            self._verify(ref, buffer.write)
+            return buffer.getvalue()
+
+    def _verify(self, ref: MarkdownRef, writeChunk: Callable[[bytes], object] | None = None) -> None:
         digest = hashlib.sha256()
         try:
             response = self.client.get_object(Bucket=ref.bucket, Key=ref.key)
             with closing(response["Body"]) as body:
                 for chunk in body.iter_chunks(chunk_size=65536):
                     digest.update(chunk)
+                    if writeChunk is not None:
+                        writeChunk(chunk)
         except (BotoCoreError, ClientError) as error:
             raise ArtifactUnavailable("cannot read the result artifact") from error
         if response["ContentLength"] == 0 or digest.hexdigest() != ref.sha256:
