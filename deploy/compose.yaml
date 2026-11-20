@@ -7,6 +7,10 @@
 # The E2E tests start their own isolated project with this profile (tests/e2e/conftest.py).
 # The gateway answers from recorded fixtures (GATEWAY_TRANSPORT=fixture) unless the shell sets
 # GATEWAY_TRANSPORT=gigachat and GIGACHAT_AUTH_KEY: the stand and CI never pay for the model by default.
+# REFERENCES_PROVIDER=generating lets solver-builder write a solver for every task that has no fixture
+# (services/references/docs/generation.md); the code runs only in solver-sandbox, which has no network.
+# With the key in the repository-root .env: docker compose --env-file .env -f deploy/compose.yaml --profile full up
+# GigaChat needs the Russian Trusted Root CA: put the PEM file into deploy/certs/ (deploy/certs/README.md).
 # Ports bind to 127.0.0.1 only and stay below 49152: Windows/Hyper-V often reserves dynamic ports.
 # Addresses and test credentials for clients: .env.example in the repository root. Test credentials only.
 name: gorky
@@ -94,6 +98,7 @@ services:
     environment:
       REFERENCES_DATABASE_URL: &references-db postgresql+psycopg://gorky_references:gorky_references@postgres:5432/gorky?connect_timeout=3
       REFERENCES_SERVICE_TOKENS: '{"stand-grading-token": {"serviceName": "grading", "rights": ["references.request"]}}'
+      REFERENCES_PROVIDER: ${REFERENCES_PROVIDER:-fixture}
     # The refs schema holds the registry and the gateway tables: this service migrates it for both.
     command: ["sh", "-ec", "alembic -c services/references/alembic.ini upgrade head && exec uvicorn references.registry.main:createApp --factory --host 0.0.0.0 --port 8000"]
     healthcheck: *api-health
@@ -108,11 +113,67 @@ services:
     environment:
       GATEWAY_DATABASE_URL: *references-db
       GATEWAY_SERVICE_TOKENS: '{"stand-grading-token": {"serviceName": "grading", "rights": ["model.review"]}}'
-      GATEWAY_TRANSPORT: ${GATEWAY_TRANSPORT:-fixture}
-      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
-      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GATEWAY_TRANSPORT: &gateway-transport ${GATEWAY_TRANSPORT:-fixture}
+      GIGACHAT_AUTH_KEY: &gigachat-key ${GIGACHAT_AUTH_KEY:-}
+      GIGACHAT_SCOPE: &gigachat-scope ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_MODEL: &gigachat-model ${GIGACHAT_MODEL:-GigaChat-Max}
+      # A path inside the container, e.g. /certs/russian_trusted_root_ca.pem; empty uses the image's CA store.
+      GIGACHAT_CA_BUNDLE: &gigachat-ca ${GIGACHAT_CONTAINER_CA_BUNDLE:-}
+    volumes: &gigachat-certs
+      - ./certs:/certs:ro
     command: ["uvicorn", "references.gateway.main:createApp", "--factory", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck: *api-health
+
+  solver-builder:
+    profiles: [full]
+    image: *backend-image
+    build: *backend-build
+    depends_on:
+      references:
+        condition: service_healthy
+      solver-sandbox:
+        condition: service_started
+      s3-init:
+        condition: service_completed_successfully
+    environment:
+      GATEWAY_DATABASE_URL: *references-db
+      GATEWAY_TRANSPORT: *gateway-transport
+      GIGACHAT_AUTH_KEY: *gigachat-key
+      GIGACHAT_SCOPE: *gigachat-scope
+      GIGACHAT_MODEL: *gigachat-model
+      GIGACHAT_CA_BUNDLE: *gigachat-ca
+      GIGACHAT_TIMEOUT_S: ${GIGACHAT_TIMEOUT_S:-90}
+      GATEWAY_LEASE_S: "120"
+      SOLVER_SANDBOX: directory
+      SOLVER_SANDBOX_DIR: /jobs
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+    volumes:
+      - ./certs:/certs:ro
+      - solver-jobs:/jobs
+    command: ["python", "-m", "references.solvers.builder"]
+    restart: on-failure
+
+  # Runs generated solver code and nothing else: no network, no secrets, read-only, limits from generation.md.
+  # Root inside only to start each solver as another user (sandboxd.py); every other capability is dropped.
+  solver-sandbox:
+    profiles: [full]
+    image: *backend-image
+    build: *backend-build
+    network_mode: none
+    read_only: true
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=16m
+    cpus: 1
+    mem_limit: 256m
+    pids_limit: 64
+    volumes:
+      - solver-jobs:/jobs
+    command: ["python", "-m", "references.solvers.sandboxd", "/jobs"]
+    restart: on-failure
 
   outbox-publisher:
     image: gorky-cabinet:dev
@@ -200,6 +261,7 @@ services:
         done
 
 volumes:
+  solver-jobs:
   postgres-data:
   redis-data:
   seaweedfs-data:
