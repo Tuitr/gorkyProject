@@ -13,7 +13,7 @@ from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextRea
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
-from grading.references import ReferenceClient
+from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
 from grading.stream import StreamConsumer, StreamDelivery
 from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
 from grading.tables import AssignmentJob
@@ -22,8 +22,11 @@ parsedTasksAdapter: TypeAdapter[tuple[AssignmentTask, ...]] = TypeAdapter(tuple[
 submissionReadingAdapter = TypeAdapter(SubmissionReading)
 referencesAdapter: TypeAdapter[dict[str, ReferenceResult]] = TypeAdapter(dict[str, ReferenceResult])
 deadlinesAdapter: TypeAdapter[dict[str, datetime]] = TypeAdapter(dict[str, datetime])
+referenceAttemptsAdapter: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, int])
+referenceErrorsAdapter: TypeAdapter[dict[str, dict[str, object]]] = TypeAdapter(dict[str, dict[str, object]])
 SUBMISSION_PARSE_VERSION = 3
 ASSIGNMENT_RECHECK_DELAY = timedelta(seconds=5)
+REFERENCE_RETRY_LIMIT = 3
 
 
 @dataclass(frozen=True)
@@ -91,42 +94,85 @@ class GradingWorker:
         saved = lease.stageData or {}
         references = referencesAdapter.validate_python(saved.get("references", {}))
         deadlines = deadlinesAdapter.validate_python(saved.get("nextPollAt", {}))
+        transientAttempts = referenceAttemptsAdapter.validate_python(saved.get("referenceAttempts", {}))
+        referenceErrors = referenceErrorsAdapter.validate_python(saved.get("referenceErrors", {}))
         data: dict[str, object] = {"tasks": [asdict(task) for task in tasks]}
         for task in tasks:
             previous = references.get(task.taskId)
-            if previous is None:
-                if requestReference is None:
-                    requestReference = ReferenceClient.fromEnv().request
-                result = requestReference(ReferenceRequest(
-                    assignmentId=lease.key[0], assignmentRev=lease.key[1], taskId=task.taskId,
-                    statement=task.statement, constraints=task.constraints,
-                ))
-            else:
-                if previous.state != "pending" or (task.taskId in deadlines and deadlines[task.taskId] > self.now()):
-                    continue
-                if getReference is None:
-                    getReference = ReferenceClient.fromEnv().get
-                result = getReference(previous.referenceId)
-                if result.referenceId != previous.referenceId:
-                    raise ValueError("reference registry returned a different referenceId on GET")
+            if previous is not None and (previous.state != "pending" or (task.taskId in deadlines and deadlines[task.taskId] > self.now())):
+                continue
+            try:
+                if previous is None:
+                    if requestReference is None:
+                        requestReference = ReferenceClient.fromEnv().request
+                    result = requestReference(ReferenceRequest(
+                        assignmentId=lease.key[0], assignmentRev=lease.key[1], taskId=task.taskId,
+                        statement=task.statement, constraints=task.constraints,
+                    ))
+                else:
+                    if getReference is None:
+                        getReference = ReferenceClient.fromEnv().get
+                    result = getReference(previous.referenceId)
+                    if result.referenceId != previous.referenceId:
+                        raise ValueError("reference registry returned a different referenceId on GET")
+            except ReferenceTerminalError as error:
+                referenceErrors[task.taskId] = {"reasonCode": error.reasonCode, "message": str(error)}
+                data.update(
+                    references=referencesAdapter.dump_python(references, mode="json"),
+                    nextPollAt=deadlinesAdapter.dump_python(deadlines, mode="json"),
+                    referenceAttempts=transientAttempts,
+                    referenceErrors=referenceErrors,
+                )
+                continue
+            except ReferenceUnavailableError as error:
+                attempts = transientAttempts.get(task.taskId, 0) + 1
+                transientAttempts[task.taskId] = attempts
+                referenceErrors[task.taskId] = {
+                    "reasonCode": "reference_registry_unavailable",
+                    "message": str(error),
+                    "attempts": attempts,
+                }
+                data.update(
+                    references=referencesAdapter.dump_python(references, mode="json"),
+                    nextPollAt=deadlinesAdapter.dump_python(deadlines, mode="json"),
+                    referenceAttempts=transientAttempts,
+                    referenceErrors=referenceErrors,
+                )
+                if attempts >= REFERENCE_RETRY_LIMIT:
+                    if not self.jobs.finish(lease, "needs_review", "reference_unavailable", data):
+                        raise RuntimeError("assignment lease expired before reference failure was saved")
+                else:
+                    nextAttemptAt = self.now() + timedelta(seconds=error.retryAfterS)
+                    if not self.jobs.checkpoint(lease, "references_requested", data) or not self.jobs.reschedule(
+                        lease, "waiting_reference", nextAttemptAt,
+                    ):
+                        raise RuntimeError("assignment lease expired before reference retry was saved")
+                return references
             references[task.taskId] = result
+            referenceErrors.pop(task.taskId, None)
             if result.state == "pending":
                 deadlines[task.taskId] = self.now() + timedelta(seconds=max(1, result.retryAfterS))
             else:
                 deadlines.pop(task.taskId, None)
             data["nextPollAt"] = deadlinesAdapter.dump_python(deadlines, mode="json")
             data["references"] = referencesAdapter.dump_python(references, mode="json")
+            data["referenceAttempts"] = transientAttempts
+            data["referenceErrors"] = referenceErrors
             if not self.jobs.checkpoint(lease, "requesting_references", data):
                 raise RuntimeError("assignment lease expired before the reference could be saved")
 
         data["references"] = referencesAdapter.dump_python(references, mode="json")
         data["nextPollAt"] = deadlinesAdapter.dump_python(deadlines, mode="json")
+        data["referenceAttempts"] = transientAttempts
+        data["referenceErrors"] = referenceErrors
         if deadlines:
             savedProgress = self.jobs.checkpoint(lease, "references_requested", data) and self.jobs.reschedule(
                 lease, "waiting_reference", min(deadlines.values()),
             )
         else:
-            ready = all(result.state == "ready" for result in references.values())
+            ready = len(references) == len(tasks) and not referenceErrors and all(
+                result.state == "ready" for result in references.values()
+            )
             savedProgress = self.jobs.finish(lease, "ready" if ready else "needs_review", "references_requested", data)
         if not savedProgress:
             raise RuntimeError("assignment lease expired before preparation was saved")
@@ -137,17 +183,26 @@ class GradingWorker:
         if not isinstance(lease.key, str):
             raise ValueError("expected a submission check job")
         submitted = AttemptSubmittedInput.model_validate(lease.payload)
+        referenceErrors: dict[str, dict[str, object]] = {}
         with Session(self.engine) as session:
             job = session.get(AssignmentJob, (submitted.assignmentId, submitted.assignmentRev))
-            if job is not None and job.state in ("ready", "needs_review") and job.completedStage == "references_requested":
+            if job is not None and job.state in ("ready", "needs_review") and job.completedStage in ("references_requested", "reference_unavailable"):
                 if job.stageData is None:
                     raise ValueError("missing references for prepared assignment")
                 references = referencesAdapter.validate_python(job.stageData["references"])
+                referenceErrors = referenceErrorsAdapter.validate_python(job.stageData.get("referenceErrors", {}))
             else:
                 references = None
         if references is None:
             if not self.jobs.waitForReference(lease, ASSIGNMENT_RECHECK_DELAY):
                 raise RuntimeError("check lease expired before it could wait for the assignment")
+            return None
+        if referenceErrors or any(result.state != "ready" for result in references.values()):
+            if not self.jobs.finish(lease, "needs_review", "reference_unavailable", {
+                "references": referencesAdapter.dump_python(references, mode="json"),
+                "referenceErrors": referenceErrors,
+            }):
+                raise RuntimeError("check lease expired before reference failure was saved")
             return None
         return PreparedCheck(self.parseSubmissionDetails(lease, loadDocument), references)
 

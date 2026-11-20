@@ -8,6 +8,22 @@ from urllib.parse import quote, urlsplit
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult, referenceResultAdapter
 
 
+class ReferenceUnavailableError(RuntimeError):
+    """A reference request failed temporarily and may be retried later."""
+
+    def __init__(self, message: str, *, retryAfterS: int = 5) -> None:
+        super().__init__(message)
+        self.retryAfterS = max(1, retryAfterS)
+
+
+class ReferenceTerminalError(RuntimeError):
+    """A permanent registry response that requires teacher review."""
+
+    def __init__(self, message: str, *, reasonCode: str) -> None:
+        super().__init__(message)
+        self.reasonCode = reasonCode
+
+
 @dataclass(frozen=True)
 class ReferenceClient:
     baseUrl: str
@@ -30,14 +46,36 @@ class ReferenceClient:
         connect = HTTPSConnection if url.scheme == "https" else HTTPConnection
         connection = connect(url.hostname, url.port, timeout=5)
         try:
-            connection.request(
-                method, url.path.rstrip("/") + path, body=body,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"},
-            )
-            response = connection.getresponse()
+            try:
+                connection.request(
+                    method, url.path.rstrip("/") + path, body=body,
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"},
+                )
+            except (OSError, TimeoutError) as error:
+                raise ReferenceUnavailableError("reference registry connection failed") from error
+            try:
+                response = connection.getresponse()
+            except (OSError, TimeoutError) as error:
+                raise ReferenceUnavailableError("reference registry connection failed") from error
+            if response.status in (408, 425, 429, 500, 502, 503, 504):
+                retryAfterS = 5
+                retryHeader = response.getheader("Retry-After")
+                if retryHeader is not None and retryHeader.isdigit():
+                    retryAfterS = max(1, int(retryHeader))
+                response.read()
+                raise ReferenceUnavailableError(
+                    f"reference registry temporarily returned HTTP {response.status}", retryAfterS=retryAfterS,
+                )
             if response.status not in (200, 202):
-                raise RuntimeError(f"reference registry returned HTTP {response.status}")
-            result = referenceResultAdapter.validate_json(response.read())
+                raise ReferenceTerminalError(
+                    f"reference registry returned HTTP {response.status}",
+                    reasonCode="reference_not_found" if response.status == 404 else "reference_registry_rejected",
+                )
+            try:
+                payload = response.read()
+            except (OSError, TimeoutError) as error:
+                raise ReferenceUnavailableError("reference registry response could not be read") from error
+            result = referenceResultAdapter.validate_json(payload)
             expectedStatus = 202 if method == "POST" and result.state == "pending" else 200
             if response.status != expectedStatus:
                 raise ValueError("reference state differs from the HTTP response status")
