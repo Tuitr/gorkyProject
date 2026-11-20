@@ -1,0 +1,52 @@
+{
+  "scenario": "rateLimitedAlways",
+  "summary": "Провайдер отвечает 429 на каждый вызов. Шлюз делает 3 попытки с паузой по Retry-After и отвечает 429. № 2 повторяет тот же requestId не раньше чем через Retry-After.",
+  "gatewayEnv": {
+    "GATEWAY_TRANSPORT": "fixture",
+    "GATEWAY_FAILURE_SCENARIOS": "1"
+  },
+  "request": {
+    "headers": {
+      "X-Trace-Id": "trace-failRateLimitedAlways"
+    },
+    "body": {
+      "requestId": "q-failRateLimitedAlways",
+      "promptVersion": "review.v1",
+      "taskId": "failRateLimitedAlways",
+      "statement": "Длина вектора (3; 4)",
+      "rubric": [
+        "Нужно показать вычисление по формуле длины вектора"
+      ],
+      "steps": [
+        {
+          "stepId": "s1",
+          "markdown": "Ответ: 5"
+        }
+      ],
+      "reference": {
+        "referenceId": "r1",
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "5"
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "status": 429,
+      "retryAfter": "2",
+      "body": {
+        "code": "rate_limited",
+        "message": "simulated rate_limited from fixture 'failRateLimitedAlways'; no external call was made; gave up after 3 attempts",
+        "retryable": true,
+        "traceId": "trace-failRateLimitedAlways"
+      }
+    }
+  ],
+  "providerCalls": 3,
+  "gatewaySleepsS": [
+    2.0,
+    2.0
+  ]
+}

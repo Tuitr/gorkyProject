@@ -1,0 +1,58 @@
+{
+  "scenario": "rateLimitedThenOk",
+  "summary": "Провайдер один раз ответил 429 с Retry-After: 2. Шлюз сам подождал 2 с и повторил вызов, № 2 получает обычный ответ.",
+  "gatewayEnv": {
+    "GATEWAY_TRANSPORT": "fixture",
+    "GATEWAY_FAILURE_SCENARIOS": "1"
+  },
+  "request": {
+    "headers": {
+      "X-Trace-Id": "trace-failRateLimitedThenOk"
+    },
+    "body": {
+      "requestId": "q-failRateLimitedThenOk",
+      "promptVersion": "review.v1",
+      "taskId": "failRateLimitedThenOk",
+      "statement": "Длина вектора (3; 4)",
+      "rubric": [
+        "Нужно показать вычисление по формуле длины вектора"
+      ],
+      "steps": [
+        {
+          "stepId": "s1",
+          "markdown": "Ответ: 5"
+        }
+      ],
+      "reference": {
+        "referenceId": "r1",
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "5"
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "status": 200,
+      "retryAfter": null,
+      "body": {
+        "schemaVersion": "taskResult.v1",
+        "taskResult": {
+          "taskId": "failRateLimitedThenOk",
+          "answer": "correct",
+          "reasoning": "not_shown",
+          "method": "unconfirmed",
+          "issues": [],
+          "needsReview": false
+        },
+        "modelId": "fixture",
+        "providerRequestId": null
+      }
+    }
+  ],
+  "providerCalls": 2,
+  "gatewaySleepsS": [
+    2.0
+  ]
+}

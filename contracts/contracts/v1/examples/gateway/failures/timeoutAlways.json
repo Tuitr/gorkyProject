@@ -1,0 +1,69 @@
+{
+  "scenario": "timeoutAlways",
+  "summary": "Провайдер не успевает ответить ни разу. Шлюз таймаут сам не повторяет: провайдер мог уже выполнить работу. № 2 повторяет тот же requestId, пока не исчерпает свой бюджет попыток; каждый повтор стоит ровно одного вызова провайдера. Здесь показаны 3 повтора.",
+  "gatewayEnv": {
+    "GATEWAY_TRANSPORT": "fixture",
+    "GATEWAY_FAILURE_SCENARIOS": "1"
+  },
+  "request": {
+    "headers": {
+      "X-Trace-Id": "trace-failTimeoutAlways"
+    },
+    "body": {
+      "requestId": "q-failTimeoutAlways",
+      "promptVersion": "review.v1",
+      "taskId": "failTimeoutAlways",
+      "statement": "Длина вектора (3; 4)",
+      "rubric": [
+        "Нужно показать вычисление по формуле длины вектора"
+      ],
+      "steps": [
+        {
+          "stepId": "s1",
+          "markdown": "Ответ: 5"
+        }
+      ],
+      "reference": {
+        "referenceId": "r1",
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "5"
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "status": 504,
+      "retryAfter": null,
+      "body": {
+        "code": "timeout",
+        "message": "simulated timeout from fixture 'failTimeoutAlways'; no external call was made",
+        "retryable": true,
+        "traceId": "trace-failTimeoutAlways"
+      }
+    },
+    {
+      "status": 504,
+      "retryAfter": null,
+      "body": {
+        "code": "timeout",
+        "message": "simulated timeout from fixture 'failTimeoutAlways'; no external call was made",
+        "retryable": true,
+        "traceId": "trace-failTimeoutAlways"
+      }
+    },
+    {
+      "status": 504,
+      "retryAfter": null,
+      "body": {
+        "code": "timeout",
+        "message": "simulated timeout from fixture 'failTimeoutAlways'; no external call was made",
+        "retryable": true,
+        "traceId": "trace-failTimeoutAlways"
+      }
+    }
+  ],
+  "providerCalls": 3,
+  "gatewaySleepsS": []
+}
