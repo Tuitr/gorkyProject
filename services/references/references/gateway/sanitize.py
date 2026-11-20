@@ -56,7 +56,7 @@ def refuse(where: str, kind: str) -> RequestRefused:
     )
 
 
-def keptSteps(request: ModelReviewRequest) -> tuple[ReviewStep, ...]:
+def keptSteps(request: ModelReviewRequest, traceId: str) -> tuple[ReviewStep, ...]:
     counts = Counter(step.stepId for step in request.steps)
     duplicates = sorted(stepId for stepId, count in counts.items() if count > 1)
     if duplicates:
@@ -72,13 +72,19 @@ def keptSteps(request: ModelReviewRequest) -> tuple[ReviewStep, ...]:
             raise refuse(f"step {step.stepId}", kind)
         kept.append(step)
     if removed:
-        logEvent("review.signatureStepsRemoved", stage="sanitize", requestId=request.requestId, stepIds=removed)
+        logEvent(
+            "review.signatureStepsRemoved",
+            stage="sanitize",
+            requestId=request.requestId,
+            traceId=traceId,
+            stepIds=removed,
+        )
     if not kept:
         raise RequestRefused("invalid_input", "no solution steps are left after removing signature lines")
     return tuple(kept)
 
 
-def buildModelCall(request: ModelReviewRequest, prompts: PromptCatalog) -> ModelCall:
+def buildModelCall(request: ModelReviewRequest, prompts: PromptCatalog, traceId: str = "-") -> ModelCall:
     instructions = prompts.instructions(request.promptVersion)
     for where, text in [("statement", request.statement)] + [
         (f"rubric[{index}]", line) for index, line in enumerate(request.rubric)
@@ -89,7 +95,7 @@ def buildModelCall(request: ModelReviewRequest, prompts: PromptCatalog) -> Model
     data = ReviewData(
         statement=request.statement,
         rubric=tuple(request.rubric),
-        steps=keptSteps(request),
+        steps=keptSteps(request, traceId),
         reference=ProviderReference(schemaId=request.reference.schemaId, value=request.reference.value),
     )
     return ModelCall(

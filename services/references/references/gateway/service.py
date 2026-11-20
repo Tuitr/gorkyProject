@@ -53,7 +53,7 @@ class ReviewService:
             if stored is not None:
                 logEvent("review.cached", stage="journal", code="ok", durationMs=elapsedMs(started), **ids)
                 return stored
-            call = buildModelCall(request, self.prompts)
+            call = buildModelCall(request, self.prompts, traceId)
             claim = self.journal.begin(request)
         except GatewayError as error:
             stage = "sanitize" if isinstance(error, RequestRefused) and error.code != "conflict" else "journal"
