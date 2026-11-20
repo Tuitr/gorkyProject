@@ -8,10 +8,12 @@ import json
 import logging
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
 from datetime import date
 from io import BytesIO
+from threading import Barrier
 from typing import Literal
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -21,6 +23,7 @@ from alembic.migration import MigrationContext
 from argon2 import PasswordHasher, Type
 from docx import Document
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -684,6 +687,91 @@ def testUploadMatchesStudentsWithoutStartingAttempts(
         assert saved.status_code == 200
         rematched = next(file for file in saved.json()["files"] if file["originalName"] == "ivanov-ivan.docx")
         assert rematched == files["ivanov-ivan.docx"]
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        for file in db.scalars(select(UploadFileRecord)):
+            s3.delete_object(Bucket=file.bucket, Key=file.objectKey)
+        for record in db.scalars(select(AssignmentRecord)):
+            s3.delete_object(Bucket=record.bucket, Key=record.objectKey)
+
+
+def testTeacherConfirmsStudentBindingOnce(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.other")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    docx = assignmentDocx("Решение")
+    archive = submissionZip(("choose.docx", docx), ("create.docx", docx))
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        otherClass = client.post("/v1/classes", json={"name": "8Б"}).json()["classId"]
+        rosterPath = f"/v1/classes/{classId}/students"
+        chosen = client.post(rosterPath, json={"name": "Иванов Иван"}).json()
+        foreign = client.post(f"/v1/classes/{otherClass}/students", json={"name": "Ким Анна"}).json()
+
+        assignment = client.post(
+            f"/v1/classes/{classId}/assignments", data={"requirements": "[]"}, files={"file": ("assignment.docx", docx)},
+        )
+        assert assignment.status_code == 201, assignment.text
+        uploadPath = f"/v1/assignments/{assignment.json()['assignmentId']}/uploads"
+        first = client.post(uploadPath, data={"assignmentRev": "1"}, files={"file": ("class.zip", archive)})
+        second = client.post(uploadPath, data={"assignmentRev": "1"}, files={"file": ("other.docx", docx)})
+        assert first.status_code == second.status_code == 202
+        progressPath = f"/v1/uploads/{first.json()['uploadId']}"
+        bindPath = f"{progressPath}/bindings"
+        fileIds = {file["originalName"]: file["fileId"] for file in client.get(progressPath).json()["files"]}
+        otherFile = client.get(f"/v1/uploads/{second.json()['uploadId']}").json()["files"][0]["fileId"]
+        chosenBody = {"fileId": fileIds["choose.docx"], "studentId": chosen["studentId"]}
+        createBody = {"fileId": fileIds["create.docx"], "newStudent": {"name": "Петрова Анна"}}
+
+        assert client.post(bindPath, json={"fileId": otherFile, "studentId": chosen["studentId"]}).status_code == 404
+        assert client.post(bindPath, json={**chosenBody, "studentId": foreign["studentId"]}).status_code == 404
+        assert client.post(bindPath, json={"fileId": fileIds["create.docx"]}).status_code == 422
+        assert client.post(bindPath, json={**createBody, "studentId": chosen["studentId"]}).status_code == 422
+        assert client.get(rosterPath).json() == [chosen]
+
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        assert client.post(bindPath, json=createBody).status_code == 404
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+
+        selected = client.post(bindPath, json=chosenBody)
+        assert selected.status_code == 200, selected.text
+        assert selected.json() == {**chosenBody, "status": "matched"}
+        assert client.post(bindPath, json=chosenBody).json() == selected.json()
+
+        ready = Barrier(2)
+
+        def createConcurrently() -> Response:
+            with TestClient(app, base_url="https://testserver", cookies=client.cookies) as contender:
+                ready.wait(timeout=5)
+                response: Response = contender.post(bindPath, json=createBody)
+                return response
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            firstRequest = workers.submit(createConcurrently)
+            secondRequest = workers.submit(createConcurrently)
+            created, repeated = firstRequest.result(timeout=10), secondRequest.result(timeout=10)
+
+        assert created.status_code == repeated.status_code == 200
+        assert created.json() == repeated.json() == client.post(bindPath, json=createBody).json()
+        createdId = created.json()["studentId"]
+        roster = client.get(rosterPath).json()
+        assert len(roster) == 2
+        assert {"studentId": createdId, "name": "Петрова Анна"} in roster
+        assert client.post(
+            bindPath, json={**createBody, "newStudent": {"name": "Другое имя"}},
+        ).status_code == 409
+        assert client.post(bindPath, json={**chosenBody, "studentId": createdId}).status_code == 409
+        assert client.get(rosterPath).json() == roster
+
+        progress = {file["fileId"]: file for file in client.get(progressPath).json()["files"]}
+        assert progress[fileIds["create.docx"]]["studentId"] == createdId
+        assert progress[fileIds["choose.docx"]]["studentId"] == chosen["studentId"]
+        assert all(file["status"] == "matched" and "attemptId" not in file for file in progress.values())
 
     with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
         for file in db.scalars(select(UploadFileRecord)):

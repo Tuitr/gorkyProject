@@ -21,11 +21,13 @@ from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
 from cabinet.auth.throttle import LoginThrottle
+from cabinet.bindingconfirmation import confirmBinding
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
 from cabinet.documents import readDocx
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentVersion
+from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
@@ -239,6 +241,19 @@ def createApp(
     def readUpload(uploadId: str, teacher: TeacherSession = Depends(currentTeacher)) -> UploadProgress:
         with sessionFactory.begin() as db:
             return getUploadProgress(db, settings, uploadId, teacher.teacherId)
+
+    @v1.post(
+        "/uploads/{uploadId}/bindings",
+        responses={
+            401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError},
+            409: {"model": ApiError}, 422: {"model": ApiError},
+        },
+    )
+    def bindUploadFile(
+        uploadId: str, body: BindingRequest, teacher: TeacherSession = Depends(currentTeacher),
+    ) -> BindingConfirmed:
+        with sessionFactory.begin() as db:
+            return confirmBinding(db, uploadId, teacher.teacherId, body)
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

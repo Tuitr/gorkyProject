@@ -64,6 +64,10 @@ class UploadFileRecord(Base):
         ),
         CheckConstraint("status <> 'matched' OR student_id IS NOT NULL", name="ck_upload_files_match"),
         CheckConstraint(
+            "binding_mode IS NULL OR (binding_mode IN ('selected', 'created') AND student_id IS NOT NULL)",
+            name="ck_upload_files_binding_mode",
+        ),
+        CheckConstraint(
             "(status = 'bound' AND student_id IS NOT NULL AND attempt_id IS NOT NULL AND check_id IS NOT NULL) "
             "OR (status <> 'bound' AND attempt_id IS NULL AND check_id IS NULL)",
             name="ck_upload_files_attempt",
@@ -84,6 +88,7 @@ class UploadFileRecord(Base):
     studentId: Mapped[str | None] = mapped_column("student_id", ForeignKey("cabinet.students.student_id"))
     attemptId: Mapped[str | None] = mapped_column("attempt_id", String(36))
     checkId: Mapped[str | None] = mapped_column("check_id", String(36))
+    bindingMode: Mapped[str | None] = mapped_column("binding_mode", String(16))
 
 
 def submissionName(filename: str) -> str:
@@ -210,7 +215,7 @@ def matchPendingFiles(
                 applyMatch(file, signatures, roster)
 
 
-def getUploadProgress(db: Session, settings: Settings, uploadId: str, teacherId: str) -> UploadProgress:
+def requireOwnedUploadClass(db: Session, uploadId: str, teacherId: str) -> str:
     if len(uploadId) != 36 or "\x00" in uploadId:
         raise ApiProblem("not_found", "Upload not found")
     classId = db.scalar(
@@ -226,7 +231,11 @@ def getUploadProgress(db: Session, settings: Settings, uploadId: str, teacherId:
     )
     if classId is None:
         raise ApiProblem("not_found", "Upload not found")
+    return classId
 
+
+def getUploadProgress(db: Session, settings: Settings, uploadId: str, teacherId: str) -> UploadProgress:
+    classId = requireOwnedUploadClass(db, uploadId, teacherId)
     fileQuery = (
         select(UploadFileRecord)
         .where(UploadFileRecord.uploadId == uploadId)
