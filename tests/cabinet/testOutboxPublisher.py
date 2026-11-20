@@ -1,6 +1,7 @@
 """Check Redis delivery and retry against isolated outbox rows."""
 
 import json
+import logging
 import uuid
 from collections.abc import Iterator
 
@@ -42,7 +43,10 @@ def publisherSessions(adminEngine: Engine) -> Iterator[sessionmaker[Session]]:
             connection.execute(DropSchema(schema, cascade=True))
 
 
-def testPublisherRetriesWithoutChangingTheEvent(publisherSessions: sessionmaker[Session]) -> None:
+def testPublisherRetriesWithoutChangingTheEvent(
+    publisherSessions: sessionmaker[Session], caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="cabinet.outboxpublisher")
     class Finished(Exception):
         pass
 
@@ -99,6 +103,9 @@ def testPublisherRetriesWithoutChangingTheEvent(publisherSessions: sessionmaker[
             assert testEntries[0][0] != testEntries[1][0]
             assert all(data == sends[0].encode() for _, data in testEntries)
             assert all(checksEventAdapter.validate_json(data) == event for _, data in testEntries)
+            assert f"Outbox published traceId=retry-test eventId={event.eventId}" in caplog.text
+            assert caplog.text.count(f"Outbox publication will retry traceId=retry-test eventId={event.eventId}") == 2
+            assert "retry-test.docx" not in caplog.text and "Response lost after XADD" not in caplog.text
         finally:
             if testEntries:
                 redis.xdel(STREAM_NAME, *(entryId for entryId, _ in testEntries))

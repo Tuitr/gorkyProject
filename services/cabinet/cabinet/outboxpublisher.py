@@ -16,6 +16,7 @@ from cabinet.outbox import OutboxRecord
 from cabinet.settings import Settings
 from contracts.v1.events.checks import DATA_FIELD, STREAM_NAME
 from shared.clock import Clock, SystemClock
+from shared.httperrors import TRACE_ID
 
 LOGGER = logging.getLogger(__name__)
 IDLE_DELAY_S = 0.5
@@ -31,21 +32,35 @@ def appendToStream(redis: Redis, data: str) -> None:
 def publishNext(
     sessions: sessionmaker[Session], append: Callable[[str], None], clock: Clock,
 ) -> bool:
-    with sessions.begin() as db:
-        record = db.scalar(
-            select(OutboxRecord)
-            .where(OutboxRecord.publishedAt.is_(None))
-            .order_by(OutboxRecord.sequence)
-            .limit(1)
-            .with_for_update(skip_locked=True)
-        )
-        if record is None:
-            return False
+    traceId = eventId = "-"
+    try:
+        with sessions.begin() as db:
+            record = db.scalar(
+                select(OutboxRecord)
+                .where(OutboxRecord.publishedAt.is_(None))
+                .order_by(OutboxRecord.sequence)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+            if record is None:
+                return False
 
-        data = json.dumps(record.data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        append(data)
-        # A failure between XADD and this commit leaves the same event eligible for retry.
-        record.publishedAt = clock.now()
+            rawTraceId = record.data.get("traceId")
+            if isinstance(rawTraceId, str) and TRACE_ID.fullmatch(rawTraceId):
+                traceId = rawTraceId
+            if TRACE_ID.fullmatch(record.eventId):
+                eventId = record.eventId
+            data = json.dumps(record.data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            append(data)
+            # A failure between XADD and this commit leaves the same event eligible for retry.
+            record.publishedAt = clock.now()
+    except (RedisError, SQLAlchemyError) as error:
+        LOGGER.warning(
+            "Outbox publication will retry traceId=%s eventId=%s errorType=%s",
+            traceId, eventId, type(error).__name__,
+        )
+        raise
+    LOGGER.info("Outbox published traceId=%s eventId=%s", traceId, eventId)
     return True
 
 
@@ -55,8 +70,7 @@ def runPublisher(
     while True:
         try:
             published = publishNext(sessions, append, clock)
-        except (RedisError, SQLAlchemyError) as error:
-            LOGGER.warning("Outbox publication will retry (%s)", type(error).__name__)
+        except (RedisError, SQLAlchemyError):
             clock.sleep(RETRY_DELAY_S)
         else:
             if not published:
