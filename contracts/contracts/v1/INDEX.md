@@ -6,10 +6,10 @@
 | Стык | Где | Поставщик | Потребитель | Статус |
 |---|---|---|---|---|
 | Ошибка HTTP `{code, message, retryable, traceId}` | `common/errors.py` | № 1 | все | готово |
-| Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | вход `POST /v1/sessions` готов (A2.1), cookie — A2.2, остальное планируется |
-| События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | готово |
-| Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | готово; генератор `tools/dataset` (A6.2), выпуск версии — A6.3 |
-| Внутренние результаты `/internal/v1/checks`, сводка, правки, публикация | `grading/` | № 2 | № 1 | планируется |
+| Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает DOCX или ZIP с работами; `GET /v1/uploads/{uploadId}` возвращает состояния файлов; `POST /v1/uploads/{uploadId}/bindings` подтверждает ученика |
+| События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | записываются в PostgreSQL outbox и доставляются в Redis Streams |
+| Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | эталоны [открытого mini.v1](../../../tools/dataset/releases/mini.v1/) сверены; разметка ожидает сверки № 2 |
+| Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | черновик для стыка B5.1 и A7.1. Кабинет читает его через `GET /v1/checks/{checkId}` |
 | Схема `taskResult` | `grading/taskresult.py` | № 2 | № 1, № 3 | черновик от № 3, ждёт подтверждения № 2 |
 | Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | `review.v1.md` — черновик от № 3, ждёт № 2 |
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/` | № 3 | № 2 | готово |
@@ -38,9 +38,103 @@
 
 - Каждый вызов `/internal/v1` несёт `Authorization: Bearer <служебный токен>` вызывающего сервиса.
   Cookie учителя внутренние вызовы не авторизует. Проверка: `shared.servicetokens.requireRight`.
-- Права операций: `references.request` (POST и GET эталонов), `model.review` (вызов шлюза).
+- Права операций: `checks.read` (чтение проверки), `references.request` (POST и GET эталонов), `model.review` (вызов шлюза).
 - Любая ошибка — `ApiError {code, message, retryable, traceId}`, коды и статусы в `common/errors.py`.
   Повторяемые коды: `rate_limited`, `unavailable`, `timeout` (с тем же requestId и с учётом Retry-After).
   `conflict` (409), `invalid_input` (422), `personal_data_suspected` (422, только шлюз) и `model_invalid_output` (502)
   повторять бессмысленно.
 - Текст ошибки фиксированный: без тела запроса, текста работы и секретов. `traceId` берётся из заголовка `X-Trace-Id`.
+
+### Загрузка варианта
+
+`POST /v1/classes/{classId}/assignments` принимает `multipart/form-data`. Поле `file` содержит DOCX.
+В поле `requirements` передаётся массив в формате JSON с элементами `{"text":"Решить через теорему Виета","taskNumber":"2"}`.
+Пустой массив означает, что дополнительных требований нет. `taskNumber: null` применяет требование ко всему варианту.
+
+Поле `assignmentDate` необязательно. Формат даты — `YYYY-MM-DD`, по умолчанию используется дата загрузки в UTC.
+Чтобы сохранить новую ревизию, повторите запрос с тем же `assignmentId` и передайте DOCX и полный список требований.
+Ответ `201` содержит `assignmentId` и `assignmentRev`. Каждая ревизия сохраняет свою дату, требования и DOCX.
+
+### Загрузка работы ученика
+
+`POST /v1/assignments/{assignmentId}/uploads` принимает `multipart/form-data`.
+Поле `file` содержит один DOCX до 20 МиБ или архив `.zip` до 50 МиБ. Поле `assignmentRev` задаёт ревизию варианта.
+В ZIP допустимы до 100 DOCX, до 200 записей с учётом каталогов и до 100 МиБ распакованных файлов.
+Кабинет проверяет весь архив до записи и создаёт для каждого документа отдельный `fileId`.
+Ответ `202` содержит `uploadId`. Учитель может загрузить работу только к ревизии варианта своего класса.
+
+`GET /v1/uploads/{uploadId}` возвращает `uploadId` и список `files` со статусом каждого документа.
+Запись содержит `fileId`, `originalName`, `status`, список `candidates` из учеников этого класса и `reason`, если есть причина отказа или уточнения.
+Кабинет сверяет имя файла и подпись в начале DOCX со списком класса. Поддерживаются подписи
+`Ученик:`, `Ученица:`, `ФИО:` и `Выполнил(а):`. При единственном полном совпадении без противоречий
+кабинет привязывает файл к ученику и присваивает статус `bound`. Совпадение по части имени, конфликт и отсутствие совпадений
+дают `needs_confirmation`. Для отказа предусмотрен `rejected`. Ранее загруженный файл со статусом
+`pending_binding` проходит ту же сверку при чтении прогресса.
+У файла со статусом `bound` есть `studentId`, `attemptId` и `checkId`.
+Чужой и несуществующий `uploadId` возвращают `404`.
+
+`POST /v1/uploads/{uploadId}/bindings` подтверждает привязку одного файла. Передайте
+`{"fileId":"…","studentId":"…"}` для ученика из списка класса или `{"fileId":"…","newStudent":{"name":"Иванов Иван"}}`
+для явного создания ученика. Ответ `200` содержит `fileId`, `studentId`, `attemptId`, `checkId` и статус `bound`.
+Повтор подтверждения возвращает ту же привязку. Попытка изменить подтверждённый выбор возвращает `409`.
+
+
+Одинаковое содержимое у одного ученика в рамках одного варианта сохраняет `attemptId`, даже если имя файла изменилось.
+Повтор для той же ревизии варианта сохраняет `checkId`. При сдаче тех же байтов к другой ревизии остаётся
+прежний `attemptId` и создаётся отдельный `checkId`. Изменение содержимого создаёт новую попытку.
+Для новой попытки сохраняется время загрузки. Если в старой записи время загрузки отсутствует, используется
+время создания попытки.
+
+
+### События кабинета
+
+Кабинет сохраняет `assignment.published` при создании ревизии и `attempt.submitted` при создании
+проверки в той же транзакции PostgreSQL, что и бизнес-запись. Повтор, который возвращает существующий
+`checkId`, сохраняет исходное событие. В outbox хранится полный конверт `checks.v1` с `eventId`,
+`traceId`, временем и ссылкой на DOCX.
+
+Отправитель записывает конверт в поле `data` потока `checks.v1`. При повторной доставке байты конверта,
+`eventId` и `traceId` сохраняются. Воркер использует `eventId` для дедупликации.
+
+
+[Пример передачи работ](examples/handoff/README.md) содержит полученные через `XREAD` сообщения
+и оба синтетических DOCX. Проверка `tests/infra/testChecksHandoff.py` читает документы с правами сервиса проверки.
+
+### Статус и результат проверки
+
+`GET /v1/checks/{checkId}` принимает `checkId` из статуса загрузки. Кабинет проверяет владельца класса
+и запрашивает статус у `GET /internal/v1/checks/{checkId}` со служебным правом `checks.read`.
+Чужие и неизвестные проверки возвращают тот же `404` без вызова `grading`.
+
+Ответ `200` содержит `checkId`, `attemptId` и `state`. Для незавершённой проверки или ошибки есть `reason`.
+Если проверка уже создана в кабинете, а `grading` ещё возвращает контрактный `not_found`, кабинет показывает
+`queued`. При `ready` ответ содержит `taskResults`, `overallReview` и текущий `resultRev`. Если есть
+`publishedResultRev`, он указывает опубликованную ревизию. При отличии номеров текущий результат относится
+к черновику. `markdownRef` и ключи S3 остаются во внутреннем API.
+
+Недоступность `grading` даёт `503`, таймаут запроса — `504`, невалидный ответ или несовпадение `checkId`
+либо `attemptId` — `502` с кодом `grading_invalid_response`. Кабинет передаёт `X-Trace-Id` в `grading`.
+
+### Отчёт по классу
+
+`GET /v1/assignments/{assignmentId}/report?rev=N` проверяет владельца ревизии и читает предварительный контракт
+`GET /internal/v1/assignments/{assignmentId}/report?rev=N`. В моделях `cabinet/reports.py` поле `rev` означает
+ревизию варианта, а у каждой выбранной проверки её версия указана в `resultRev`. `grading` возвращает одну
+выбранную пару `checkId` и `resultRev` на ученика, счётчики верных, неверных и пропущенных по заданиям и
+число учеников с замечаниями каждой категории. Формат сводки ждёт сверки с разработчиком № 2.
+
+Кабинет добавляет список класса, несдавших и сдавших без выбранного результата. Доли делятся на число
+уникальных сдавших этот вариант, а при отсутствии сдач равны `null`. `unchecked` считает сдавших без
+одного из трёх исходов задания, поэтому пропуск — отдельный исход.
+
+### Правки и выгрузка отзыва
+
+`PATCH /v1/checks/{checkId}/review` принимает `baseRev`, `editId` и список типизированных `changes`.
+`POST /v1/checks/{checkId}/publish` принимает `resultRev`. После проверки владельца кабинет передаёт их
+одноимённым маршрутам `/internal/v1`, добавляя `actorId` из сессии. При конфликте `409` кабинет возвращает
+текущий `resultRev` в конверте ошибки.
+
+`GET /v1/checks/{checkId}/markdown?rev=N` запрашивает у внутреннего маршрута ссылку `markdownRef` на опубликованную
+ревизию `N` с полями `bucket`, `key` и `sha256`. Кабинет сверяет идентификатор, ревизию и контрольную сумму,
+отдаёт файл как `text/markdown` и скрывает параметры S3. Модели `cabinet/reviews.py` описывают формат
+кабинета и предварительный формат ответов `grading` для сверки с разработчиком № 2.

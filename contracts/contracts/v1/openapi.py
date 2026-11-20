@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from contracts.v1.common.errors import ApiError
+from contracts.v1.grading.checks import CHECKS_READ_RIGHT, CheckPending, CheckReady, checkStatusAdapter
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import (
     ReferencePending,
@@ -165,8 +166,43 @@ def buildGatewayOpenApi() -> JsonObject:
     }
 
 
+def buildGradingOpenApi() -> JsonObject:
+    schema = checkStatusAdapter.json_schema(ref_template=REF_TEMPLATE)
+    schema.pop("$defs", None)
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "Grading result read API (draft)", "version": "1.0.0"},
+        "paths": {
+            "/internal/v1/checks/{checkId}": {
+                "get": {
+                    "operationId": "readCheck",
+                    "summary": "Read the stored state or current result of a check",
+                    "description": f"Requires {CHECKS_READ_RIGHT}. A check not yet consumed from Redis returns not_found.",
+                    "security": [{"serviceToken": []}],
+                    "parameters": [{"name": "checkId", "in": "path", "required": True, "schema": {"type": "string"}}],
+                    "responses": {
+                        "200": {"description": "State or current result", "content": jsonContent(schema)},
+                        "401": errorResponse("Service token is missing or invalid"),
+                        "403": errorResponse("Calling service has no right for this operation"),
+                        "404": errorResponse("No check with this id"),
+                        "503": errorResponse("Grading service is unavailable"),
+                    },
+                }
+            },
+        },
+        "components": {
+            "schemas": buildComponents([CheckPending, CheckReady, ApiError]),
+            "securitySchemes": {"serviceToken": {"type": "http", "scheme": "bearer"}},
+        },
+    }
+
+
 def buildAll() -> dict[str, JsonObject]:
-    return {"references.json": buildReferencesOpenApi(), "gateway.json": buildGatewayOpenApi()}
+    return {
+        "references.json": buildReferencesOpenApi(),
+        "gateway.json": buildGatewayOpenApi(),
+        "grading.json": buildGradingOpenApi(),
+    }
 
 
 def renderDocument(document: JsonObject) -> str:

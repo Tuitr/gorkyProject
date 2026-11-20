@@ -1,6 +1,6 @@
 """POST /v1/sessions: a teacher logs in with a login and a password (A2.1).
 
-200 answers with TeacherSession; the session cookie comes in A2.2. Every refusal of credentials is the
+200 answers with TeacherSession; the server sets a Secure, HttpOnly, SameSite=Strict cookie. Every refusal of credentials is the
 same 401 ApiError {code: "unauthorized", message: LOGIN_REFUSED_MESSAGE}: an unknown login and a wrong
 password cannot be told apart. Too many failed attempts give 429 rate_limited with Retry-After, also for
 the right password, until the window passes. The password and its hash never appear in an answer or a log.

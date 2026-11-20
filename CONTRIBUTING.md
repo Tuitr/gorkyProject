@@ -32,11 +32,12 @@ assert ApiError.model_validate_json(wire) == error
 
 ## Стенд
 
-`deploy/compose.yaml` поднимает PostgreSQL, Redis Streams и S3-совместимый SeaweedFS. Данные лежат в именованных
+`deploy/compose.yaml` поднимает API кабинета, PostgreSQL, Redis Streams и S3-совместимый SeaweedFS. Данные лежат в именованных
 томах и переживают перезапуск.
 
 | Что | Адрес по умолчанию | Переменная порта |
 |---|---|---|
+| Кабинет | `http://127.0.0.1:18080` | `CABINET_PORT` |
 | PostgreSQL | `127.0.0.1:15432`, база `gorky`, администратор `gorky` / `gorky` | `POSTGRES_PORT` |
 | Redis | `redis://127.0.0.1:16379/0` | `REDIS_PORT` |
 | S3 (SeaweedFS) | `http://127.0.0.1:18333`, ключ администратора `gorky-dev` / `gorky-dev-secret` | `S3_PORT` |
@@ -45,7 +46,7 @@ assert ApiError.model_validate_json(wire) == error
 по именам `postgres:5432`, `redis:6379`, `seaweedfs:8333`. Ключи S3 задаются в `deploy/seaweedfs/s3.json`.
 
 - Запуск с ожиданием готовности (команда ждёт, пока каждый сервис начнёт принимать запросы): `docker compose -f deploy/compose.yaml up -d --wait`
-- Состояние: `docker compose -f deploy/compose.yaml ps`, у всех сервисов должно быть `healthy`.
+- Состояние: `docker compose -f deploy/compose.yaml ps`, PostgreSQL, Redis, SeaweedFS и кабинет должны быть `healthy`, `outbox-publisher` — `running`.
 - Проверка записи и чтения во всех трёх хранилищах: `uv run pytest tests/infra`
 - Остановка без потери данных: `docker compose -f deploy/compose.yaml down`. С флагом `-v` тома удаляются.
 
@@ -76,6 +77,46 @@ assert ApiError.model_validate_json(wire) == error
 Если в Windows включён системный прокси (например, VPN-клиент), HTTP-клиенты Python отправляют через него и
 запросы на `127.0.0.1`. Клиенты стенда должны отключать прокси явно, как это сделано в `tests/infra/testStand.py`.
 
+### Публичное API кабинета
+
+Из корня проекта запустите `docker compose -f deploy/compose.yaml up -d --build --wait`.
+Кабинет применяет свои миграции при старте. Проверка `GET /ready` возвращает 200,
+когда роль кабинета может прочитать таблицы входа, и 503 при ошибке БД.
+
+Фронтенду доступны [Swagger UI](http://127.0.0.1:18080/docs) и [OpenAPI](http://127.0.0.1:18080/openapi.json).
+Публичные операции начинаются с `/v1`. В сети Compose адрес кабинета для других сервисов — `http://cabinet:8000`.
+Для подключения следующих сервисов зарезервированы имена `grading:8000`, `references:8000` и `gateway:8000`.
+Они появятся в сети по мере добавления соответствующих сервисов в Compose.
+
+Пример ответа `401` на `POST /v1/sessions`:
+
+```json
+{"code":"unauthorized","message":"Wrong login or password","retryable":false,"traceId":"t-login-1"}
+```
+
+Идентификатор также приходит в заголовке `X-Trace-Id`.
+
+Для `GET /v1/checks/{checkId}` задайте адрес API проверки в `CABINET_GRADING_BASE_URL` и токен кабинета
+в `CABINET_GRADING_SERVICE_TOKEN`. Зарегистрируйте этот токен в `grading` с правом `checks.read`.
+Compose по умолчанию использует `http://grading:8000`. Тесты кабинета проверяют стык на HTTP-заглушке.
+Код развёрнутого `grading` должен реализовать [внутренний контракт чтения](contracts/contracts/v1/openapi/grading.json).
+
+При сбое загрузки кабинет очищает DOCX в префиксе `sources/uploads/<uploadId>/` после проверки PostgreSQL.
+Загрузка и очистка используют одну блокировку для данного `uploadId`. Она защищает исходники при обрыве
+соединения во время COMMIT. Если процесс прервался или хранилище было недоступно, повторите очистку конкретной
+загрузки командой `uv run python -m cabinet.cleanupuploads <uploadId>`. Ссылки из загрузок и попыток сохраняются.
+
+### Публикация событий кабинета
+
+Compose запускает отдельный процесс `outbox-publisher`. Для локального запуска процесса вне Docker
+используйте `uv run python -m cabinet.outboxpublisher` после миграций кабинета. Адреса берутся из
+`CABINET_DATABASE_URL` и `REDIS_URL`.
+
+Процесс публикует конверт в поле `data` потока `checks.v1` и отмечает строку в PostgreSQL после подтверждения Redis.
+При сбое он повторяет передачу с прежним `eventId`. Потребитель использует этот идентификатор для дедупликации.
+По `traceId` и `eventId` в логах `outbox-publisher` можно найти подтверждение публикации или повтор.
+Синтетические сообщения и DOCX для сервиса проверки хранятся в [примере передачи работ](contracts/contracts/v1/examples/handoff/README.md).
+
 ### Синтетический учитель
 
 Кабинет запускается командой `uv run uvicorn cabinet.main:createApp --factory`. Вход: `POST /v1/sessions` с
@@ -83,6 +124,10 @@ assert ApiError.model_validate_json(wire) == error
 берутся из `CABINET_DEMO_TEACHER_LOGIN` и `CABINET_DEMO_TEACHER_PASSWORD` (`.env.example`), повторный запуск
 ничего не меняет. Пароли хранятся только как хеш Argon2id. Неверный пароль и неизвестный логин дают один и тот
 же 401. После `CABINET_LOGIN_MAX_FAILURES` неудач логин блокируется на `CABINET_LOGIN_WINDOW_S` секунд.
+
+Cookie `__Host-cabinet` действует 8 часов. Используйте HTTPS (для локальной разработки — localhost).
+Кабинет и браузерный фронтенд работают через один origin. После входа `GET /v1/sessions/current`
+возвращает учителя, а `DELETE /v1/sessions/current` отзывает сессию и отвечает 204.
 
 ## Мини-набор
 
@@ -104,6 +149,26 @@ uv run python -m dataset.generate --seed 20261120 --out <пустой катал
   `tests/references/testOpenSetKeys.py` берёт условие из Word-файла, считает значение заново и сравнивает
   манифест с ключами, называя `caseId` расхождения. После смены seed, версии или заданий открытых выборок
   ключи пересчитывают вручную, а не копируют из манифеста.
+
+### Мини-набор mini.v1 для разработки и сверки
+
+В [открытом комплекте](tools/dataset/releases/mini.v1/) с `seed=20261120` есть DOCX, ZIP и
+[манифест](tools/dataset/releases/mini.v1/manifest.json) с двумя выборками.
+
+- `demo` содержит верную и ошибочную работы, пропущенное задание и ответ без шагов. Пропуск представлен
+  переписанным условием без решения и размечен как `skipped`.
+- `e2e` использует `assignments/e2e1.docx` и `bundles/e2e1.zip`. Оба ученика получили верный ответ. У второго
+  есть одно замечание категории `sign` к `s2`, которое учитель снимает в сценарии приёмки.
+
+Воспроизвести комплект в пустом каталоге можно командой `uv run python -m dataset.generate --open-only --seed 20261120 --out /tmp/gorky-mini-v1`.
+Тест сверяет все файлы с опубликованной копией побайтно и проверяет ссылки в манифесте. Для закрытой приёмки
+команда оценки использует тот же открытый seed и задаёт свой `--closed-seed`. Генератор исключает пересечения
+по `sourceTaskId`. Закрытый seed и полный результат генерации хранятся у команды оценки.
+
+| Что сверяем перед приёмкой | Статус |
+|---|---|
+| Шаги, замечания и трактовка пропуска с разработчиком № 2 | Ожидает сверки |
+| Математические ключи с разработчиком № 3 | Сверены для `demo` и `e2e`. Расчёты зафиксированы в `openSetKeys.json`. |
 
 ## Тесты
 

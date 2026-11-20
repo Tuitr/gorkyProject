@@ -5,7 +5,7 @@ CABINET_DATABASE_URL logs in as gorky_cabinet: it owns the `cabinet` schema and 
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 DEFAULT_DATABASE_URL = (
     "postgresql+psycopg://gorky_cabinet:gorky_cabinet@127.0.0.1:15432/gorky?connect_timeout=3"
@@ -22,6 +22,14 @@ class Settings:
     """Failed logins from one client address (any logins) before that address is blocked."""
     loginWindowS: int = 900
 
+    s3EndpointUrl: str = "http://127.0.0.1:18333"
+    s3AccessKeyId: str = "gorky-cabinet"
+    s3SecretAccessKey: str = "gorky-cabinet-secret"
+    s3Region: str = "us-east-1"
+    redisUrl: str = "redis://127.0.0.1:16379/0"
+    gradingBaseUrl: str = "http://grading:8000"
+    gradingServiceToken: str = field(default="", repr=False)
+
     @classmethod
     def fromEnv(cls) -> "Settings":
         return cls(
@@ -29,4 +37,11 @@ class Settings:
             loginMaxFailures=int(os.environ.get("CABINET_LOGIN_MAX_FAILURES", cls.loginMaxFailures)),
             clientMaxFailures=int(os.environ.get("CABINET_CLIENT_MAX_FAILURES", cls.clientMaxFailures)),
             loginWindowS=int(os.environ.get("CABINET_LOGIN_WINDOW_S", cls.loginWindowS)),
+            s3EndpointUrl=os.environ.get("S3_ENDPOINT_URL", cls.s3EndpointUrl),
+            s3AccessKeyId=os.environ.get("CABINET_S3_ACCESS_KEY_ID", cls.s3AccessKeyId),
+            s3SecretAccessKey=os.environ.get("CABINET_S3_SECRET_ACCESS_KEY", cls.s3SecretAccessKey),
+            s3Region=os.environ.get("S3_REGION", cls.s3Region),
+            redisUrl=os.environ.get("REDIS_URL", cls.redisUrl),
+            gradingBaseUrl=os.environ.get("CABINET_GRADING_BASE_URL", cls.gradingBaseUrl),
+            gradingServiceToken=os.environ.get("CABINET_GRADING_SERVICE_TOKEN", ""),
         )

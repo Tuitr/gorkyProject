@@ -1,0 +1,69 @@
+"""Class rosters and submissions stay in the cabinet. Grading selects the results included in its summary."""
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from cabinet.attempts import AttemptRecord, CheckRecord
+from cabinet.classes import StudentRecord
+from cabinet.gradingclient import invalidGradingResponse
+from contracts.v1.cabinet.classes import StudentSummary
+from contracts.v1.cabinet.reports import AssignmentReport, GradingReport, ReportTask
+
+
+def readReportRoster(
+    db: Session, classId: str, assignmentId: str, assignmentRev: int,
+) -> tuple[list[StudentSummary], dict[str, str]]:
+    submittedChecks = (
+        select(CheckRecord.checkId.label("checkId"), AttemptRecord.studentId.label("studentId"))
+        .join(AttemptRecord, AttemptRecord.attemptId == CheckRecord.attemptId)
+        .where(CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev)
+        .subquery()
+    )
+    roster: dict[str, StudentSummary] = {}
+    checks: dict[str, str] = {}
+    for student, checkId in db.execute(
+        select(StudentRecord, submittedChecks.c.checkId)
+        .outerjoin(submittedChecks, submittedChecks.c.studentId == StudentRecord.studentId)
+        .where(StudentRecord.classId == classId)
+        .order_by(StudentRecord.name, StudentRecord.studentId)
+    ):
+        roster[student.studentId] = StudentSummary(studentId=student.studentId, name=student.name)
+        if checkId is not None:
+            checks[checkId] = student.studentId
+    return list(roster.values()), checks
+
+
+def combineReport(
+    assignmentId: str, assignmentRev: int, roster: list[StudentSummary], checks: dict[str, str], upstream: GradingReport,
+) -> AssignmentReport:
+    if (upstream.assignmentId, upstream.assignmentRev) != (assignmentId, assignmentRev):
+        raise invalidGradingResponse()
+    reviewed = {result.studentId for result in upstream.results}
+    if len(reviewed) != len(upstream.results) or any(
+        checks.get(result.checkId) != result.studentId for result in upstream.results
+    ):
+        raise invalidGradingResponse()
+    if len({task.taskId for task in upstream.tasks}) != len(upstream.tasks):
+        raise invalidGradingResponse()
+
+    submitted = set(checks.values())
+    total = len(submitted)
+    waiting = submitted - reviewed
+    tasks = []
+    for task in upstream.tasks:
+        counted = task.correct + task.incorrect + task.skipped
+        if counted > len(reviewed) or any(count > len(reviewed) for count in task.issuesByCategory.values()):
+            raise invalidGradingResponse()
+        tasks.append(ReportTask(
+            taskId=task.taskId, correct=task.correct, incorrect=task.incorrect, skipped=task.skipped,
+            issuesByCategory=task.issuesByCategory, unchecked=total - counted,
+            correctShare=task.correct / total if total else None,
+            incorrectShare=task.incorrect / total if total else None,
+            skippedShare=task.skipped / total if total else None,
+        ))
+    return AssignmentReport(
+        assignmentId=assignmentId, assignmentRev=assignmentRev, students=roster, submittedCount=total,
+        notSubmitted=[student for student in roster if student.studentId not in submitted],
+        waiting=[student for student in roster if student.studentId in waiting],
+        results=upstream.results, tasks=tasks,
+    )

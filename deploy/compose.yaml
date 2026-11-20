@@ -6,6 +6,40 @@
 name: gorky
 
 services:
+  cabinet:
+    build: &cabinet-build
+      context: ..
+      dockerfile: deploy/cabinet.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    environment:
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+      CABINET_DATABASE_URL: &cabinet-db postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
+      CABINET_GRADING_BASE_URL: ${CABINET_GRADING_BASE_URL:-http://grading:8000}
+      CABINET_GRADING_SERVICE_TOKEN: ${CABINET_GRADING_SERVICE_TOKEN:-}
+    ports:
+      - "127.0.0.1:${CABINET_PORT:-18080}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/ready', timeout=4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  outbox-publisher:
+    build: *cabinet-build
+    depends_on:
+      cabinet:
+        condition: service_healthy
+    environment:
+      CABINET_DATABASE_URL: *cabinet-db
+      REDIS_URL: redis://redis:6379/0
+    command: ["python", "-m", "cabinet.outboxpublisher"]
+    restart: on-failure
+
   postgres:
     image: postgres:16
     environment:
@@ -65,6 +99,17 @@ services:
       interval: 2s
       timeout: 3s
       retries: 60
+
+  s3-init:
+    image: chrislusf/seaweedfs:4.05
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        printf '%s\n' 's3.bucket.create -name sources' | weed shell -master=seaweedfs:9333
+        wget -q -O /dev/null http://seaweedfs:8888/buckets/sources/
 
 volumes:
   postgres-data:

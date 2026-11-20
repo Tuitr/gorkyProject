@@ -1,0 +1,388 @@
+{
+  "schemaVersion": "datasetManifest.v1",
+  "datasetVersion": "mini.v1",
+  "seed": 20261120,
+  "cases": [
+    {
+      "caseId": "demo1Student1Task1",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/demo1.docx",
+        "taskNumber": "1",
+        "statement": "Найдите длину вектора a⃗ = (15; −8).",
+        "constraints": {},
+        "sourceTaskId": "vectorLength:15:-8"
+      },
+      "submissionRef": {
+        "file": "submissions/demo1/probnaya-mariya.docx",
+        "sha256": "5e1ac1b3c9ceb37b685aabd3c86c13e51c9621c9849b5c8d5e2eef783ef986dc",
+        "studentName": "Пробная Мария"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "17"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$|\\vec a| = \\sqrt{15^2 + (-8)^2}$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$= \\sqrt{225 + 64} = \\sqrt{289} = 17$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "Ответ: $17$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "demo1Student1Task2",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/demo1.docx",
+        "taskNumber": "2",
+        "statement": "Даны векторы a⃗ = (6; −1) и b⃗ = (6; 6). Найдите длину вектора a⃗ + b⃗.",
+        "constraints": {},
+        "sourceTaskId": "vectorSumLength:6:-1:6:6"
+      },
+      "submissionRef": {
+        "file": "submissions/demo1/probnaya-mariya.docx",
+        "sha256": "5e1ac1b3c9ceb37b685aabd3c86c13e51c9621c9849b5c8d5e2eef783ef986dc",
+        "studentName": "Пробная Мария"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "13"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$\\vec a + \\vec b = (6 + 6; -1 + 6) = (12; 5)$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$|\\vec a + \\vec b| = \\sqrt{12^2 + 5^2} = \\sqrt{144 + 25} = \\sqrt{169} = 13$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "Ответ: $13$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "demo1Student1Task3",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/demo1.docx",
+        "taskNumber": "3",
+        "statement": "Найдите скалярное произведение векторов a⃗ = (9; −1) и b⃗ = (1; 2).",
+        "constraints": {},
+        "sourceTaskId": "dotProduct:9:-1:1:2"
+      },
+      "submissionRef": {
+        "file": "submissions/demo1/probnaya-mariya.docx",
+        "sha256": "5e1ac1b3c9ceb37b685aabd3c86c13e51c9621c9849b5c8d5e2eef783ef986dc",
+        "studentName": "Пробная Мария"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "7"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$\\vec a \\cdot \\vec b = 9 \\cdot 1 + (-1) \\cdot 2$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$= 9 - 2 = 7$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "Ответ: $7$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "demo1Student2Task1",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/demo1.docx",
+        "taskNumber": "1",
+        "statement": "Найдите длину вектора a⃗ = (15; −8).",
+        "constraints": {},
+        "sourceTaskId": "vectorLength:15:-8"
+      },
+      "submissionRef": {
+        "file": "submissions/demo1/shablonova-eva.docx",
+        "sha256": "e244631734ef7afea0e0d844502da2a76744baa90c693ffdc2c9f24f1c90c978",
+        "studentName": "Шаблонова Ева"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "17"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "Ответ: $17$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "not_shown",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "demo1Student2Task2",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/demo1.docx",
+        "taskNumber": "2",
+        "statement": "Даны векторы a⃗ = (6; −1) и b⃗ = (6; 6). Найдите длину вектора a⃗ + b⃗.",
+        "constraints": {},
+        "sourceTaskId": "vectorSumLength:6:-1:6:6"
+      },
+      "submissionRef": {
+        "file": "submissions/demo1/shablonova-eva.docx",
+        "sha256": "e244631734ef7afea0e0d844502da2a76744baa90c693ffdc2c9f24f1c90c978",
+        "studentName": "Шаблонова Ева"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "13"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$\\vec a + \\vec b = (6 + 6; -1 + 6) = (12; 6)$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$|\\vec a + \\vec b| = \\sqrt{12^2} + 6^2 = \\sqrt{144 + 36} = \\sqrt{180}$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "Ответ: $\\sqrt{180}$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "incorrect",
+        "reasoning": "invalid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": [
+        {
+          "issueId": "i1",
+          "stepId": "s1",
+          "category": "arithmetic",
+          "causedByIssueId": null
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s2",
+          "category": "notation",
+          "causedByIssueId": null
+        },
+        {
+          "issueId": "i3",
+          "stepId": "s3",
+          "category": "answer",
+          "causedByIssueId": "i1"
+        }
+      ]
+    },
+    {
+      "caseId": "demo1Student2Task3",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/demo1.docx",
+        "taskNumber": "3",
+        "statement": "Найдите скалярное произведение векторов a⃗ = (9; −1) и b⃗ = (1; 2).",
+        "constraints": {},
+        "sourceTaskId": "dotProduct:9:-1:1:2"
+      },
+      "submissionRef": {
+        "file": "submissions/demo1/shablonova-eva.docx",
+        "sha256": "e244631734ef7afea0e0d844502da2a76744baa90c693ffdc2c9f24f1c90c978",
+        "studentName": "Шаблонова Ева"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "7"
+        }
+      },
+      "expectedSteps": [],
+      "expectedVerdict": {
+        "answer": "skipped",
+        "reasoning": "not_shown",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "e2e1Student1Task1",
+      "split": "e2e",
+      "assignmentRef": {
+        "file": "assignments/e2e1.docx",
+        "taskNumber": "1",
+        "statement": "Найдите длину вектора a⃗ = (−5; −12).",
+        "constraints": {},
+        "sourceTaskId": "vectorLength:-5:-12"
+      },
+      "submissionRef": {
+        "file": "submissions/e2e1/testov-petr.docx",
+        "sha256": "9c102d91c7df2cee1afe8f0657c93939c4a376e70794a6b4284ccc63daec51da",
+        "studentName": "Тестов Пётр"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "13"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$|\\vec a| = \\sqrt{(-5)^2 + (-12)^2}$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$= \\sqrt{25 + 144} = \\sqrt{169} = 13$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "Ответ: $13$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "e2e1Student2Task1",
+      "split": "e2e",
+      "assignmentRef": {
+        "file": "assignments/e2e1.docx",
+        "taskNumber": "1",
+        "statement": "Найдите длину вектора a⃗ = (−5; −12).",
+        "constraints": {},
+        "sourceTaskId": "vectorLength:-5:-12"
+      },
+      "submissionRef": {
+        "file": "submissions/e2e1/primerova-anna.docx",
+        "sha256": "58289a27e58df8f38dc487d145de81a17ed70b49f6c2d833b840770770189a9e",
+        "studentName": "Примерова Анна"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "13"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$|\\vec a| = \\sqrt{(-5)^2 + (-12)^2}$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$= \\sqrt{25 + 144} = \\sqrt{169} = \\pm 13$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "Ответ: $13$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "invalid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": [
+        {
+          "issueId": "i1",
+          "stepId": "s2",
+          "category": "sign",
+          "causedByIssueId": null
+        }
+      ]
+    }
+  ],
+  "bundles": [
+    {
+      "file": "bundles/demo1.zip",
+      "sha256": "447d0cba0a5bbd14d09a3699630c9d595fb7bcf8594d4d41c2112513b2484a46",
+      "assignmentFile": "assignments/demo1.docx",
+      "entries": [
+        {
+          "name": "probnaya-mariya.docx",
+          "file": "submissions/demo1/probnaya-mariya.docx"
+        },
+        {
+          "name": "shablonova-eva.docx",
+          "file": "submissions/demo1/shablonova-eva.docx"
+        }
+      ]
+    },
+    {
+      "file": "bundles/e2e1.zip",
+      "sha256": "4af1cfce11e17e1b4f186afc6d3b83557c965a2d3470f740c11edb8858183f87",
+      "assignmentFile": "assignments/e2e1.docx",
+      "entries": [
+        {
+          "name": "testov-petr.docx",
+          "file": "submissions/e2e1/testov-petr.docx"
+        },
+        {
+          "name": "primerova-anna.docx",
+          "file": "submissions/e2e1/primerova-anna.docx"
+        }
+      ]
+    }
+  ]
+}
