@@ -140,13 +140,29 @@ export function SourceReview({ id }: { id: string }) {
             >
               Отмена
             </button>
-            <button className="btn btn--primary" disabled={!a.tasks.length} onClick={() => go('a', a.id)}>
+            <button
+              className="btn btn--primary"
+              disabled={!a.tasks.length}
+              onClick={() => {
+                // варианты необязательны: сохранённая работа сразу готова к сбору (все сдают одну общую работу)
+                update((s) => ({ ...s, assignments: patch(s.assignments, id, (x) => ({ ...x, status: 'approved' })) }))
+                go('a', a.id)
+              }}
+            >
               Сохранить
             </button>
           </div>
         </div>
       ) : (
-        <AssignmentHeader a={a} step="source" noStages />
+        <AssignmentHeader
+          a={a}
+          step="source"
+          actions={
+            <a className="btn" href={href('a', a.id, 'edit')}>
+              Параметры
+            </a>
+          }
+        />
       )}
 
       <div className="source">

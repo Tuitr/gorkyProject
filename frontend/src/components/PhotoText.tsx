@@ -9,7 +9,7 @@ import type { Pipeline } from './OcrPanel'
  */
 export function PhotoText({ works, pipeline }: { works: Work[]; pipeline: Record<string, Pipeline> }) {
   const [copied, setCopied] = useState(false)
-  const photos = works.filter((w) => w.source !== 'sample').sort((a, b) => a.createdAt - b.createdAt)
+  const photos = [...works].sort((a, b) => a.createdAt - b.createdAt)
   if (!photos.length) return null
 
   /** Текст одного фото — сплошной строкой, без LaTeX. null — фото ещё распознаётся. */

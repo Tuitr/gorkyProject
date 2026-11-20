@@ -6,7 +6,6 @@ import { LatexBlock, OcrPanel, type Pipeline } from '../components/OcrPanel'
 import { PhotoText } from '../components/PhotoText'
 import { ReportPanel } from '../components/ReportPanel'
 import { WorkViewer } from '../components/WorkViewer'
-import { SAMPLE_WORKS } from '../data/samples'
 import type { Work } from '../types'
 
 const fmtDate = (t: number) =>
@@ -14,8 +13,8 @@ const fmtDate = (t: number) =>
 
 /** Быстрая проверка одного фото без класса и ученика (прежний экран). */
 export function QuickCheck() {
-  const [works, setWorks] = useState<Work[]>(SAMPLE_WORKS)
-  const [currentId, setCurrentId] = useState(SAMPLE_WORKS[0].id)
+  const [works, setWorks] = useState<Work[]>([])
+  const [currentId, setCurrentId] = useState<string | null>(null)
   const [cameraOpen, setCameraOpen] = useState(false)
   // Новое фото: OCR (LaTeX) → проверка GigaChat
   const [pipeline, setPipeline] = useState<Record<string, Pipeline>>({})
@@ -29,7 +28,7 @@ export function QuickCheck() {
 
   const current = works.find((w) => w.id === currentId) ?? works[0]
 
-  const select = (id: string) => {
+  const select = (id: string | null) => {
     setCurrentId(id)
     setActiveMistake(null)
     setShowTask(false)
@@ -72,15 +71,16 @@ export function QuickCheck() {
       fileName,
       createdAt,
     }
-    setWorks((ws) => [{ ...work, title: `Новая работа ${ws.filter((w) => w.source !== 'sample').length + 1}` }, ...ws])
+    setWorks((ws) => [{ ...work, title: `Новая работа ${ws.length + 1}` }, ...ws])
     select(work.id)
     setCameraOpen(false)
     void runPipeline(work)
   }
 
   const removeWork = (id: string) => {
-    setWorks((ws) => ws.filter((w) => w.id !== id))
-    if (id === currentId) select(SAMPLE_WORKS[0].id)
+    const rest = works.filter((w) => w.id !== id)
+    setWorks(rest)
+    if (id === currentId) select(rest[0]?.id ?? null)
   }
 
   /** Время берём в момент выбора: файлы читаются параллельно, а порядок должен остаться как при выборе. */
@@ -117,6 +117,11 @@ export function QuickCheck() {
 
       <PhotoText works={works} pipeline={pipeline} />
 
+      {!current ? (
+        <div className="empty">
+          <h2>Работы не загружены</h2>
+        </div>
+      ) : (
       <div className="quick__layout">
         <nav className="works" aria-label="Работы">
           <h3>Работы</h3>
@@ -131,7 +136,6 @@ export function QuickCheck() {
                       <b>{w.title}</b>
                       <span className="muted small">
                         {fmtDate(w.createdAt)}
-                        {w.source === 'sample' && ' · образец'}
                       </span>
                       {pipeline[w.id]?.stage === 'ocr' ? (
                         <span className="badge">распознавание…</span>
@@ -149,11 +153,9 @@ export function QuickCheck() {
                       )}
                     </span>
                   </button>
-                  {w.source !== 'sample' && (
-                    <button className="icon-btn work-del" onClick={() => removeWork(w.id)} aria-label="Удалить работу">
-                      ✕
-                    </button>
-                  )}
+                  <button className="icon-btn work-del" onClick={() => removeWork(w.id)} aria-label="Удалить работу">
+                    ✕
+                  </button>
                 </li>
               )
             })}
@@ -230,6 +232,7 @@ export function QuickCheck() {
           </div>
         </main>
       </div>
+      )}
 
       {cameraOpen && <CameraCapture onCapture={(img) => addWork(img, 'camera')} onClose={() => setCameraOpen(false)} />}
     </div>

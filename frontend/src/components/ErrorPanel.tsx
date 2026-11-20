@@ -14,17 +14,25 @@ import {
 import { patch, useStore } from '../store'
 import { Badge, Drawer, JobStatus, Photo } from '../ui'
 
-type Props = { submissionId: string; taskId: string; onClose: () => void }
+type Props = {
+  submissionId: string
+  taskId: string
+  onClose: () => void
+  /** какую ошибку номера показать первой */
+  mistakeId?: string
+  /** встроенная панель на странице (а не выезжающая справа) */
+  inline?: boolean
+}
 
 /** Экран 9. Панель ошибки: текст ИИ со ссылкой на строку, фото с фрагментом, расшифровка, категория, правило, правка. */
-export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
+export function ErrorPanel({ submissionId, taskId, onClose, mistakeId, inline }: Props) {
   const { state, update, jobs, toast } = useStore()
   const { process } = useActions()
   const s = state.submissions.find((x) => x.id === submissionId)
   const a = state.assignments.find((x) => x.id === s?.assignmentId)
   const task = a?.tasks.find((t) => t.id === taskId)
   const res = s?.results.find((r) => r.taskId === taskId)
-  const [mid, setMid] = useState<string | null>(res?.mistakes[0]?.id ?? null)
+  const [mid, setMid] = useState<string | null>(mistakeId ?? res?.mistakes[0]?.id ?? null)
   const [editLine, setEditLine] = useState<{ page: number; line: number; text: string } | null>(null)
   const [scoring, setScoring] = useState<{ score: string; comment: string } | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -72,15 +80,12 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
   const to = m?.lines.length ? Math.min(lines.length, Math.max(...m.lines) + 4) : Math.min(lines.length, 12)
   const score = taskScore(res)
 
-  return (
-    <Drawer
-      title={
-        <>
-          №{task.num} · {student?.name ?? 'ученик не определён'}
-        </>
-      }
-      onClose={onClose}
-    >
+  const title = (
+    <>
+      №{task.num} · {student?.name ?? 'ученик не определён'}
+    </>
+  )
+  const body = (
       <div className="ep">
         <div className="ep__summary">
           {res ? (
@@ -163,7 +168,8 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
           <p className="muted">{res?.status === 'ok' ? 'Ошибок нет: задание выполнено верно.' : 'Автоматическая проверка ошибок не выявила.'}</p>
         )}
 
-        {page && (
+        {/* на странице проверки работы (inline) фото и распознанный текст не показываются — фото уже рядом */}
+        {!inline && page && (
           <section>
             <h3>Фото{s.pages.length > 1 ? ` · страница ${pageIdx + 1}` : ''}</h3>
             <Photo
@@ -174,67 +180,69 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
           </section>
         )}
 
-        <section>
-          <h3>Распознанный текст по строкам</h3>
-          {!lines.length ? (
-            <p className="muted small">Распознанный текст отсутствует: работа размечена вручную или ещё не распознана.</p>
-          ) : (
-            <ol className="lines" start={from + 1}>
-              {lines.slice(from, to).map((l, k) => {
-                const j = from + k
-                const editing = editLine?.page === pageIdx && editLine.line === j
-                return (
-                  <li key={j} id={`line-${pageIdx}-${j}`} className={focus.has(j) ? 'is-focus' : ''}>
-                    {editing ? (
-                      <span className="line-edit">
-                        <input
-                          className="input input--sm"
-                          autoFocus
-                          value={editLine.text}
-                          onChange={(e) => setEditLine({ ...editLine, text: e.target.value })}
-                          onKeyDown={(e) => e.key === 'Enter' && saveLine()}
-                        />
-                        <button className="link-btn" onClick={saveLine}>
-                          Сохранить
-                        </button>
-                      </span>
-                    ) : (
-                      <>
-                        <code>{l.text}</code>
-                        {l.fixed && <Badge tone="info">исправлено</Badge>}
-                        <button
-                          className="link-btn"
-                          onClick={() => setEditLine({ page: pageIdx, line: j, text: l.text })}
-                          title="Исправить распознавание"
-                        >
-                          ✎
-                        </button>
-                      </>
-                    )}
-                  </li>
-                )
-              })}
-            </ol>
-          )}
-          {lines.length > 0 && (
-            <div className="row">
-              <button className="btn" onClick={() => setEditLine({ page: pageIdx, line: m?.lines[0] ?? from, text: lines[m?.lines[0] ?? from]?.text ?? '' })}>
-                Исправить распознавание
-              </button>
-              {dirty && (
-                <JobStatus
-                  job={job}
-                  onRetry={() => void process(s.id)}
-                  idle={
-                    <button className="btn btn--primary" onClick={() => void process(s.id).then(() => setDirty(false))}>
-                      Перепроверить с исправлением
-                    </button>
-                  }
-                />
-              )}
-            </div>
-          )}
-        </section>
+        {!inline && (
+          <section>
+            <h3>Распознанный текст по строкам</h3>
+            {!lines.length ? (
+              <p className="muted small">Распознанный текст отсутствует: работа размечена вручную или ещё не распознана.</p>
+            ) : (
+              <ol className="lines" start={from + 1}>
+                {lines.slice(from, to).map((l, k) => {
+                  const j = from + k
+                  const editing = editLine?.page === pageIdx && editLine.line === j
+                  return (
+                    <li key={j} id={`line-${pageIdx}-${j}`} className={focus.has(j) ? 'is-focus' : ''}>
+                      {editing ? (
+                        <span className="line-edit">
+                          <input
+                            className="input input--sm"
+                            autoFocus
+                            value={editLine.text}
+                            onChange={(e) => setEditLine({ ...editLine, text: e.target.value })}
+                            onKeyDown={(e) => e.key === 'Enter' && saveLine()}
+                          />
+                          <button className="link-btn" onClick={saveLine}>
+                            Сохранить
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          <code>{l.text}</code>
+                          {l.fixed && <Badge tone="info">исправлено</Badge>}
+                          <button
+                            className="link-btn"
+                            onClick={() => setEditLine({ page: pageIdx, line: j, text: l.text })}
+                            title="Исправить распознавание"
+                          >
+                            ✎
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+            {lines.length > 0 && (
+              <div className="row">
+                <button className="btn" onClick={() => setEditLine({ page: pageIdx, line: m?.lines[0] ?? from, text: lines[m?.lines[0] ?? from]?.text ?? '' })}>
+                  Исправить распознавание
+                </button>
+                {dirty && (
+                  <JobStatus
+                    job={job}
+                    onRetry={() => void process(s.id)}
+                    idle={
+                      <button className="btn btn--primary" onClick={() => void process(s.id).then(() => setDirty(false))}>
+                        Перепроверить с исправлением
+                      </button>
+                    }
+                  />
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         <section>
           <h3>Балл</h3>
@@ -282,6 +290,21 @@ export function ErrorPanel({ submissionId, taskId, onClose }: Props) {
           )}
         </section>
       </div>
+  )
+
+  return inline ? (
+    <section className="panel ep-inline" aria-label="Подробности ошибки">
+      <div className="panel__head">
+        <h2>{title}</h2>
+        <button className="icon-btn" onClick={onClose} aria-label="Закрыть">
+          ✕
+        </button>
+      </div>
+      {body}
+    </section>
+  ) : (
+    <Drawer title={title} onClose={onClose}>
+      {body}
     </Drawer>
   )
 }

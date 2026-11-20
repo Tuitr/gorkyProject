@@ -1,8 +1,8 @@
-import { Fragment, type ReactNode } from 'react'
-import { WORK_TYPE_LABEL, type Assignment, type ClassGroup } from '../domain'
+import { type ReactNode } from 'react'
+import { type Assignment, type ClassGroup } from '../domain'
 import { go, href, useRoute } from '../router'
 import { useStore } from '../store'
-import { Badge, Tabs } from '../ui'
+import { Tabs } from '../ui'
 
 export const STEPS = [
   { id: 'source', label: 'Исходный материал' },
@@ -14,13 +14,6 @@ export const STEPS = [
   { id: 'practice', label: 'Работа над ошибками' },
 ] as const
 export type Step = (typeof STEPS)[number]['id']
-
-/** Семь экранов сгруппированы в три шага — учитель видит путь, а не семь кнопок. */
-const STAGES: { label: string; steps: Step[] }[] = [
-  { label: 'Подготовка', steps: ['source', 'variants'] },
-  { label: 'Проверка', steps: ['collect', 'queue', 'sheet'] },
-  { label: 'Итоги', steps: ['class-report', 'practice'] },
-]
 
 /** Только свои классы: фото и отчёты доступны лишь владельцу класса. */
 export function useOwnClasses() {
@@ -54,106 +47,41 @@ export function NotFound({ what = 'Работа' }: { what?: string }) {
   )
 }
 
-/** Шапка работы + вкладки этапов. */
+/**
+ * Шапка раздела работы: «← работа» (страница работы с плитками), заголовок «Раздел · Работа», кнопки справа.
+ * Шагов «Подготовка / Проверка / Итоги» и подвкладок нет — переход между разделами идёт через страницу работы.
+ */
 export function AssignmentHeader({
   a,
   step,
-  classId,
   actions,
   primary,
-  noStages,
 }: {
   a: Assignment
   step: Step
   classId?: string
+  /** дополнительные кнопки раздела */
   actions?: ReactNode
-  /** главное действие раздела — справа вверху, в том числе в упрощённом виде (?f=1) */
+  /** главное действие раздела */
   primary?: ReactNode
-  /** без шагов «1 Подготовка / 2 Проверка / 3 Итоги» и подвкладок (страница проверки распознавания) */
-  noStages?: boolean
 }) {
-  const { state } = useStore()
-  const queue = state.review.filter(
-    (r) => !r.resolved && state.submissions.find((s) => s.id === r.submissionId)?.assignmentId === a.id,
-  ).length
-  const current = STAGES.find((g) => g.steps.includes(step)) ?? STAGES[0]
-  const { query } = useRoute()
-
-  // Открыто с карточки работы («Варианты», «Ведомость», «Отчёт») — только этот раздел, без шагов и переходов
-  if (query.get('f')) {
-    const label = STEPS.find((s) => s.id === step)?.label
-    return (
-      <div className="a-head a-head--focus">
-        <a className="back-link" href={href('a', a.id)}>
-          ← {a.title}
-        </a>
-        <div className="a-head__row">
-          <h1>
-            {label} <span className="a-head__of">· {a.title}</span>
-          </h1>
-          {primary && <div className="page-head__actions">{primary}</div>}
-        </div>
-      </div>
-    )
-  }
-
+  const label = STEPS.find((s) => s.id === step)?.label
   return (
-    <div className="a-head">
-      <div className="page-head">
-        <div>
-          <div className="muted small">
-            <a href="#/">Работы</a> / {WORK_TYPE_LABEL[a.type]}
+    <div className="a-head a-head--focus">
+      <a className="back-link" href={href('a', a.id)}>
+        ← {a.title}
+      </a>
+      <div className="a-head__row">
+        <h1>
+          {label} <span className="a-head__of">· {a.title}</span>
+        </h1>
+        {(primary || actions) && (
+          <div className="page-head__actions">
+            {primary}
+            {actions}
           </div>
-          <h1>
-            {a.title}{' '}
-            {a.status === 'draft' ? <Badge tone="info">Черновик</Badge> : <Badge tone="ok">Утверждена</Badge>}
-          </h1>
-        </div>
-        <div className="page-head__actions">
-          {primary}
-          {actions}
-          <a className="btn" href={href('a', a.id, 'edit')}>
-            Параметры
-          </a>
-        </div>
+        )}
       </div>
-      {!noStages && (
-      <div className="stages">
-        <nav className="stages__main" aria-label="Шаги работы">
-          {STAGES.map((g, i) => {
-            const active = g.steps.includes(step)
-            const n = g.steps.includes('queue') ? queue : 0
-            return (
-              <Fragment key={g.label}>
-                {i > 0 && <span className="stages__sep" aria-hidden="true" />}
-                <a
-                  href={href('a', a.id, g.steps[0], { c: classId })}
-                  className={active ? 'is-active' : ''}
-                  aria-current={active ? 'step' : undefined}
-                >
-                  <span className="stages__num">{i + 1}</span>
-                  {g.label}
-                  {!active && n > 0 && <span className="count">{n}</span>}
-                </a>
-              </Fragment>
-            )
-          })}
-        </nav>
-        <nav className="steps-nav" aria-label="Разделы шага">
-          {STEPS.filter((s) => current.steps.includes(s.id)).map((s) => (
-            <a
-              key={s.id}
-              href={href('a', a.id, s.id, { c: classId })}
-              className={s.id === step ? 'is-active' : ''}
-              aria-current={s.id === step ? 'page' : undefined}
-            >
-              {s.label}
-              {s.id === 'queue' && queue > 0 && <span className="count">{queue}</span>}
-            </a>
-          ))}
-        </nav>
-      </div>
-      )}
     </div>
   )
 }

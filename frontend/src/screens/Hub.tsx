@@ -35,7 +35,7 @@ export function Hub({ id }: { id: string }) {
       to: href('a', a.id, 'variants', f),
       icon: '🗂',
       title: 'Варианты',
-      note: a.variants.length ? `Вариантов: ${a.variants.length} · ответы и печать` : 'Ещё не созданы',
+      note: a.variants.length ? `Вариантов: ${a.variants.length} · ответы и печать` : 'Не сформированы (необязательно)',
     },
     {
       to: href('a', a.id, 'sheet', f),

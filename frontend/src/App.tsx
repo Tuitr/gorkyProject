@@ -58,7 +58,7 @@ function Screen() {
 
 export default function App() {
   const { path } = useRoute()
-  const { state, reset, user, logout } = useStore()
+  const { state, user, logout } = useStore()
   if (path[0] === 'print') return <PrintView path={path.slice(1)} />
 
   const open = state.review.filter((r) => !r.resolved).length
@@ -111,13 +111,6 @@ export default function App() {
           >
             Быстрая проверка
           </a>
-          <button
-            className="shell__reset"
-            onClick={() => confirm('Удалить все данные и восстановить демонстрационные?') && reset()}
-            title="Восстановить демонстрационные классы и работу"
-          >
-            Демонстрационные данные
-          </button>
           {user && (
             <span className="shell__teacher" title={`${user.name} · ${user.email}`}>
               {shortName(user)}

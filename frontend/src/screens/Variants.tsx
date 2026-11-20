@@ -80,12 +80,13 @@ export function Variants({ id }: { id: string }) {
         ) : (
           <button
             className="btn btn--primary"
-            disabled={!ready}
-            title={!ready ? 'Сначала сформируйте варианты' : undefined}
+            // варианты необязательны: без них утверждается одна общая работа по исходным заданиям
+            disabled={a.variants.length > 0 && !ready}
+            title={a.variants.length > 0 && !ready ? 'Сформируйте недостающие варианты' : undefined}
             onClick={() => {
               if (missingKeys && !confirm(`Заданий без ответа: ${missingKeys}. Утвердить работу?`)) return
               setA((x) => ({ ...x, status: 'approved' }))
-              toast('Работа утверждена. Доступны печать и сбор работ')
+              toast(a.variants.length ? 'Работа утверждена. Доступны печать и сбор работ' : 'Работа утверждена: все ученики выполняют один общий вариант')
             }}
           >
             Утвердить

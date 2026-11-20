@@ -91,7 +91,7 @@ export function Collect({ id, classId }: { id: string; classId?: string }) {
       <AssignmentHeader a={a} step="collect" classId={cls.id} />
       <ClassTabs classes={classes} value={cls.id} a={a} step="collect" />
 
-      {a.status === 'draft' && (
+      {a.status === 'draft' && a.variants.length > 0 && (
         <div className="notice notice--warn">
           Работа имеет статус «Черновик». Сбор работ доступен, однако рекомендуется сначала <a href={href('a', a.id, 'variants')}>утвердить варианты</a>
           : проверка выполняется по эталонным ответам.

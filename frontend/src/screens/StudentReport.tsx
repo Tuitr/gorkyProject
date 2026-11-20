@@ -16,7 +16,9 @@ const ANSWER: Record<TaskResult['answer'], [string, Tone]> = {
 export function StudentReport({ id, submissionId }: { id: string; submissionId?: string }) {
   const { state } = useStore()
   const { a, classes } = useAssignment(id)
-  const [panel, setPanel] = useState<string | null>(null)
+  // выбранная ошибка: номер и (если нажали на конкретную) сама ошибка; undefined — ещё не выбирали (открыта первая),
+  // null — подсказку закрыли
+  const [panel, setPanel] = useState<{ tid: string; mid?: string } | null | undefined>(undefined)
   const [pageIdx, setPageIdx] = useState(0)
   const fromQueue = useRoute().query.get('from') === 'queue'
   const s = state.submissions.find((x) => x.id === submissionId)
@@ -27,10 +29,24 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
   const v = a.variants.find((x) => x.id === s.variantId)
   const total = submissionTotal(a, s)
   const page = s.pages[pageIdx]
+  // первая ошибка по порядку заданий — открыта по умолчанию
+  const firstOf = (tid: string) => {
+    const r = s.results.find((x) => x.taskId === tid)
+    return r ? activeMistakes(r)[0]?.id : undefined
+  }
+  const firstTask = a.tasks.find((t) => firstOf(t.id))
+  const open = panel === undefined ? (firstTask ? { tid: firstTask.id, mid: firstOf(firstTask.id) } : null) : panel
+  // открытая ошибка подсвечивается: в таблице и рамкой на фото
+  const openKey = open ? `${open.tid}|${open.mid ?? firstOf(open.tid) ?? ''}` : ''
   const allMarks = s.results.flatMap((r) =>
     activeMistakes(r)
       .filter((m) => m.page === pageIdx)
-      .map((m) => ({ id: `${r.taskId}|${m.id}`, box: m.box, label: `№${a.tasks.find((t) => t.id === r.taskId)?.num}` })),
+      .map((m) => ({
+        id: `${r.taskId}|${m.id}`,
+        box: m.box,
+        label: `№${a.tasks.find((t) => t.id === r.taskId)?.num}`,
+        tone: `${r.taskId}|${m.id}` === openKey ? ('focus' as const) : ('err' as const),
+      })),
   )
 
   return (
@@ -68,7 +84,45 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
         <div className="notice notice--warn">Работа ещё не проверена. Отчёт будет доступен после проверки.</div>
       )}
 
-      <div className="report-grid">
+      <div className="report-split">
+        {/* слева — фото работы (уменьшено, закреплено при прокрутке) */}
+        <div className="report-split__side">
+        <section className="panel no-print-break">
+          <div className="panel__head">
+            <h2>Фото</h2>
+            {s.pages.length > 1 && (
+              <div className="segmented">
+                {s.pages.map((p, i) => (
+                  <button key={p.id} aria-selected={i === pageIdx} onClick={() => setPageIdx(i)}>
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {page ? <Photo src={page.image} marks={allMarks} onMark={(key) => {
+                const [tid, mid] = key.split('|')
+                setPanel({ tid, mid })
+              }} /> : <p className="muted">Страницы не загружены</p>}
+        </section>
+        </div>
+
+        {/* справа — подсказка по выбранной ошибке (сначала пусто), под ней итог по номерам */}
+        <div className="report-grid report-grid--stack">
+          <div className="no-print">
+          {open ? (
+            <ErrorPanel
+              key={openKey}
+              submissionId={s.id}
+              taskId={open.tid}
+              mistakeId={open.mid}
+              inline
+              onClose={() => setPanel(null)}
+            />
+          ) : (
+            <section className="panel ep-empty" aria-label="Подробности ошибки" />
+          )}
+          </div>
         <section className="panel">
           <table className="table report-table">
             <thead>
@@ -110,7 +164,11 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                         <ul className="steps-list">
                           {ms.map((m) => (
                             <li key={m.id}>
-                              <button className="link-btn link-btn--text" onClick={() => setPanel(t.id)}>
+                              <button
+                                className={`link-btn link-btn--text${`${t.id}|${m.id}` === openKey ? ' is-open' : ''}`}
+                                aria-pressed={`${t.id}|${m.id}` === openKey}
+                                onClick={() => setPanel({ tid: t.id, mid: m.id })}
+                              >
                                 {m.title}
                               </button>{' '}
                               <Badge tone="err">{CATEGORY_LABEL[m.category]}</Badge>
@@ -131,7 +189,7 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
                       )}
                     </td>
                     <td>
-                      <button className="link-btn" onClick={() => setPanel(t.id)}>
+                      <button className="link-btn" onClick={() => setPanel({ tid: t.id })}>
                         {sc ?? '—'}/{t.max}
                       </button>
                     </td>
@@ -147,25 +205,8 @@ export function StudentReport({ id, submissionId }: { id: string; submissionId?:
             </>
           )}
         </section>
-
-        <section className="panel no-print-break">
-          <div className="panel__head">
-            <h2>Фото</h2>
-            {s.pages.length > 1 && (
-              <div className="segmented">
-                {s.pages.map((p, i) => (
-                  <button key={p.id} aria-selected={i === pageIdx} onClick={() => setPageIdx(i)}>
-                    {i + 1}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {page ? <Photo src={page.image} marks={allMarks} onMark={(mid) => setPanel(mid.split('|')[0])} /> : <p className="muted">Страницы не загружены</p>}
-        </section>
+        </div>
       </div>
-
-      {panel && <ErrorPanel submissionId={s.id} taskId={panel} onClose={() => setPanel(null)} />}
     </div>
   )
 }

@@ -66,7 +66,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .shell__nav a.is-active,
 .shell__nav a.is-active:hover { border-color: var(--accent); background: #fff; color: var(--accent-text); }
 .shell__user { display: flex; align-items: center; gap: 8px; }
-.shell__reset, .shell__quiet {
+.shell__quiet {
   padding: 6px 10px;
   border: 0;
   border-radius: 8px;
@@ -76,7 +76,7 @@ button:disabled { opacity: 0.6; cursor: default; }
   font-weight: 600;
   cursor: pointer;
 }
-.shell__reset:hover, .shell__quiet:hover { background: var(--surface); color: var(--text); text-decoration: none; }
+.shell__quiet:hover { background: var(--surface); color: var(--text); text-decoration: none; }
 .shell__quiet.is-active { color: var(--accent-text); }
 .shell__main { flex: 1; min-width: 0; }
 .shell__progress { display: flex; align-items: center; gap: 8px; margin-right: 8px; color: var(--muted); font-size: 13px; white-space: nowrap; }
@@ -857,3 +857,19 @@ ol.sheet-page__tasks:not(:has(.n)) { list-style: decimal; padding-left: 22px; }
 .auth__tabs { align-self: stretch; display: grid; grid-template-columns: 1fr 1fr; }
 .auth__error { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 14px; }
 .auth__submit { justify-content: center; padding-top: 12px; padding-bottom: 12px; font-size: 16px; }
+
+/* Страница проверки работы ученика: слева — фото (закреплено), справа — подсказка по ошибке (сначала пусто) и итог по номерам */
+.report-split { display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
+.report-split__side { position: sticky; top: 88px; max-height: calc(100svh - 104px); overflow-y: auto; overscroll-behavior: contain; border-radius: 20px; }
+.report-grid--stack { grid-template-columns: minmax(0, 1fr); }
+.ep-empty { min-height: 200px; }
+@media (max-width: 1000px) {
+  .report-split { grid-template-columns: minmax(0, 1fr); }
+  .report-split__side { position: static; max-height: none; }
+  .ep-empty { display: none; }
+}
+@media print {
+  .report-split { display: block; }
+}
+/* открытая ошибка в таблице — оранжевая плашка (остальные — обычные красные ссылки) */
+.report-table .link-btn--text.is-open { margin: -2px -6px; padding: 2px 6px; border-radius: 6px; background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); color: var(--text); }

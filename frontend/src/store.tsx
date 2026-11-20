@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { seedState } from './data/seed'
 import type { Job, JobKind, State } from './domain'
 
 /**
@@ -17,6 +16,21 @@ export type AuthUser = { id: string; name: string; lastName: string; firstName: 
 export const shortName = (u: AuthUser) =>
   u.lastName ? [u.lastName, ...[u.firstName, u.middleName].filter(Boolean).map((p) => `${p[0]}.`)].join(' ') : u.name
 
+/** Демонстрационная работа (прежний seed) — удаляется из сохранённого состояния при загрузке вместе с её сдачами,
+ *  спорными местами и работой над ошибками. Демо-классы 8А/8Б/8В не трогаем: в них могут быть работы учителя. */
+const DEMO_ASSIGNMENTS = new Set(['a-vectors'])
+function withoutDemo(s: State): State {
+  const subs = s.submissions.filter((x) => !DEMO_ASSIGNMENTS.has(x.assignmentId))
+  const keep = new Set(subs.map((x) => x.id))
+  return {
+    ...s,
+    assignments: s.assignments.filter((a) => !DEMO_ASSIGNMENTS.has(a.id)),
+    submissions: subs,
+    review: s.review.filter((r) => keep.has(r.submissionId)),
+    practices: s.practices.filter((p) => !DEMO_ASSIGNMENTS.has(p.assignmentId)),
+  }
+}
+
 /** Делает учителя владельцем состояния: его id и имя, его классы (бывшие классы прежнего владельца). */
 function asTeacher(s: State, user: AuthUser): State {
   const prev = s.teacher.id
@@ -27,9 +41,9 @@ function asTeacher(s: State, user: AuthUser): State {
   }
 }
 
-const emptyState = (user: AuthUser): State => ({
+const emptyState = (user?: AuthUser): State => ({
   version: 1,
-  teacher: { id: user.id, name: user.name },
+  teacher: user ? { id: user.id, name: user.name } : { id: 'teacher', name: 'Учитель' },
   classes: [],
   assignments: [],
   submissions: [],
@@ -113,7 +127,6 @@ type Store = {
   update: (fn: (s: State) => State) => void
   /** Актуальное состояние для фоновых задач (замыкания не видят свежий state). */
   getState: () => State
-  reset: () => void
   jobs: Record<string, Job>
   /** Запускает фоновую задачу; повторный вызов с тем же id, пока идёт первый, игнорируется. */
   runJob: (id: string, kind: JobKind, title: string, fn: () => Promise<void>) => Promise<void>
@@ -150,7 +163,7 @@ export function StoreProvider({
 
   useEffect(() => {
     if (initial) return
-    const fresh = () => (user ? emptyState(user) : seedState())
+    const fresh = () => emptyState(user)
     let raw: string | null = null
     try {
       raw = localStorage.getItem(key)
@@ -167,7 +180,7 @@ export function StoreProvider({
     }
     if (!raw) return setState(fresh())
     hydrate(raw)
-      .then((s) => setState(s.version !== 1 ? fresh() : user ? asTeacher(s, user) : s))
+      .then((s) => setState(s.version !== 1 ? fresh() : withoutDemo(user ? asTeacher(s, user) : s)))
       .catch(() => setState(fresh()))
   }, [initial, key, user])
 
@@ -206,12 +219,11 @@ export function StoreProvider({
   }, [])
 
   const update = useCallback((fn: (s: State) => State) => setState((s) => (s ? fn(s) : s)), [])
-  const reset = useCallback(() => setState(user ? asTeacher(seedState(), user) : seedState()), [user])
   const getState = useCallback(() => stateRef.current as State, [])
 
   const value = useMemo(
-    () => (state ? { state, update, getState, reset, jobs, runJob, toast, user, logout } : null),
-    [state, update, getState, reset, jobs, runJob, toast, user, logout],
+    () => (state ? { state, update, getState, jobs, runJob, toast, user, logout } : null),
+    [state, update, getState, jobs, runJob, toast, user, logout],
   )
 
   if (!value) {

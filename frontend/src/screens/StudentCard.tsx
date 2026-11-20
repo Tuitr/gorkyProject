@@ -107,13 +107,17 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
   }
 
   const pages = sub?.pages ?? []
-  const variantId = sub?.variantId ?? null
-  const canFinish = !!variantId && pages.length > 0
+  // вариантов нет — все сдают одну общую работу (по исходным заданиям); один вариант — подставляется сам;
+  // выбирать нужно, только если вариантов несколько
+  const offered = a.variants.slice(0, a.variantCount)
+  const needVariant = offered.length > 1
+  const variantId = sub?.variantId ?? (offered.length === 1 ? offered[0].id : null)
+  const canFinish = (!needVariant || !!variantId) && pages.length > 0
   const status = sub && sub.pages.length ? sub.status : 'none'
 
   const finish = (check: boolean) => {
     if (!sub) return
-    setSub((s) => ({ ...s, status: s.status === 'processed' ? 'processed' : 'submitted' }))
+    setSub((s) => ({ ...s, variantId: s.variantId ?? variantId, status: s.status === 'processed' ? 'processed' : 'submitted' }))
     if (check) setTimeout(() => void process(sub.id), 0)
     toast(check ? `${student.name}: отправлено на проверку` : `${student.name}: сдано`)
     if (next) go('a', a.id, 's', cls.id, next.id)
@@ -142,13 +146,13 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
 
       {sub?.status === 'error' && sub.error && <div className="notice notice--err">{sub.error}</div>}
 
-      <section className="panel">
-        <h2>
-          Вариант <span className="req">обязательно</span>
-        </h2>
-        {a.variants.length ? (
+      {needVariant && (
+        <section className="panel">
+          <h2>
+            Вариант <span className="req">обязательно</span>
+          </h2>
           <div className="segmented segmented--big" role="radiogroup" aria-label="Вариант">
-            {a.variants.slice(0, a.variantCount).map((v) => (
+            {offered.map((v) => (
               <button
                 key={v.id}
                 role="radio"
@@ -159,12 +163,8 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
               </button>
             ))}
           </div>
-        ) : (
-          <p className="muted">
-            Варианты не сформированы — <a href={href('a', a.id, 'variants')}>сформировать</a>.
-          </p>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="panel">
         <div className="panel__head">
@@ -236,7 +236,7 @@ export function StudentCard({ id, classId, studentId }: { id: string; classId?: 
 
       <div className="finish">
         {!canFinish && (
-          <span className="muted small">{!variantId ? 'Выберите вариант' : 'Добавьте как минимум одну страницу'}</span>
+          <span className="muted small">{needVariant && !variantId ? 'Выберите вариант' : 'Добавьте как минимум одну страницу'}</span>
         )}
         <button className="btn btn--big" disabled={!canFinish} onClick={() => finish(false)}>
           Сохранить{next ? ' и перейти к следующему ученику' : ''}
