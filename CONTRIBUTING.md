@@ -156,6 +156,10 @@ uv run python -m dataset.generate --seed 20261120 --out <пустой катал
 - Приёмка стыка воркера № 2 с сервисами № 3 по HTTP: `uv run pytest tests/grading/testServiceHandoff.py`. Реестр и
   шлюз поднимаются в uvicorn с фикстурами, воркер проверяет вариант demo1 мини-набора (готовый результат), ожидание
   pending → ready и ручную проверку с reasonCode. Платный провайдер не вызывается.
+- Живая проверка GigaChat — один платный вызов, по умолчанию пропускается. Ключ только в своём `.env` или в
+  переменных окружения сессии: `GIGACHAT_LIVE_SMOKE=1` и `GIGACHAT_AUTH_KEY=<ключ>`, затем
+  `uv run pytest tests/gateway/testGigaChatLive.py -s`. Тест проверяет вход, TLS, промпт `review.v2` и что ответ —
+  валидный `taskResult`; вердикт только печатается.
 
 ### Мини-набор mini.v1 для разработки и сверки
 
