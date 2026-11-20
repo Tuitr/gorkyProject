@@ -6,7 +6,10 @@ REFERENCES_SERVICE_TOKENS: {"<token>": {"serviceName": "grading", "rights": ["re
 import os
 from dataclasses import dataclass
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://gorky:gorky@127.0.0.1:15432/gorky?connect_timeout=3"
+DEFAULT_DATABASE_URL = (
+    "postgresql+psycopg://gorky_references:gorky_references@127.0.0.1:15432/gorky?connect_timeout=3"
+)
+"""gorky_references owns the `refs` schema and nothing else (deploy/postgres/init/10-roles.sql)."""
 DB_SCHEMA = "refs"
 
 

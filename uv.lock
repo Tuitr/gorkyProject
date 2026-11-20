@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "gorky-backend",
+    "gorky-cabinet",
     "gorky-contracts",
     "gorky-grading",
     "gorky-references",
@@ -238,6 +239,7 @@ name = "gorky-backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "gorky-cabinet" },
     { name = "gorky-contracts" },
     { name = "gorky-grading" },
     { name = "gorky-references" },
@@ -258,6 +260,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "gorky-cabinet", editable = "services/cabinet" },
     { name = "gorky-contracts", editable = "contracts" },
     { name = "gorky-grading", editable = "services/grading" },
     { name = "gorky-references", editable = "services/references" },
@@ -274,6 +277,27 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "redis", specifier = ">=5.2" },
     { name = "types-jsonschema", specifier = ">=4.23" },
+]
+
+[[package]]
+name = "gorky-cabinet"
+version = "0.1.0"
+source = { editable = "services/cabinet" }
+dependencies = [
+    { name = "alembic" },
+    { name = "gorky-contracts" },
+    { name = "gorky-shared" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.14" },
+    { name = "gorky-contracts", editable = "contracts" },
+    { name = "gorky-shared", editable = "packages/shared" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "sqlalchemy", specifier = ">=2.0.36" },
 ]
 
 [[package]]

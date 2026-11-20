@@ -16,6 +16,8 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Roles and schemas of the services (A1.2): applied on the first start of an empty volume.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gorky -d gorky"]
       interval: 2s
@@ -37,13 +39,19 @@ services:
       retries: 30
 
   seaweedfs:
-    image: chrislusf/seaweedfs:3.97
-    # Master, volume, filer and S3 gateway in one process; S3 keys come from seaweedfs/s3.json.
+    # 4.05, not 3.97: 3.97 demands Write on the bucket for every signed request, so a read-only key fails (A1.2).
+    image: chrislusf/seaweedfs:4.05
+    # Master, volume, filer and S3 gateway in one process. S3 keys and the buckets each service may use
+    # come from seaweedfs/s3.json (A1.2).
     command:
       - server
       - -dir=/data
       - -ip=seaweedfs
       - -ip.bind=0.0.0.0
+      # Each bucket takes 7 volumes on its first write. The image entrypoint reserves 1 GB of disk per volume
+      # (-master.volumePreallocate): turn that off, so three buckets do not take 21 GB on an empty stand.
+      - -volume.max=100
+      - -master.volumePreallocate=false
       - -s3
       - -s3.port=8333
       - -s3.config=/etc/seaweedfs/s3.json

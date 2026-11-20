@@ -4,6 +4,21 @@
       "name": "gorky",
       "credentials": [{ "accessKey": "gorky-dev", "secretKey": "gorky-dev-secret" }],
       "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    },
+    {
+      "name": "cabinet",
+      "credentials": [{ "accessKey": "gorky-cabinet", "secretKey": "gorky-cabinet-secret" }],
+      "actions": ["Read:sources", "Write:sources", "List:sources", "Read:results"]
+    },
+    {
+      "name": "grading",
+      "credentials": [{ "accessKey": "gorky-grading", "secretKey": "gorky-grading-secret" }],
+      "actions": ["Read:sources", "Read:results", "Write:results", "List:results"]
+    },
+    {
+      "name": "references",
+      "credentials": [{ "accessKey": "gorky-references", "secretKey": "gorky-references-secret" }],
+      "actions": ["Read:artifacts", "Write:artifacts", "List:artifacts"]
     }
   ]
 }

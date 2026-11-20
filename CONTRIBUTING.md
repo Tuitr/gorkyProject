@@ -37,9 +37,9 @@ assert ApiError.model_validate_json(wire) == error
 
 | Что | Адрес по умолчанию | Переменная порта |
 |---|---|---|
-| PostgreSQL | `127.0.0.1:15432`, пользователь, пароль и база `gorky` | `POSTGRES_PORT` |
+| PostgreSQL | `127.0.0.1:15432`, база `gorky`, администратор `gorky` / `gorky` | `POSTGRES_PORT` |
 | Redis | `redis://127.0.0.1:16379/0` | `REDIS_PORT` |
-| S3 (SeaweedFS) | `http://127.0.0.1:18333`, ключ `gorky-dev` / `gorky-dev-secret` | `S3_PORT` |
+| S3 (SeaweedFS) | `http://127.0.0.1:18333`, ключ администратора `gorky-dev` / `gorky-dev-secret` | `S3_PORT` |
 
 Адреса и тестовые учётные данные для клиентов перечислены в `.env.example`. Внутри сети Compose сервисы доступны
 по именам `postgres:5432`, `redis:6379`, `seaweedfs:8333`. Ключи S3 задаются в `deploy/seaweedfs/s3.json`.
@@ -48,6 +48,30 @@ assert ApiError.model_validate_json(wire) == error
 - Состояние: `docker compose -f deploy/compose.yaml ps`, у всех сервисов должно быть `healthy`.
 - Проверка записи и чтения во всех трёх хранилищах: `uv run pytest tests/infra`
 - Остановка без потери данных: `docker compose -f deploy/compose.yaml down`. С флагом `-v` тома удаляются.
+
+### Роли, схемы и бакеты сервисов
+
+Учётки администратора нужны только стенду и тестам. Каждый сервис ходит в хранилища под своей ролью и своим
+ключом и видит только своё. Миграция сервиса не может задеть чужие таблицы: у его роли там нет прав.
+
+| Сервис | Роль PostgreSQL и схема | Ключ S3 | Бакеты |
+|---|---|---|---|
+| Кабинет (№ 1) | `gorky_cabinet`, схема `cabinet` | `gorky-cabinet` | `sources`: чтение и запись; `results`: чтение |
+| Проверка (№ 2) | `gorky_grading`, схема `grading` | `gorky-grading` | `sources`: чтение; `results`: чтение и запись |
+| Эталоны и шлюз (№ 3) | `gorky_references`, схема `refs` | `gorky-references` | `artifacts`: чтение и запись |
+
+- Роли и схемы создаёт `deploy/postgres/init/10-roles.sql`. PostgreSQL выполняет его сам при первом запуске
+  пустого тома. Стенду, поднятому до A1.2, его нужно выполнить один раз (скрипт можно запускать повторно,
+  таблицы, созданные раньше администратором, он передаёт роли сервиса):
+  `docker compose -f deploy/compose.yaml exec postgres psql -v ON_ERROR_STOP=1 -U gorky -d gorky -f /docker-entrypoint-initdb.d/10-roles.sql`
+- Схему создаёт только этот скрипт, роль сервиса создавать схемы не может. Alembic каждого сервиса работает
+  под ролью сервиса и пишет `alembic_version` в свою схему. Миграции нового сервиса лежат внутри его пакета
+  (`cabinet/migrations`), чтобы mypy не видел два модуля `migrations.env`.
+- Права на бакеты задаёт `deploy/seaweedfs/s3.json`, имена бакетов лежат в `shared/buckets.py`. Бакеты создаёт
+  администратор: сейчас это делает `uv run pytest tests/infra`.
+- Пароли и ключи сервисов годятся только для стенда. Служебные токены `/internal/v1` (`*_SERVICE_TOKENS`) и
+  cookie учителя на `/v1` (A2.2) — разные учётные данные с разным назначением: токен не принимается как сессия
+  учителя, и наоборот.
 
 Если в Windows включён системный прокси (например, VPN-клиент), HTTP-клиенты Python отправляют через него и
 запросы на `127.0.0.1`. Клиенты стенда должны отключать прокси явно, как это сделано в `tests/infra/testStand.py`.
@@ -58,8 +82,10 @@ assert ApiError.model_validate_json(wire) == error
 - pytest собирает файлы `test*.py` и функции `test*`. Вспомогательные функции и фикстуры не начинаем с `test`,
   иначе pytest примет их за тест: `buildEvent`, `makeClient`, а не `testClient`.
 - Перед полным прогоном поднять стенд: `docker compose -f deploy/compose.yaml up -d --wait`.
-  Тесты реестра эталонов берут адрес базы из `REFERENCES_DATABASE_URL` (по умолчанию `127.0.0.1:15432` из Compose, порт меняется через `POSTGRES_PORT`)
-  и падают с подсказкой, если база недоступна. Пропуск таких тестов не допускается.
+  В начале прогона тесты под администратором (`DATABASE_URL`) очищают схемы сервисов, выполняют
+  `10-roles.sql` и миграции каждого сервиса под его ролью (`CABINET_DATABASE_URL`, `REFERENCES_DATABASE_URL`).
+  По умолчанию все адреса ведут на `127.0.0.1:15432` из Compose. Если база недоступна, тесты падают с подсказкой.
+  Пропуск таких тестов не допускается.
 - Строгая типизация: `uv run mypy` (настройки и список целей в корневом `pyproject.toml`).
 
 ### Быстрые и сквозные проверки
