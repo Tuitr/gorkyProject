@@ -46,5 +46,21 @@
     "content": {
       "code": "from fractions import Fraction\n\n\ndef solve(task):\n    a, b, c = 1, -6, 9\n    roots = set()\n    for q in range(1, 13):\n        for p in range(-240, 241):\n            x = Fraction(p, q)\n            if a * x * x + b * x + c == 0:\n                roots.add(x)\n    if not roots:\n        return {\"exact\": \"нет решений\"}\n    return {\"exact\": \"; \".join(str(x) for x in sorted(roots))}\n"
     }
+  },
+  {
+    "fixtureId": "heatWaterToSteamDirect",
+    "statement": "Какое количество теплоты необходимо, чтобы 1 кг воды, взятой при 20 °C, нагреть до кипения и полностью превратить в пар? Удельная теплоёмкость воды 4200 Дж/(кг·°C), удельная теплота парообразования воды 2,3·10⁶ Дж/кг, температура кипения воды 100 °C.",
+    "approach": "direct",
+    "content": {
+      "code": "from fractions import Fraction\n\n\ndef solve(task):\n    m = Fraction(1)  # кг\n    c = Fraction(4200)  # Дж/(кг·°C), из условия\n    L = Fraction(23, 10) * 10**6  # Дж/кг, из условия\n    t1, tBoil = Fraction(20), Fraction(100)  # °C\n    heating = c * m * (tBoil - t1)\n    boiling = L * m\n    return {\"value\": str(heating + boiling), \"unit\": \"Дж\"}\n"
+    }
+  },
+  {
+    "fixtureId": "heatWaterToSteamIndependent",
+    "statement": "Какое количество теплоты необходимо, чтобы 1 кг воды, взятой при 20 °C, нагреть до кипения и полностью превратить в пар? Удельная теплоёмкость воды 4200 Дж/(кг·°C), удельная теплота парообразования воды 2,3·10⁶ Дж/кг, температура кипения воды 100 °C.",
+    "approach": "independent",
+    "content": {
+      "code": "def solve(task):\n    # Считаем в кДж, переводим в Дж в конце.\n    heatingKj = 4.2 * 1 * (100 - 20)\n    boilingKj = 2300 * 1\n    return {\"value\": (heatingKj + boilingKj) * 1000, \"unit\": \"Дж\"}\n"
+    }
   }
 ]

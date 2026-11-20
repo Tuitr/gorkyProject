@@ -21,12 +21,14 @@ from pydantic import JsonValue
 
 from references.gateway.prompts import PromptCatalog
 from references.gateway.transports.base import AuthorApproach, AuthorData, ModelCall, ModelTransport
-from references.solvers.answers import exactOf
+from references.solvers.answers import answerHint, answerLabel, answerOf, schemaOf
 from references.solvers.policy import CodeRefused, checkSolverCode
 from references.solvers.sandbox import Sandbox
 from shared.clock import Clock, SystemClock
 
 PROMPT_VERSION = "solverAuthor.v1"
+PROMPT_VERSIONS = {"scalar.v1": PROMPT_VERSION, "quantity.v1": "solverPhysics.v1"}
+"""The author prompt by the value schema of the task: math answers exactly, physics with a number and a unit."""
 PROMPTS_DIR = Path(__file__).with_name("prompts")
 DEFAULT_ATTEMPTS = 3
 FENCE = re.compile(r"```(?:[A-Za-z0-9_+-]*)\s*\n(.*?)```", re.DOTALL)
@@ -41,6 +43,10 @@ class AuthorTask:
     statement: str
     constraints: dict[str, JsonValue]
 
+    @property
+    def schemaId(self) -> str:
+        return schemaOf(self.constraints)
+
     def asInput(self) -> dict[str, JsonValue]:
         """What solve(task) receives in the sandbox."""
         return {"statement": self.statement, "constraints": self.constraints}
@@ -51,7 +57,9 @@ class Candidate:
     approach: AuthorApproach
     code: str
     value: dict[str, JsonValue]
+    """The normalized reference value (scalar.v1 or quantity.v1), as it would be published."""
     exact: str
+    """A short text of the value for logs."""
     modelId: str
 
     @property
@@ -120,7 +128,8 @@ class SolverAuthor:
         log: AuthorLog,
         keepAlive: Callable[[], None] = lambda: None,
     ) -> Candidate:
-        instructions = self.prompts.instructions(PROMPT_VERSION)
+        promptVersion = PROMPT_VERSIONS[task.schemaId]
+        instructions = self.prompts.instructions(promptVersion)
         previousCode: str | None = None
         previousError: str | None = None
         for attempt in range(1, self.attempts + 1):
@@ -129,7 +138,7 @@ class SolverAuthor:
             keepAlive()
             call = ModelCall(
                 requestId=f"{buildId}:{approach}:{attempt}",
-                promptVersion=PROMPT_VERSION,
+                promptVersion=promptVersion,
                 taskId=buildId,
                 instructions=instructions,
                 data=AuthorData(
@@ -155,15 +164,15 @@ class SolverAuthor:
                 continue
             keepAlive()
             result = self.sandbox.run(code, task.asInput())
-            exact = exactOf(result.value) if result.ok and result.value is not None else None
-            if exact is None:
+            value = answerOf(task.schemaId, result.value) if result.ok and result.value is not None else None
+            if value is None:
                 entry["outcome"] = "sandbox_failed" if not result.ok else "bad_answer"
                 previousCode = code
-                previousError = result.error if not result.ok and result.error else (
-                    'solve(task) must return {"exact": "<answer>"} with a non-empty answer text'
-                )
+                previousError = result.error if not result.ok and result.error else answerHint(task.schemaId)
                 continue
             entry["outcome"] = "ok"
-            assert result.value is not None
-            return Candidate(approach=approach, code=code, value=dict(result.value), exact=exact, modelId=reply.modelId)
+            return Candidate(
+                approach=approach, code=code, value=value, exact=answerLabel(task.schemaId, value),
+                modelId=reply.modelId,
+            )
         raise AuthorFailed()

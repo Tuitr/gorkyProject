@@ -4,7 +4,7 @@ Takes one open build at a time from refs.solver_builds and turns it into a publi
 
 Admission (decided 2026-11-20, "солвер на задание"): two solvers written independently for the same task, one
 with the direct approach and one with an independent approach, must give the same answer in the sandbox
-(answers.answersAgree). If they differ, a third (tiebreak) solver decides by majority. Only then is the version
+(answers.valuesAgree: exact for math, within 0,5 % after SI conversion for physics). If they differ, a third (tiebreak) solver decides by majority. Only then is the version
 published: code, the cross-check and SolverArtifact metadata in S3 under references/solvers/<solverVersion>/,
 and a row in refs.solver_versions with the agreed value.
 
@@ -36,14 +36,13 @@ from contracts.v1.references.solverartifact import (
 )
 from references.gateway.sanitize import findPersonalData
 from references.gateway.transports.base import TransportError
-from references.solvers.answers import answersAgree
+from references.solvers.answers import schemaOf, valuesAgree
 from references.solvers.artifacts import ArtifactConflict, ArtifactStore
 from references.solvers.sandbox import Sandbox
 from references.solvers.author import AuthorFailed, AuthorLog, AuthorTask, BuildTimedOut, Candidate, SolverAuthor, sha256
 from references.solvers.store import BuildView, Lease, NewVersion, SolverStore, familyIdOf
 from shared.clock import Clock, SystemClock
 
-SCHEMA_ID = "scalar.v1"
 DEFAULT_LEASE_S = 180.0
 DEFAULT_PAUSE_S = 30.0
 PAUSED_CODES = frozenset({"rate_limited", "unavailable", "timeout"})
@@ -64,13 +63,18 @@ class LeaseLost(Exception):
     """Another builder took the build after our lease ran out."""
 
 
-def admit(direct: Candidate, independent: Candidate, tiebreak: Candidate | None) -> Admitted | None:
-    if answersAgree(direct.exact, independent.exact):
+def admit(
+    direct: Candidate, independent: Candidate, tiebreak: Candidate | None, schemaId: str = "scalar.v1"
+) -> Admitted | None:
+    def agree(first: Candidate, second: Candidate) -> bool:
+        return valuesAgree(schemaId, first.value, second.value)
+
+    if agree(direct, independent):
         return Admitted(direct, (direct, independent), ())
     if tiebreak is None:
         return None
     for chosen, other in ((direct, independent), (independent, direct)):
-        if answersAgree(chosen.exact, tiebreak.exact):
+        if agree(chosen, tiebreak):
             return Admitted(chosen, (chosen, tiebreak), (other,))
     return None
 
@@ -143,12 +147,12 @@ class SolverBuilder:
         write = self.author.write
         direct = write(build.buildId, task, "direct", build.deadline, log, keepAlive)
         independent = write(build.buildId, task, "independent", build.deadline, log, keepAlive)
-        admitted = admit(direct, independent, None)
+        admitted = admit(direct, independent, None, task.schemaId)
         if admitted is not None:
             return admitted
         log.entries.append({"event": "disagreement", "approaches": ["direct", "independent"]})
         tiebreak = write(build.buildId, task, "tiebreak", build.deadline, log, keepAlive)
-        return admit(direct, independent, tiebreak)
+        return admit(direct, independent, tiebreak, task.schemaId)
 
     def finish(self, lease: Lease, build: BuildView, reasonCode: str, log: AuthorLog) -> None:
         self.store.fail(lease, reasonCode, log.entries, log.modelCalls)
@@ -167,7 +171,7 @@ class SolverBuilder:
             version = NewVersion(
                 taskKey=build.taskKey,
                 source="generated",
-                schemaId=SCHEMA_ID,
+                schemaId=schemaOf(build.constraints),
                 value=admitted.winner.value,
                 codeSha256=artifact.code.sha256,
                 testsSha256=artifact.tests.sha256,
@@ -213,7 +217,9 @@ class SolverBuilder:
             schemaVersion="solverArtifact.v1",
             solverVersion=solverVersion,
             source="generated",
-            scope=SolverScope(familyId=familyId, schemaId=SCHEMA_ID, constraints=scopeOf(build.constraints)),
+            scope=SolverScope(
+                familyId=familyId, schemaId=schemaOf(build.constraints), constraints=scopeOf(build.constraints),
+            ),
             code=code,
             tests=tests,
             publishedAt=self.clock.now(),
