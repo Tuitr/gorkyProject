@@ -6,10 +6,9 @@ from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
-from pydantic import ValidationError
 
 from contracts.v1.events.schema import SCHEMA_PATH
-from grading.intake import AssignmentPublished, AttemptSubmitted, readEvent
+from grading.intake import AssignmentPublished, AttemptSubmitted, InvalidEvent, readEvent
 
 ExampleReader = Callable[[str], Any]
 
@@ -71,7 +70,7 @@ def testWorkerRejectsAttemptWithoutRequiredEnvelopeKey(
     example = contractExample("events/attemptSubmitted.json")
     del example[missingKey]
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(InvalidEvent):
         readEvent(json.dumps(example))
 
 
@@ -79,7 +78,7 @@ def testWorkerRejectsAttemptWithoutCheckId(contractExample: ExampleReader) -> No
     example = contractExample("events/attemptSubmitted.json")
     del example["payload"]["checkId"]
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(InvalidEvent):
         readEvent(json.dumps(example))
 
 

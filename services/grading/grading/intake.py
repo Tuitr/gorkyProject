@@ -4,13 +4,40 @@ Publisher: developer 1, schema contracts/v1/schemas/checks.json. Consumer: devel
 
 The publisher schema is strict. The worker reads with its own models: unknown optional fields from a newer
 publisher are ignored (contracts v1 compatibility), required fields and value rules stay the same.
+
+Boundary: raw bytes or str from the stream go only into readEvent; handlers receive a validated IncomingEvent.
+A rejected entry raises MalformedEvent (not readable JSON) or InvalidEvent (JSON that breaks the schema)
+before any business processing. Rejection messages name fields and error kinds, never the input values.
 """
 
+import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from contracts.v1.events.checks import NonEmptyStr, Revision, UtcTimestamp
+
+class EventRejected(Exception):
+    """A stream entry that cannot become an event. The worker must not hand it to a handler."""
+
+    reason: Literal["malformed", "invalid"]
+
+
+class MalformedEvent(EventRejected):
+    """The `data` field is not UTF-8 JSON with an object at the top level."""
+
+    reason = "malformed"
+
+
+class InvalidEvent(EventRejected):
+    """The `data` field is a JSON object that does not match the checks.v1 event schema."""
+
+    reason = "invalid"
+
+    def __init__(self, problems: tuple[str, ...], traceId: str | None) -> None:
+        self.problems = problems
+        self.traceId = traceId
+        super().__init__(f"checks.v1 event does not match the schema (traceId={traceId}): {'; '.join(problems)}")
 
 
 class IncomingDocRef(BaseModel):
@@ -73,6 +100,31 @@ IncomingEvent = Annotated[AssignmentPublished | AttemptSubmitted, Field(discrimi
 incomingEventAdapter: TypeAdapter[IncomingEvent] = TypeAdapter(IncomingEvent)
 
 
+def describeProblems(error: ValidationError) -> tuple[str, ...]:
+    """Field path and error kind for each problem, without input values: "attempt.submitted.eventId: missing"."""
+    return tuple(
+        f"{'.'.join(str(part) for part in item['loc']) or 'event'}: {item['type']}" for item in error.errors()
+    )
+
+
 def readEvent(data: str | bytes) -> IncomingEvent:
-    """Parse the `data` field of one stream entry. Raises pydantic.ValidationError for a malformed event."""
-    return incomingEventAdapter.validate_json(data)
+    """Turn the raw `data` field of one stream entry into a validated event.
+
+    Raises:
+        MalformedEvent: the bytes are not UTF-8, the text is not JSON, or the JSON is not an object.
+        InvalidEvent: the JSON object breaks the schema; problems and traceId (when readable) go to diagnostics.
+    """
+    try:
+        text = data.decode("utf-8") if isinstance(data, bytes) else data
+        raw: object = json.loads(text)
+    except UnicodeDecodeError:
+        raise MalformedEvent("checks.v1 data is not valid UTF-8") from None
+    except json.JSONDecodeError as error:
+        raise MalformedEvent(f"checks.v1 data is not valid JSON: {error.msg} at char {error.pos}") from None
+    if not isinstance(raw, dict):
+        raise MalformedEvent(f"checks.v1 data is JSON {type(raw).__name__}, expected an object")
+    try:
+        return incomingEventAdapter.validate_python(raw)
+    except ValidationError as error:
+        traceId = raw.get("traceId")
+        raise InvalidEvent(describeProblems(error), traceId if isinstance(traceId, str) else None) from None
