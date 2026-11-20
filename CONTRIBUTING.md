@@ -32,11 +32,12 @@ assert ApiError.model_validate_json(wire) == error
 
 ## Стенд
 
-`deploy/compose.yaml` поднимает PostgreSQL, Redis Streams и S3-совместимый SeaweedFS. Данные лежат в именованных
+`deploy/compose.yaml` поднимает API кабинета, PostgreSQL, Redis Streams и S3-совместимый SeaweedFS. Данные лежат в именованных
 томах и переживают перезапуск.
 
 | Что | Адрес по умолчанию | Переменная порта |
 |---|---|---|
+| Кабинет | `http://127.0.0.1:18080` | `CABINET_PORT` |
 | PostgreSQL | `127.0.0.1:15432`, база `gorky`, администратор `gorky` / `gorky` | `POSTGRES_PORT` |
 | Redis | `redis://127.0.0.1:16379/0` | `REDIS_PORT` |
 | S3 (SeaweedFS) | `http://127.0.0.1:18333`, ключ администратора `gorky-dev` / `gorky-dev-secret` | `S3_PORT` |
@@ -75,6 +76,25 @@ assert ApiError.model_validate_json(wire) == error
 
 Если в Windows включён системный прокси (например, VPN-клиент), HTTP-клиенты Python отправляют через него и
 запросы на `127.0.0.1`. Клиенты стенда должны отключать прокси явно, как это сделано в `tests/infra/testStand.py`.
+
+### Публичное API кабинета
+
+Из корня проекта запустите `docker compose -f deploy/compose.yaml up -d --build --wait`.
+Кабинет применяет свои миграции при старте. Проверка `GET /ready` возвращает 200,
+когда роль кабинета может прочитать таблицы входа, и 503 при ошибке БД.
+
+Фронтенду доступны [Swagger UI](http://127.0.0.1:18080/docs) и [OpenAPI](http://127.0.0.1:18080/openapi.json).
+Публичные операции начинаются с `/v1`. В сети Compose адрес кабинета для других сервисов — `http://cabinet:8000`.
+Для подключения следующих сервисов зарезервированы имена `grading:8000`, `references:8000` и `gateway:8000`.
+Они появятся в сети по мере добавления соответствующих сервисов в Compose.
+
+Пример ответа `401` на `POST /v1/sessions`:
+
+```json
+{"code":"unauthorized","message":"Wrong login or password","retryable":false,"traceId":"t-login-1"}
+```
+
+Идентификатор также приходит в заголовке `X-Trace-Id`.
 
 ### Синтетический учитель
 

@@ -6,6 +6,24 @@
 name: gorky
 
 services:
+  cabinet:
+    build:
+      context: ..
+      dockerfile: deploy/cabinet.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CABINET_DATABASE_URL: postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
+    ports:
+      - "127.0.0.1:${CABINET_PORT:-18080}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/ready', timeout=4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   postgres:
     image: postgres:16
     environment:

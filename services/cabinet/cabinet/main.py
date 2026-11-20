@@ -1,19 +1,22 @@
 """FastAPI app of the teacher cabinet: uv run uvicorn cabinet.main:createApp --factory
 
-Public routes live under /v1. A1.3 adds the published OpenAPI document; A2.2 adds the session cookie.
+Public routes live under /v1. The schema is served at /openapi.json.
 """
 
 from fastapi import APIRouter, FastAPI, Request
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
+from cabinet.auth.tables import LoginThrottleRecord, TeacherRecord
 from cabinet.auth.throttle import LoginThrottle
 from cabinet.settings import Settings
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
+from contracts.v1.common.errors import ApiError
 from shared.clock import Clock, SystemClock
-from shared.httperrors import installErrorHandlers
+from shared.httperrors import ApiProblem, installErrorHandlers
 
 UNKNOWN_CLIENT = "unknown"
 
@@ -50,7 +53,29 @@ def createApp(
     app.state.teacherAccounts = accounts
     v1 = APIRouter(prefix="/v1")
 
-    @v1.post("/sessions")
+    @app.get("/ready", include_in_schema=False)
+    def readiness() -> dict[str, str]:
+        try:
+            with sessionFactory() as session:
+                session.execute(select(TeacherRecord).limit(0))
+                session.execute(select(LoginThrottleRecord).limit(0))
+        except SQLAlchemyError as error:
+            raise ApiProblem("unavailable", "Cabinet database is unavailable") from error
+        return {"status": "ready"}
+
+    @v1.post(
+        "/sessions",
+        responses={
+            401: {"model": ApiError, "description": "Wrong login or password"},
+            422: {"model": ApiError, "description": "Invalid request"},
+            429: {
+                "model": ApiError,
+                "description": "Too many login attempts",
+                "headers": {"Retry-After": {"schema": {"type": "integer"}, "description": "Delay in seconds"}},
+            },
+            500: {"model": ApiError, "description": "Internal error"},
+        },
+    )
     def createSession(body: LoginRequest, request: Request) -> TeacherSession:
         clientAddress = request.client.host if request.client is not None else UNKNOWN_CLIENT
         return accounts.authenticate(body, clientAddress)
