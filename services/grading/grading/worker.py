@@ -8,12 +8,15 @@ from pydantic import TypeAdapter
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from contracts.v1.grading.taskresult import TaskResult
+from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextReader, readAssignment
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
 from grading.jobs import JobLease, JobQueue
 from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
+from grading.review import PROMPT_VERSION, reviewTasks, sendReview
 from grading.stream import StreamConsumer, StreamDelivery
 from grading.submission import SolutionStep, SubmissionReading, readSubmissionDetails
 from grading.tables import AssignmentJob
@@ -34,6 +37,7 @@ class PreparedCheck:
     reading: SubmissionReading
     references: dict[str, ReferenceResult]
     referenceErrors: dict[str, dict[str, object]] = field(default_factory=dict)
+    tasks: tuple[AssignmentTask, ...] = ()
 
 
 class GradingWorker:
@@ -190,6 +194,7 @@ class GradingWorker:
                 if job.stageData is None:
                     raise ValueError("missing references for prepared assignment")
                 references = referencesAdapter.validate_python(job.stageData["references"])
+                tasks = parsedTasksAdapter.validate_python(job.stageData["tasks"])
                 referenceErrors = referenceErrorsAdapter.validate_python(job.stageData.get("referenceErrors", {}))
             else:
                 references = None
@@ -217,7 +222,18 @@ class GradingWorker:
                 return None
             if not self.jobs.checkpoint(lease, "submission_parsed", data):
                 raise RuntimeError("check lease expired before partial preparation was saved")
-        return PreparedCheck(reading, available, referenceErrors)
+        return PreparedCheck(reading, available, referenceErrors, tasks)
+
+    def reviewCheck(
+        self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
+        transport: Callable[[ModelReviewRequest], ModelReviewResponse] = sendReview, promptVersion: str = PROMPT_VERSION,
+    ) -> tuple[TaskResult, ...] | None:
+        if not isinstance(lease.key, str):
+            raise ValueError("expected a submission check job")
+        prepared = self.prepareCheck(lease, loadDocument)
+        if prepared is None:
+            return None
+        return reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport, promptVersion)
 
     def parseSubmission(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> tuple[SolutionStep, ...]:
         return self.parseSubmissionDetails(lease, loadDocument).steps
