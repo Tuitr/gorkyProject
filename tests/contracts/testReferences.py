@@ -34,6 +34,7 @@ def testReferenceRequestExample() -> None:
     [
         ("ready.json", ReferenceReady),
         ("readyZero.json", ReferenceReady),
+        ("readyGenerated.json", ReferenceReady),
         ("pending.json", ReferencePending),
         ("unsupported.json", ReferenceUnsupported),
         ("validationFailed.json", ReferenceValidationFailed),

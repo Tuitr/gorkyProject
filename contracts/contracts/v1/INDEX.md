@@ -14,9 +14,14 @@
 | Промпты проверки: файл `<promptVersion>.md` | `grading/prompts/` | № 2 | № 3 (шлюз читает по `promptVersion`) | `review.v1.md` — черновик от № 3, ждёт № 2 |
 | API эталонов `/internal/v1/references` | `references/reference.py`, `openapi/references.json`, `examples/references/` | № 3 | № 2 | готово |
 | Шлюз модели `/internal/v1/model/review` (конверт) | `references/modelreview.py`, `openapi/gateway.json`, `examples/gateway/` | № 3 | № 2 | готово |
+| Метаданные версии солвера в S3 `references/solvers/<solverVersion>/` | `references/solverartifact.py`, `examples/solvers/` | № 3 (пишет один раз при публикации) | № 3 (читает); № 2 видит только `solverVersion` | зарезервировано, солверов пока нет |
 
 **`taskResult` существует в одном месте.** Конверт ответа шлюза (№ 3) ссылается на `grading/taskresult.py` (№ 2)
 и не заводит свою копию полей `answer`, `reasoning`, `method`, `issues`.
+
+**`solverVersion` называет одну неизменяемую сборку**: `<familyId>.v<N>`, например `vectorLength.v2`. Ключа `latest` нет.
+Исправленный солвер получает новый номер, а старая проверка по своему `solverVersion` находит тот же код и тесты.
+`solverVersion=null` допустим только у `source=fixture`.
 
 ## Совместимость
 

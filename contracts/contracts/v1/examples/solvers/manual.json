@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "solverArtifact.v1",
+  "solverVersion": "vectorMidpoint.v3",
+  "source": "manual",
+  "scope": {
+    "familyId": "vectorMidpoint",
+    "schemaId": "scalar.v1",
+    "constraints": {}
+  },
+  "code": {
+    "key": "references/solvers/vectorMidpoint.v3/solver.py",
+    "sha256": "9f5de4deb862f5295bc69495f1ec2bacb8e899d10b6113bdf5f260714afb4216",
+    "sizeBytes": 960
+  },
+  "tests": {
+    "key": "references/solvers/vectorMidpoint.v3/tests.json",
+    "sha256": "742092511bb7b4a5fe71b560370bc8bf25e8e7a62b756e325eb1fab494d24023",
+    "sizeBytes": 2048
+  },
+  "publishedAt": "2026-11-21T12:00:00Z",
+  "generation": null
+}
