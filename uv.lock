@@ -334,12 +334,14 @@ source = { editable = "services/grading" }
 dependencies = [
     { name = "gorky-contracts" },
     { name = "pydantic" },
+    { name = "redis" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "gorky-contracts", editable = "contracts" },
     { name = "pydantic", specifier = ">=2.9" },
+    { name = "redis", specifier = ">=5.2" },
 ]
 
 [[package]]
