@@ -1,0 +1,97 @@
+"""Validate uploaded Word documents and store immutable originals in S3."""
+
+import base64
+import hashlib
+import uuid
+from contextlib import closing
+from io import BytesIO
+from typing import TYPE_CHECKING
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
+
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import UploadFile
+
+from cabinet.settings import Settings
+from contracts.v1.events.checks import DocRef
+from shared.buckets import SOURCES_BUCKET
+from shared.httperrors import ApiProblem
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3 import S3Client
+
+
+MAX_DOCX_BYTES = 20 * 1024 * 1024
+MAX_XML_BYTES = 8 * 1024 * 1024
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+MAIN_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+TYPES_NS = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+DOCUMENT_TAGS = {
+    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}document",
+    "{http://purl.oclc.org/ooxml/wordprocessingml/main}document",
+}
+
+
+def readDocx(upload: UploadFile) -> bytes:
+    original = upload.file.read(MAX_DOCX_BYTES + 1)
+    if len(original) > MAX_DOCX_BYTES:
+        raise ApiProblem("file_too_large", "DOCX exceeds 20 MiB", status=413)
+    try:
+        with ZipFile(BytesIO(original)) as archive:
+            types = readXml(archive, "[Content_Types].xml")
+            document = readXml(archive, "word/document.xml")
+            mainType = any(
+                item.get("PartName") == "/word/document.xml" and item.get("ContentType") == MAIN_CONTENT_TYPE
+                for item in types.findall(f"{TYPES_NS}Override")
+            )
+            if mainType and document.tag in DOCUMENT_TAGS:
+                return original
+    except (BadZipFile, ElementTree.ParseError, KeyError, RuntimeError, OSError, ValueError):
+        pass
+    raise ApiProblem("invalid_input", "Expected a valid DOCX document")
+
+
+def readXml(archive: ZipFile, name: str) -> ElementTree.Element:
+    with archive.open(name) as member:
+        data = member.read(MAX_XML_BYTES + 1)
+    if len(data) > MAX_XML_BYTES:
+        raise ValueError("DOCX XML part is too large")
+    return ElementTree.fromstring(data)
+
+
+def buildS3Client(settings: Settings) -> "S3Client":
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3EndpointUrl,
+        aws_access_key_id=settings.s3AccessKeyId,
+        aws_secret_access_key=settings.s3SecretAccessKey,
+        region_name=settings.s3Region,
+        config=Config(
+            connect_timeout=3,
+            read_timeout=10,
+            retries={"total_max_attempts": 2},
+            s3={"addressing_style": "path"},
+            proxies={},
+        ),
+    )
+
+
+def storeAssignmentDocument(settings: Settings, assignmentId: str, revision: int, original: bytes) -> DocRef:
+    key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}.docx"
+    digest = hashlib.sha256(original).hexdigest()
+    checksum = base64.b64encode(bytes.fromhex(digest)).decode("ascii")
+    try:
+        with closing(buildS3Client(settings)) as client:
+            client.put_object(
+                Bucket=SOURCES_BUCKET,
+                Key=key,
+                Body=original,
+                ContentType=DOCX_MEDIA_TYPE,
+                IfNoneMatch="*",
+                ChecksumSHA256=checksum,
+            )
+    except (ClientError, BotoCoreError) as error:
+        raise ApiProblem("unavailable", "Document storage is unavailable") from error
+    return DocRef(bucket=SOURCES_BUCKET, key=key, sha256=digest)

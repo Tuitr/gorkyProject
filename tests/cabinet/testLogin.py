@@ -3,21 +3,30 @@
 Tests use a cheap Argon2id (time_cost=1, small memory) so they stay fast; the type is the same as in production.
 """
 
+import hashlib
+import json
 import logging
 from collections.abc import Iterator
+from contextlib import closing
+from dataclasses import replace
+from datetime import date
+from io import BytesIO
 from typing import Literal
 
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from argon2 import PasswordHasher, Type
+from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from cabinet.assignments import AssignmentRecord
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
 from cabinet.database import allMetadata
+from cabinet.documents import buildS3Client
 from cabinet.main import buildAccounts, createApp
 from cabinet.settings import DB_SCHEMA, Settings
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE
@@ -49,7 +58,7 @@ def cabinetEngine(adminEngine: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def cabinetSessions(cabinetEngine: Engine) -> sessionmaker[Session]:
     with cabinetEngine.begin() as connection:
-        tables = ("teachers", "sessions", "login_throttle", "classes", "students")
+        tables = ("teachers", "sessions", "login_throttle", "classes", "students", "assignments")
         qualified = ", ".join(f'"{DB_SCHEMA}".{table}' for table in tables)
         connection.execute(text(f"TRUNCATE {qualified}"))
     return sessionmaker(cabinetEngine, expire_on_commit=False)
@@ -276,3 +285,84 @@ def testTeachersCanOnlyManageTheirOwnClasses(client: TestClient, cabinetSessions
     assert client.post(roster, json={"name": "   "}).status_code == 422
     assert client.post(roster, json={"name": "Саша", "classId": second.json()["classId"]}).status_code == 422
     assert {student["studentId"] for student in client.get(roster).json()} == studentIds
+
+
+def assignmentDocx(title: str) -> bytes:
+    document = Document()
+    document.add_paragraph(title)
+    output = BytesIO()
+    document.save(output)
+    return output.getvalue()
+
+
+def testAssignmentUploadPreservesRevisions(cabinetSessions: sessionmaker[Session], clock: ManualClock) -> None:
+    addTeacher(cabinetSessions, "teacher.owner")
+    addTeacher(cabinetSessions, "teacher.other")
+    settings = Settings.fromEnv()
+    app = createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    firstDocx = assignmentDocx("Задание 1")
+    secondDocx = assignmentDocx("Задание 1. Уточнение")
+    initial = [{"text": "Обоснуйте решение", "taskNumber": None}]
+    updated = [{"text": "Решите через формулу корней", "taskNumber": "1"}]
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        created = client.post("/v1/classes", json={"name": "8А"})
+        path = f"/v1/classes/{created.json()['classId']}/assignments"
+
+        malformed = client.post(path, data={"requirements": "[]"}, files={"file": ("bad.docx", b"bad")})
+        assert malformed.status_code == 422
+        first = client.post(
+            path, data={"requirements": json.dumps(initial), "assignmentDate": "2025-12-12"},
+            files={"file": ("first.docx", firstDocx)},
+        )
+        assert first.status_code == 201, first.text
+        assignmentId = first.json()["assignmentId"]
+        assert first.json()["assignmentRev"] == 1
+        second = client.post(
+            path, data={"assignmentId": assignmentId, "requirements": json.dumps(updated)},
+            files={"file": ("second.docx", secondDocx)},
+        )
+        assert second.status_code == 201, second.text
+        assert second.json() == {"assignmentId": assignmentId, "assignmentRev": 2}
+
+        assert login(client, "teacher.other", PASSWORD)[0] == 200
+        denied = client.post(path, data={"requirements": "[]"}, files={"file": ("first.docx", firstDocx)})
+        assert denied.status_code == 404
+        assert login(client, "teacher.owner", PASSWORD)[0] == 200
+        otherClass = client.post("/v1/classes", json={"name": "8Б"})
+        otherPath = f"/v1/classes/{otherClass.json()['classId']}/assignments"
+        deniedRevision = client.post(
+            otherPath, data={"assignmentId": assignmentId, "requirements": "[]"},
+            files={"file": ("first.docx", firstDocx)},
+        )
+        assert deniedRevision.status_code == 404
+
+        failingSettings = replace(settings, s3AccessKeyId="unrecognized-test-credential")
+        failingApp = createApp(
+            failingSettings, sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock,
+        )
+        with TestClient(failingApp, base_url="https://testserver", cookies=client.cookies) as failingClient:
+            failed = failingClient.post(
+                path, data={"assignmentId": assignmentId, "requirements": "[]"},
+                files={"file": ("first.docx", firstDocx)},
+            )
+            assert failed.status_code == 503
+
+    with cabinetSessions() as db, closing(buildS3Client(settings)) as s3:
+        versions = db.scalars(select(AssignmentRecord).order_by(AssignmentRecord.assignmentRev)).all()
+        try:
+            assert [version.assignmentRev for version in versions] == [1, 2]
+            old, new = versions
+            assert old.objectKey != new.objectKey
+            assert old.requirements == initial
+            assert new.requirements == updated
+            assert old.assignmentDate == date(2025, 12, 12)
+            assert new.assignmentDate == clock.now().date()
+            for version, original in zip(versions, (firstDocx, secondDocx), strict=True):
+                with closing(s3.get_object(Bucket=version.bucket, Key=version.objectKey)["Body"]) as body:
+                    assert body.read() == original
+                assert version.sha256 == hashlib.sha256(original).hexdigest()
+        finally:
+            for version in versions:
+                s3.delete_object(Bucket=version.bucket, Key=version.objectKey)

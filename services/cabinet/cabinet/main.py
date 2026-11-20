@@ -3,25 +3,31 @@
 Public routes live under /v1. The schema is served at /openapi.json.
 """
 
-from datetime import timedelta
+from datetime import date, timedelta
 import hashlib
 import secrets
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Request, Response, UploadFile
+from pydantic import Json
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from cabinet.assignments import AssignmentRecord, storeAssignment
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
 from cabinet.auth.throttle import LoginThrottle
 from cabinet.classes import ClassRecord, StudentRecord, requireOwnedClass
+from cabinet.documents import readDocx
 from cabinet.settings import Settings
+from contracts.v1.cabinet.assignments import AssignmentVersion
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.common.errors import ApiError
+from contracts.v1.events.checks import TeacherRequirement
 from shared.clock import Clock, SystemClock
 from shared.httperrors import ApiProblem, installErrorHandlers
 
@@ -88,6 +94,7 @@ def createApp(
                 session.execute(select(SessionRecord).limit(0))
                 session.execute(select(ClassRecord).limit(0))
                 session.execute(select(StudentRecord).limit(0))
+                session.execute(select(AssignmentRecord).limit(0))
         except SQLAlchemyError as error:
             raise ApiProblem("unavailable", "Cabinet database is unavailable") from error
         return {"status": "ready"}
@@ -169,6 +176,29 @@ def createApp(
             requireOwnedClass(db, classId, teacher.teacherId)
             db.add(StudentRecord(studentId=created.studentId, classId=classId, name=created.name))
         return created
+
+    @v1.post(
+        "/classes/{classId}/assignments",
+        status_code=201,
+        responses={
+            401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError},
+            413: {"model": ApiError}, 422: {"model": ApiError}, 503: {"model": ApiError},
+        },
+    )
+    def uploadAssignment(
+        classId: str,
+        file: Annotated[UploadFile, File()],
+        requirements: Annotated[Json[list[TeacherRequirement]], Form()],
+        assignmentDate: Annotated[date | None, Form()] = None,
+        assignmentId: Annotated[str | None, Form(min_length=36, max_length=36, pattern=r"^[0-9a-f-]+$")] = None,
+        teacher: TeacherSession = Depends(currentTeacher),
+    ) -> AssignmentVersion:
+        with sessionFactory.begin() as db:
+            requireOwnedClass(db, classId, teacher.teacherId)
+            return storeAssignment(
+                db, settings, classId, assignmentId, assignmentDate or sessionClock.now().date(),
+                requirements, readDocx(file),
+            )
 
     @v1.get("/sessions/current", responses={401: {"model": ApiError}})
     def readSession(teacher: TeacherSession = Depends(currentTeacher)) -> TeacherSession:

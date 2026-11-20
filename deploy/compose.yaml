@@ -13,7 +13,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
     environment:
+      S3_ENDPOINT_URL: http://seaweedfs:8333
       CABINET_DATABASE_URL: postgresql+psycopg://gorky_cabinet:gorky_cabinet@postgres:5432/gorky?connect_timeout=3
     ports:
       - "127.0.0.1:${CABINET_PORT:-18080}:8000"
@@ -83,6 +86,17 @@ services:
       interval: 2s
       timeout: 3s
       retries: 60
+
+  s3-init:
+    image: chrislusf/seaweedfs:4.05
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        printf '%s\n' 's3.bucket.create -name sources' | weed shell -master=seaweedfs:9333
+        wget -q -O /dev/null http://seaweedfs:8888/buckets/sources/
 
 volumes:
   postgres-data:
