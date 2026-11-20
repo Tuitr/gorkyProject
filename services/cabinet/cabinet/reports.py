@@ -1,6 +1,6 @@
 """Class rosters and submissions stay in the cabinet. Grading selects the results included in its summary."""
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from cabinet.attempts import AttemptRecord, CheckRecord
@@ -16,7 +16,10 @@ def readReportRoster(
     submittedChecks = (
         select(CheckRecord.checkId.label("checkId"), AttemptRecord.studentId.label("studentId"))
         .join(AttemptRecord, AttemptRecord.attemptId == CheckRecord.attemptId)
-        .where(CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev)
+        .where(
+            CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev,
+            AttemptRecord.deletedAt.is_(None),
+        )
         .subquery()
     )
     roster: dict[str, StudentSummary] = {}
@@ -24,13 +27,25 @@ def readReportRoster(
     for student, checkId in db.execute(
         select(StudentRecord, submittedChecks.c.checkId)
         .outerjoin(submittedChecks, submittedChecks.c.studentId == StudentRecord.studentId)
-        .where(StudentRecord.classId == classId)
+        .where(StudentRecord.classId == classId, or_(StudentRecord.deletedAt.is_(None), submittedChecks.c.checkId.is_not(None)))
         .order_by(StudentRecord.name, StudentRecord.studentId)
     ):
         roster[student.studentId] = StudentSummary(studentId=student.studentId, name=student.name)
         if checkId is not None:
             checks[checkId] = student.studentId
     return list(roster.values()), checks
+
+
+def deletedReportCheckIds(db: Session, assignmentId: str, assignmentRev: int) -> list[str]:
+    return list(db.scalars(
+        select(CheckRecord.checkId)
+        .join(AttemptRecord, AttemptRecord.attemptId == CheckRecord.attemptId)
+        .where(
+            CheckRecord.assignmentId == assignmentId, CheckRecord.assignmentRev == assignmentRev,
+            AttemptRecord.deletedAt.is_not(None),
+        )
+        .order_by(CheckRecord.checkId)
+    ))
 
 
 def combineReport(

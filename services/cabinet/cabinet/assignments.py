@@ -2,10 +2,10 @@
 
 import uuid
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, ForeignKey, String, UniqueConstraint, func, select
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Date, DateTime, ForeignKey, String, UniqueConstraint, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB, distinct_on
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.classes import ClassRecord
@@ -13,7 +13,7 @@ from cabinet.database import Base
 from cabinet.documents import buildS3Client, storeDocx
 from cabinet.outbox import EventContext, enqueueEvent
 from cabinet.settings import Settings
-from contracts.v1.cabinet.assignments import AssignmentVersion
+from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.events.checks import AssignmentPublishedEvent, AssignmentPublishedPayload, TeacherRequirement
 from shared.httperrors import ApiProblem
 
@@ -32,6 +32,25 @@ class AssignmentRecord(Base):
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     sha256: Mapped[str] = mapped_column(String(64))
+    deletedAt: Mapped[datetime | None] = mapped_column("deleted_at", DateTime(timezone=True))
+
+
+def listActiveAssignments(db: Session, classId: str) -> list[AssignmentSummary]:
+    latest = (
+        select(AssignmentRecord.assignmentId, AssignmentRecord.assignmentRev, AssignmentRecord.assignmentDate)
+        .where(AssignmentRecord.classId == classId, AssignmentRecord.deletedAt.is_(None))
+        .ext(distinct_on(AssignmentRecord.assignmentId))
+        .order_by(AssignmentRecord.assignmentId, AssignmentRecord.assignmentRev.desc())
+        .subquery()
+    )
+    rows = db.execute(
+        select(latest.c.assignmentId, latest.c.assignmentRev, latest.c.assignmentDate)
+        .order_by(latest.c.assignmentDate.desc(), latest.c.assignmentId)
+    )
+    return [
+        AssignmentSummary(assignmentId=assignmentId, assignmentRev=revision, assignmentDate=assignmentDate)
+        for assignmentId, revision, assignmentDate in rows
+    ]
 
 
 def storeAssignment(
@@ -58,6 +77,7 @@ def storeAssignment(
                 AssignmentRecord.assignmentId == assignmentId,
                 AssignmentRecord.assignmentRev == 1,
                 AssignmentRecord.classId == classId,
+                AssignmentRecord.deletedAt.is_(None),
             )
             .with_for_update()
         )
@@ -92,17 +112,42 @@ def storeAssignment(
     return AssignmentVersion(assignmentId=assignmentId, assignmentRev=revision)
 
 
-def requireOwnedAssignment(db: Session, assignmentId: str, assignmentRev: int, teacherId: str) -> str:
+def requireOwnedAssignment(
+    db: Session, assignmentId: str, assignmentRev: int, teacherId: str, *, lockForWrite: bool = False,
+) -> str:
     if len(assignmentId) == 36 and "\x00" not in assignmentId:
-        classId = db.scalar(
+        query = (
             select(AssignmentRecord.classId)
             .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
             .where(
                 AssignmentRecord.assignmentId == assignmentId,
                 AssignmentRecord.assignmentRev == assignmentRev,
                 ClassRecord.teacherId == teacherId,
+                ClassRecord.deletedAt.is_(None),
+                AssignmentRecord.deletedAt.is_(None),
             )
         )
+        classId = db.scalar(query.with_for_update(read=True, of=(ClassRecord, AssignmentRecord)) if lockForWrite else query)
         if classId is not None:
             return classId
     raise ApiProblem("not_found", "Assignment revision not found")
+
+
+def deleteAssignment(db: Session, assignmentId: str, teacherId: str, deletedAt: datetime, confirm: bool) -> None:
+    if len(assignmentId) != 36 or "\x00" in assignmentId:
+        raise ApiProblem("not_found", "Assignment not found")
+    # Share the revision-one lock used by storeAssignment before updating every revision.
+    root = db.scalar(
+        select(AssignmentRecord.assignmentId)
+        .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
+        .where(
+            AssignmentRecord.assignmentId == assignmentId, AssignmentRecord.assignmentRev == 1,
+            AssignmentRecord.deletedAt.is_(None), ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None),
+        )
+        .with_for_update(of=AssignmentRecord)
+    )
+    if root is None:
+        raise ApiProblem("not_found", "Assignment not found")
+    if not confirm:
+        raise ApiProblem("confirmation_required", "Confirm deleting the assignment and all its submissions", status=409)
+    db.execute(update(AssignmentRecord).where(AssignmentRecord.assignmentId == root).values(deletedAt=deletedAt))

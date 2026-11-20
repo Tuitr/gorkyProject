@@ -3,18 +3,24 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, select
+from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Index, String, UniqueConstraint, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from cabinet.assignments import AssignmentRecord
+from cabinet.classes import ClassRecord
 from cabinet.database import Base
 from cabinet.outbox import EventContext, enqueueEvent
 from contracts.v1.events.checks import AttemptSubmittedEvent, AttemptSubmittedPayload, DocRef
+from shared.httperrors import ApiProblem
 
 
 class AttemptRecord(Base):
     __tablename__ = "attempts"
-    __table_args__ = (UniqueConstraint("assignment_id", "student_id", "sha256", name="uq_attempts_submission"),)
+    __table_args__ = (
+        Index("uq_attempts_submission", "assignment_id", "student_id", "sha256", unique=True,
+              postgresql_where=text("deleted_at IS NULL")),
+    )
 
     attemptId: Mapped[str] = mapped_column("attempt_id", String(36), primary_key=True)
     assignmentId: Mapped[str] = mapped_column("assignment_id", String(36))
@@ -23,6 +29,7 @@ class AttemptRecord(Base):
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     submittedAt: Mapped[datetime] = mapped_column("submitted_at", DateTime(timezone=True))
+    deletedAt: Mapped[datetime | None] = mapped_column("deleted_at", DateTime(timezone=True))
 
 
 class CheckRecord(Base):
@@ -44,26 +51,40 @@ class CheckRecord(Base):
 def ensureAttempt(
     db: Session, assignmentId: str, studentId: str, ref: DocRef, submittedAt: datetime,
 ) -> str:
-    attemptId = db.scalar(
+    # Lock the existing active attempt on a duplicate so concurrent deletion cannot archive it mid-binding.
+    return db.execute(
         insert(AttemptRecord)
         .values(
             attemptId=str(uuid.uuid4()), assignmentId=assignmentId, studentId=studentId,
             sha256=ref.sha256, bucket=ref.bucket, objectKey=ref.key, submittedAt=submittedAt,
         )
-        .on_conflict_do_nothing(constraint="uq_attempts_submission")
-        .returning(AttemptRecord.attemptId)
-    )
-    if attemptId is None:
-        # A concurrent insert may have won. Read the committed attempt in a new statement.
-        attemptId = db.scalar(
-            select(AttemptRecord.attemptId).where(
-                AttemptRecord.assignmentId == assignmentId,
-                AttemptRecord.studentId == studentId,
-                AttemptRecord.sha256 == ref.sha256,
-            )
+        .on_conflict_do_update(
+            index_elements=[AttemptRecord.assignmentId, AttemptRecord.studentId, AttemptRecord.sha256],
+            index_where=AttemptRecord.deletedAt.is_(None),
+            set_={"sha256": AttemptRecord.sha256},
         )
-        assert attemptId is not None
-    return attemptId
+        .returning(AttemptRecord.attemptId)
+    ).scalar_one()
+
+
+def deleteAttempt(db: Session, attemptId: str, teacherId: str, deletedAt: datetime, confirm: bool) -> None:
+    if len(attemptId) != 36 or "\x00" in attemptId:
+        raise ApiProblem("not_found", "Submission not found")
+    attempt = db.scalar(
+        select(AttemptRecord)
+        .join(AssignmentRecord, (AssignmentRecord.assignmentId == AttemptRecord.assignmentId) & (AssignmentRecord.assignmentRev == 1))
+        .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
+        .where(
+            AttemptRecord.attemptId == attemptId, AttemptRecord.deletedAt.is_(None),
+            AssignmentRecord.deletedAt.is_(None), ClassRecord.teacherId == teacherId, ClassRecord.deletedAt.is_(None),
+        )
+        .with_for_update(of=AttemptRecord)
+    )
+    if attempt is None:
+        raise ApiProblem("not_found", "Submission not found")
+    if not confirm:
+        raise ApiProblem("confirmation_required", "Confirm deleting the submission", status=409)
+    attempt.deletedAt = deletedAt
 
 
 def ensureCheck(

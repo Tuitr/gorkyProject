@@ -14,7 +14,7 @@ def invalidGradingResponse() -> ApiProblem:
 
 def sendGradingRequest(
     settings: Settings, method: str, path: str, traceId: str, transport: httpx.BaseTransport | None,
-    *, params: dict[str, int] | None = None, body: dict[str, object] | None = None,
+    *, params: dict[str, int | list[str]] | None = None, body: dict[str, object] | None = None,
 ) -> httpx.Response:
     if not settings.gradingServiceToken:
         raise ApiProblem("unavailable", "Grading service is unavailable")

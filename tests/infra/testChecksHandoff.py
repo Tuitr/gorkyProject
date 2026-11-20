@@ -19,18 +19,17 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet.assignments import AssignmentRecord
 from cabinet.attempts import AttemptRecord, CheckRecord
-from cabinet.auth.passwords import Passwords
 from cabinet.auth.tables import TeacherRecord
 from cabinet.classes import ClassRecord
 from cabinet.documents import buildS3Client
-from cabinet.main import COOKIE, buildAccounts
+from cabinet.main import COOKIE
 from cabinet.outbox import OutboxRecord
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord
+from contracts.v1.cabinet.uploads import UploadFileProgress, UploadProgress
 from contracts.v1.events.checks import DATA_FIELD, STREAM_NAME
 from grading.intake import AssignmentPublished, AttemptSubmitted, EventRejected, IncomingEvent, readEvent
 from shared.buckets import SOURCES_BUCKET
-from shared.clock import SystemClock
 
 
 @dataclass(frozen=True)
@@ -38,15 +37,6 @@ class Delivery:
     entryId: str | bytes
     data: bytes
     event: IncomingEvent
-
-
-def makeDocx(*paragraphs: str) -> bytes:
-    document = Document()
-    for paragraph in paragraphs:
-        document.add_paragraph(paragraph)
-    output = BytesIO()
-    document.save(output)
-    return output.getvalue()
 
 
 def collectDeliveries(
@@ -75,10 +65,10 @@ def collectDeliveries(
 
 
 def removeHandoffRecords(
-    sessions: sessionmaker[Session], teacherId: str, traces: set[str],
+    sessions: sessionmaker[Session], teacherIds: list[str], traces: set[str],
 ) -> set[tuple[str, str]]:
     with sessions.begin() as db:
-        classes = select(ClassRecord.classId).where(ClassRecord.teacherId == teacherId)
+        classes = select(ClassRecord.classId).where(ClassRecord.teacherId.in_(teacherIds))
         assignments = select(AssignmentRecord.assignmentId).where(AssignmentRecord.classId.in_(classes))
         uploads = select(UploadRecord.uploadId).where(UploadRecord.assignmentId.in_(assignments))
         uploadRefs = db.execute(
@@ -94,21 +84,34 @@ def removeHandoffRecords(
         db.execute(delete(CheckRecord).where(CheckRecord.assignmentId.in_(assignments)))
         db.execute(delete(AttemptRecord).where(AttemptRecord.assignmentId.in_(assignments)))
         db.execute(delete(AssignmentRecord).where(AssignmentRecord.classId.in_(classes)))
-        db.execute(delete(TeacherRecord).where(TeacherRecord.teacherId == teacherId))
+        db.execute(delete(TeacherRecord).where(TeacherRecord.teacherId.in_(teacherIds)))
     return refs
 
 
-def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path) -> None:
+def registerAndSignIn(api: httpx.Client, email: str, teacherIds: list[str]) -> None:
+    credentials = {"email": email, "password": uuid.uuid4().hex}
+    registered = api.post("/v1/teachers/register", json={**credentials, "displayName": "Синтетический учитель"})
+    assert registered.status_code == 201, registered.text
+    teacherIds.append(registered.json()["teacherId"])
+    login = api.post("/v1/sessions", json=credentials)
+    assert login.status_code == 200, login.text
+    assert login.json() == registered.json()
+    # The dev server uses HTTP, while the teacher cookie normally requires HTTPS.
+    api.headers["Cookie"] = f"{COOKIE}={login.cookies[COOKIE]}"
+
+
+def testCabinetEventsCarryReadableDocuments(
+    adminEngine: Engine, tmp_path: Path, handoffDocuments: tuple[bytes, bytes],
+) -> None:
     # adminEngine applies the regular test migrations before the live HTTP calls.
     settings = Settings.fromEnv()
     port = os.environ.get("CABINET_PORT", "18080")
     runId = uuid.uuid4().hex
-    variantTrace, attemptTrace = f"handoff-{runId}-variant", f"handoff-{runId}-attempt"
+    variantTrace, attemptTrace, duplicateTrace = (f"handoff-{runId}-{part}" for part in ("variant", "attempt", "repeat"))
     traces = {variantTrace, attemptTrace}
-    loginName, password = f"handoff.{runId}", uuid.uuid4().hex
+    teacherIds: list[str] = []
     studentName = "Тестов Павел"
-    variant = makeDocx("Синтетический вариант", "1. Решите уравнение x + 2 = 5.")
-    submission = makeDocx("Синтетическая работа", f"Ученик: {studentName}", "1. x = 5 − 2 = 3.")
+    variant, submission = handoffDocuments
     gradingSettings = replace(
         settings,
         s3AccessKeyId=os.environ.get("GRADING_S3_ACCESS_KEY_ID", "gorky-grading"),
@@ -117,12 +120,11 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
     engine = create_engine(settings.databaseUrl)
     sessions = sessionmaker(engine, expire_on_commit=False)
     try:
-        teacher = buildAccounts(settings, sessions, Passwords(), SystemClock()).create(
-            loginName, "Синтетический учитель", password,
-        )
+        baseUrl = f"http://127.0.0.1:{port}"
         with (
             Redis.from_url(settings.redisUrl, protocol=2, socket_connect_timeout=3, socket_timeout=3) as redis,
-            httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=10) as api,
+            httpx.Client(base_url=baseUrl, trust_env=False, timeout=10) as api,
+            httpx.Client(base_url=baseUrl, trust_env=False, timeout=10) as otherApi,
             closing(buildS3Client(gradingSettings)) as gradingStorage,
             closing(buildS3Client(settings)) as cabinetStorage,
         ):
@@ -130,34 +132,57 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
             try:
                 tail = redis.xrevrange(STREAM_NAME, count=1)
                 cursor = tail[0][0] if tail else "0-0"
-                login = api.post("/v1/sessions", json={"login": loginName, "password": password})
-                assert login.status_code == 200, login.text
-                # The dev server uses HTTP, while the teacher cookie normally requires HTTPS.
-                api.headers["Cookie"] = f"{COOKIE}={login.cookies[COOKIE]}"
+                registerAndSignIn(api, f"handoff.owner.{runId}@example.org", teacherIds)
+                registerAndSignIn(otherApi, f"handoff.other.{runId}@example.org", teacherIds)
                 classResponse = api.post("/v1/classes", json={"name": "Синтетический 8А"})
                 assert classResponse.status_code == 201, classResponse.text
                 classPath = f"/v1/classes/{classResponse.json()['classId']}"
+                assignmentsPath = f"{classPath}/assignments"
+                empty = api.get(assignmentsPath)
+                assert empty.status_code == 200 and empty.json() == []
                 studentResponse = api.post(f"{classPath}/students", json={"name": studentName})
                 assert studentResponse.status_code == 201, studentResponse.text
                 published = api.post(
-                    f"{classPath}/assignments",
+                    assignmentsPath,
                     headers={"X-Trace-Id": variantTrace},
-                    data={"requirements": '[{"taskNumber":"1","text":"Покажите ход решения"}]'},
+                    data={
+                        "requirements": '[{"taskNumber":"1","text":"Покажите ход решения"}]',
+                        "assignmentDate": "2025-12-12",
+                    },
                     files={"file": ("variant.docx", variant)},
                 )
                 assert published.status_code == 201, published.text
                 assignment = published.json()
-                uploaded = api.post(
-                    f"/v1/assignments/{assignment['assignmentId']}/uploads",
-                    headers={"X-Trace-Id": attemptTrace},
-                    data={"assignmentRev": str(assignment["assignmentRev"])},
-                    files={"file": ("testov-pavel.docx", submission)},
-                )
-                assert uploaded.status_code == 202, uploaded.text
-                progress = api.get(f"/v1/uploads/{uploaded.json()['uploadId']}")
-                assert progress.status_code == 200, progress.text
-                confirmed = progress.json()["files"][0]
-                assert confirmed["status"] == "bound"
+                assignmentPath = f"/v1/assignments/{assignment['assignmentId']}"
+                assignmentRow = {**assignment, "assignmentDate": "2025-12-12"}
+                listed = api.get(assignmentsPath)
+                assert listed.status_code == 200 and listed.json() == [assignmentRow]
+
+                def submit(trace: str) -> tuple[str, UploadFileProgress]:
+                    uploaded = api.post(
+                        f"{assignmentPath}/uploads",
+                        headers={"X-Trace-Id": trace},
+                        data={"assignmentRev": str(assignment["assignmentRev"])},
+                        files={"file": ("testov-pavel.docx", submission)},
+                    )
+                    assert uploaded.status_code == 202, uploaded.text
+                    uploadPath = f"/v1/uploads/{uploaded.json()['uploadId']}"
+                    progress = api.get(uploadPath)
+                    assert progress.status_code == 200, progress.text
+                    (bound,) = UploadProgress.model_validate_json(progress.content).files
+                    assert bound.status == "bound" and bound.attemptId and bound.checkId
+                    return uploadPath, bound
+
+                uploadPath, confirmed = submit(attemptTrace)
+                duplicatePath, duplicate = submit(duplicateTrace)
+                assert duplicatePath != uploadPath
+                assert (duplicate.attemptId, duplicate.checkId) == (confirmed.attemptId, confirmed.checkId)
+                checkPath = f"/v1/checks/{confirmed.checkId}"
+                reportPath = f"{assignmentPath}/report?rev={assignment['assignmentRev']}"
+
+                for path in (assignmentsPath, uploadPath, checkPath, reportPath):
+                    assert otherApi.get(path).status_code == 404
+                assert otherApi.delete(f"{assignmentPath}?confirm=true").status_code == 404
 
                 collectDeliveries(redis, cursor, traces, deliveries)
                 variantEvent = deliveries[variantTrace].event
@@ -166,8 +191,8 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
                 assert isinstance(attemptEvent, AttemptSubmitted)
                 assert variantEvent.payload.requirements[0].text == "Покажите ход решения"
                 assert attemptEvent.payload.studentId == studentResponse.json()["studentId"]
-                assert attemptEvent.payload.attemptId == confirmed["attemptId"]
-                assert attemptEvent.payload.checkId == confirmed["checkId"]
+                assert attemptEvent.payload.attemptId == confirmed.attemptId
+                assert attemptEvent.payload.checkId == confirmed.checkId
                 for trace, original, filename in (
                     (variantTrace, variant, "variant.docx"), (attemptTrace, submission, "submission.docx"),
                 ):
@@ -185,8 +210,24 @@ def testCabinetEventsCarryReadableDocuments(adminEngine: Engine, tmp_path: Path)
                     assert Document(BytesIO(actual)).paragraphs
                     (tmp_path / filename).write_bytes(actual)
                     (tmp_path / f"{delivery.event.type}.json").write_bytes(delivery.data)
+
+                pending = api.delete(assignmentPath)
+                assert pending.status_code == 409 and pending.json()["code"] == "confirmation_required"
+                listed = api.get(assignmentsPath)
+                assert listed.status_code == 200 and listed.json() == [assignmentRow]
+                assert api.get(uploadPath).status_code == 200
+                assert api.delete(f"{assignmentPath}?confirm=true").status_code == 204
+                listed = api.get(assignmentsPath)
+                assert listed.status_code == 200 and listed.json() == []
+                for path in (uploadPath, duplicatePath, checkPath, reportPath):
+                    assert api.get(path).status_code == 404
+                assert api.post(
+                    f"{assignmentPath}/uploads",
+                    data={"assignmentRev": str(assignment["assignmentRev"])},
+                    files={"file": ("testov-pavel.docx", submission)},
+                ).status_code == 404
             finally:
-                for bucket, key in removeHandoffRecords(sessions, teacher.teacherId, traces):
+                for bucket, key in removeHandoffRecords(sessions, teacherIds, traces | {duplicateTrace}):
                     cabinetStorage.delete_object(Bucket=bucket, Key=key)
                 if deliveries:
                     redis.xdel(STREAM_NAME, *(delivery.entryId for delivery in deliveries.values()))

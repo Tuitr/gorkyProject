@@ -1,4 +1,6 @@
-"""Public response from an assignment upload."""
+"""Public responses for assignment uploads and class assignment lists."""
+
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
@@ -10,3 +12,7 @@ class AssignmentVersion(BaseModel):
 
     assignmentId: NonEmptyStr
     assignmentRev: Revision
+
+
+class AssignmentSummary(AssignmentVersion):
+    assignmentDate: date

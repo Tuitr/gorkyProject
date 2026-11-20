@@ -12,14 +12,14 @@ from zlib import error as ZlibError
 
 from fastapi import UploadFile
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, func, select
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Select, String, UniqueConstraint, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.assignments import AssignmentRecord
-from cabinet.attempts import ensureAttempt, ensureCheck
+from cabinet.attempts import AttemptRecord, ensureAttempt, ensureCheck
 from cabinet.bindings import matchStudent, signatureNames
-from cabinet.classes import ClassRecord, StudentRecord
+from cabinet.classes import ClassRecord, StudentRecord, activeStudents
 from cabinet.database import Base
 from cabinet.documents import MAX_DOCX_BYTES, buildS3Client, loadDocx, readDocxBytes, storeDocx, validateDocx
 from cabinet.outbox import EventContext
@@ -185,7 +185,7 @@ def storeUpload(
     uploadId = uploadId if uploadId is not None else str(uuid.uuid4())
     lockUploadStorage(db, uploadId)
     records = []
-    roster = db.scalars(select(StudentRecord).where(StudentRecord.classId == classId)).all()
+    roster = db.scalars(activeStudents(classId)).all()
     with closing(buildS3Client(settings)) as client:
         for document in documents:
             fileId = str(uuid.uuid4())
@@ -241,14 +241,28 @@ def finishMatchedFiles(
         (file for file in files if file.status == "matched"),
         key=lambda file: (file.studentId or "", file.sha256),
     )
+    if not matched:
+        return
+    matchedIds = {file.studentId for file in matched if file.studentId is not None}
+    activeIds = set(db.scalars(
+        select(StudentRecord.studentId).where(
+            StudentRecord.studentId.in_(matchedIds), StudentRecord.deletedAt.is_(None),
+        ).with_for_update(read=True)
+    ))
     for file in matched:
-        finishFileBinding(db, upload, file, eventContext)
+        if file.studentId in activeIds:
+            finishFileBinding(db, upload, file, eventContext)
+        else:
+            file.studentId = None
+            file.bindingMode = None
+            file.status = "needs_confirmation"
+            file.reason = "Ученик удалён из класса. Выберите другого ученика."
 
 
 def matchPendingFiles(
     db: Session, settings: Settings, classId: str, files: Sequence[UploadFileRecord],
 ) -> None:
-    roster = db.scalars(select(StudentRecord).where(StudentRecord.classId == classId)).all()
+    roster = db.scalars(activeStudents(classId)).all()
     with closing(buildS3Client(settings)) as client:
         for file in files:
             if file.status != "pending_binding":
@@ -278,7 +292,11 @@ def requireOwnedUpload(db: Session, uploadId: str, teacherId: str) -> tuple[Uplo
             & (AssignmentRecord.assignmentRev == UploadRecord.assignmentRev),
         )
         .join(ClassRecord, ClassRecord.classId == AssignmentRecord.classId)
-        .where(UploadRecord.uploadId == uploadId, ClassRecord.teacherId == teacherId)
+        .where(
+            UploadRecord.uploadId == uploadId, ClassRecord.teacherId == teacherId,
+            ClassRecord.deletedAt.is_(None), AssignmentRecord.deletedAt.is_(None),
+        )
+        .with_for_update(read=True, of=(ClassRecord, AssignmentRecord))
     ).one_or_none()
     if owned is None:
         raise ApiProblem("not_found", "Upload not found")
@@ -286,13 +304,19 @@ def requireOwnedUpload(db: Session, uploadId: str, teacherId: str) -> tuple[Uplo
     return upload, classId
 
 
+def visibleUploadFiles(uploadId: str) -> Select[UploadFileRecord]:
+    archived = select(AttemptRecord.attemptId).where(
+        AttemptRecord.attemptId == UploadFileRecord.attemptId, AttemptRecord.deletedAt.is_not(None),
+    ).exists()
+    return select(UploadFileRecord).where(UploadFileRecord.uploadId == uploadId, ~archived)
+
+
 def getUploadProgress(
     db: Session, settings: Settings, uploadId: str, teacherId: str, eventContext: EventContext,
 ) -> UploadProgress:
     upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     fileQuery = (
-        select(UploadFileRecord)
-        .where(UploadFileRecord.uploadId == uploadId)
+        visibleUploadFiles(uploadId)
         .order_by(UploadFileRecord.originalName, UploadFileRecord.fileId)
     )
     files = db.scalars(fileQuery).all()
@@ -306,9 +330,7 @@ def getUploadProgress(
     candidateIds = {studentId for file in files for studentId in file.candidateStudentIds}
     candidates = {}
     if candidateIds:
-        students = db.scalars(
-            select(StudentRecord).where(StudentRecord.classId == classId, StudentRecord.studentId.in_(candidateIds))
-        )
+        students = db.scalars(activeStudents(classId).where(StudentRecord.studentId.in_(candidateIds)))
         candidates = {
             student.studentId: StudentSummary(studentId=student.studentId, name=student.name) for student in students
         }

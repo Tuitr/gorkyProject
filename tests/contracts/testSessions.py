@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from contracts.v1.cabinet.registration import TeacherRegistration
 from contracts.v1.cabinet.sessions import LOGIN_REFUSED_MESSAGE, LOGIN_THROTTLED_MESSAGE, LoginRequest, TeacherSession
 from contracts.v1.common.errors import ApiError
 
@@ -15,6 +16,7 @@ from contracts.v1.common.errors import ApiError
     [
         ("cabinet/loginRequest.json", LoginRequest),
         ("cabinet/teacherSession.json", TeacherSession),
+        ("cabinet/teacherRegistration.json", TeacherRegistration),
         ("cabinet/loginRefused.json", ApiError),
         ("cabinet/loginThrottled.json", ApiError),
     ],
@@ -31,8 +33,13 @@ def testRefusalExamplesUseTheFixedMessages(contractExample: Callable[[str], Any]
 
 
 def testPasswordIsHiddenFromRepr() -> None:
-    request = LoginRequest(login="teacher.demo", password="stand-only-password")
+    request = LoginRequest(email="teacher.demo@example.org", password="stand-only-password")
 
     assert "stand-only-password" not in repr(request)
     with pytest.raises(ValidationError):
-        LoginRequest.model_validate({"login": "teacher.demo", "password": "x", "teacherId": "t1"})
+        LoginRequest.model_validate({"email": "teacher.demo@example.org", "password": "x", "teacherId": "t1"})
+
+    registration = TeacherRegistration(
+        email="teacher.signup@example.org", displayName="Анна Петрова", password="synthetic-long-password",
+    )
+    assert registration.password not in repr(registration)

@@ -52,6 +52,12 @@ def contractExample() -> Callable[[str], Any]:
     return loadContractExample
 
 
+@pytest.fixture(scope="session")
+def handoffDocuments() -> tuple[bytes, bytes]:
+    examples = EXAMPLES_DIR / "handoff"
+    return (examples / "variant.docx").read_bytes(), (examples / "submission.docx").read_bytes()
+
+
 @dataclass(frozen=True)
 class ServiceMigrations:
     schema: str
