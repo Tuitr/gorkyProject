@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { WORK_TYPE_LABEL } from '../domain'
 import { href } from '../router'
 import { useStore } from '../store'
@@ -9,6 +10,18 @@ export function Home() {
   const { state } = useStore()
   const classes = useOwnClasses()
   const list = [...state.assignments].sort((a, b) => b.createdAt - a.createdAt)
+  const [exporting, setExporting] = useState(false)
+
+  // Excel со статистикой по всем работам; модуль грузится только по нажатию
+  const exportExcel = async () => {
+    setExporting(true)
+    try {
+      const { downloadStats } = await import('../api/exportStats')
+      downloadStats(state)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div className="page">
@@ -17,6 +30,16 @@ export function Home() {
         <a className="btn btn--primary" href="#/new">
           + Добавить работу
         </a>
+        {list.length > 0 && (
+          <button
+            className="btn home-head__export"
+            onClick={() => void exportExcel()}
+            disabled={exporting}
+            title="Сводка, ученики, результаты, задания и ошибки по всем контрольным и домашним заданиям"
+          >
+            {exporting ? 'Подготовка…' : 'Скачать Excel'}
+          </button>
+        )}
       </div>
 
       {!classes.length && (

@@ -1,51 +1,39 @@
-/* Тема «IDE для проверки работ» по макету Claude Design «Spirit Code — платформа учителя»:
-   тёмно-синий фон в клетку 64px, на нём СВЕТЛЫЕ «кирпичики» (карточки, панели, плитки, окна) с тёмным текстом;
-   все кнопки — рыжие. Цвета внутри кирпичиков — тёмные оттенки (на светлом они читаются):
-   ссылки — тёмно-бирюзовый, спорные места — янтарный, ошибки — красный, «верно» — рыжий.
-   Текст прямо на тёмном фоне (заголовки страниц, шапка) — светлый: --on-bg / --on-bg-muted.
+/* Спокойная серо-белая тема (акцент — оранжевый Spirit Code).
+   Фон — мягкий светло-серый, без чистого белого на всю площадь: меньше бликов и нагрузки на глаза.
    Сверху — базовые переменные, ниже — их псевдонимы под имена, которые использует эта платформа. */
 :root {
-  --bg: #0f1d42;
-  --grid: #1b2b55;
-  --on-bg: #e6edf7;
-  --on-bg-muted: #8b9ab8;
-  --on-bg-line: #2d4278;
+  --bg: #eceef0;
+  --grid: #e3e6e9;
+  --surface: #f7f8f9;
+  --surface-2: #e8ebee;
+  --inset: #fbfbfc;
+  --line: #d9dde2;
+  --line-soft: #e1e4e8;
 
-  /* кирпичики */
-  --surface: #eef2f8;
-  --surface-2: #dfe6f1;
-  --inset: #ffffff;
-  --line: #c6d0e2;
-  --line-soft: #d6deeb;
-  --line-dashed: #9aa8c4;
+  --text: #24292f;
+  --text-2: #363c44;
+  --muted: #57606a;
+  --faint: #6e7781;
 
-  --text: #0f1d42;
-  --text-2: #24345e;
-  --muted: #4a5878;
-  --faint: #56648a;
-
-  /* --accent — заливки (кнопки, полосы), --accent-text — ссылки и текстовые действия */
+  /* --accent — заливки (кнопки, полосы), --accent-text — оранжевый текст на светлом фоне */
   --accent: #ff8400;
   --accent-hover: #ff9a2e;
-  --accent-text: #0e7490;
-  --accent-soft: rgba(255, 132, 0, 0.14);
-  --accent-soft-strong: rgba(255, 132, 0, 0.26);
-  --accent-line: rgba(255, 132, 0, 0.6);
+  --accent-text: #a14a00;
+  --accent-soft: #ffe6c7;
+  --accent-soft-strong: #ffd8a8;
+  --accent-line: rgba(161, 74, 0, 0.45);
   --on-accent: #1a0e00;
   --amber: #8a5a00;
-  --amber-soft: #fff3c4;
-  --violet: #6d28d9;
-  --violet-soft: #ede9fe;
+  --amber-soft: #fff0c2;
 
-  --danger: #c2261d;
-  --danger-soft: #fde4e1;
-  /* «верно / проверено» — рыжий (тёмный оттенок для текста на светлом) */
-  --success: #b45309;
-  --success-soft: #ffedd5;
+  --danger: #b3361a;
+  --danger-soft: #ffe0d6;
+  --success: #2f7a3e;
+  --success-soft: #dcefdc;
 
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow: 0 6px 20px rgba(31, 35, 40, 0.07);
 
-  --font-display: Unbounded, Inter, system-ui, sans-serif;
+  --font-display: Inter, system-ui, sans-serif;
   --font-body: Inter, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
 
@@ -60,8 +48,8 @@
   --warn: var(--amber);
   --warn-soft: var(--amber-soft);
   --warn-line: #d9a400;
-  --info: #0e7490;
-  --info-soft: #dff4f8;
+  --info: var(--accent-text);
+  --info-soft: var(--accent-soft);
   --radius: 20px;
 
   font: 15px/1.5 var(--font-body);
@@ -82,14 +70,9 @@ body {
   min-height: 100vh;
   font-family: var(--font-body);
   background-color: var(--bg);
-  /* клетка 64px — как в макете */
-  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 64px 64px;
-  background-attachment: fixed;
   color: var(--text);
 }
 
-/* заголовки страниц и разделов — Unbounded, мелкие — Inter */
 h1,
 h2,
 h3 {
@@ -98,15 +81,9 @@ h3 {
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-h3 {
-  font-family: var(--font-body);
-}
 
 a {
   color: var(--accent-text);
-}
-a:hover {
-  color: #67e8f9;
 }
 
 button,

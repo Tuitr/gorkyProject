@@ -21,33 +21,33 @@ export function Hub({ id }: { id: string }) {
 
   const tiles = [
     {
-      to: href('a', a.id, 'collect', f),
-      icon: '01',
-      title: 'Загрузить работы учеников',
-      note: `Фото работ: сдано ${handed} из ${students}`,
-      main: true,
-    },
-    {
       to: href('a', a.id, 'source', { ...f, add: '1' }),
-      icon: '02',
+      icon: '＋',
       title: 'Добавить задание',
       note: `Заданий: ${a.tasks.length}`,
     },
     {
       to: href('a', a.id, 'variants', f),
-      icon: '03',
+      icon: '🗂',
       title: 'Варианты',
       note: a.variants.length ? `Вариантов: ${a.variants.length} · ответы и печать` : 'Не сформированы (необязательно)',
     },
     {
+      to: href('a', a.id, 'collect', f),
+      icon: '📷',
+      title: 'Загрузить работы учеников',
+      note: `Фото работ: сдано ${handed} из ${students}`,
+      main: true,
+    },
+    {
       to: href('a', a.id, 'sheet', f),
-      icon: '04',
+      icon: '📋',
       title: 'Ведомость',
       note: `Проверено: ${processed}${queue ? ` · требует внимания: ${queue}` : ''}`,
     },
     {
       to: href('a', a.id, 'class-report', f),
-      icon: '05',
+      icon: '📊',
       title: 'Отчёт по классу',
       note: '',
     },
