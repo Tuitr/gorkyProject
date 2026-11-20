@@ -163,5 +163,33 @@
       },
       "expectedIssues": []
     }
+  ],
+  "bundles": [
+    {
+      "file": "bundles/w1.zip",
+      "sha256": "87653227c5c75eff1782cb6ee9e521e3b30573480fb6e1b1f4c6994e5739b86f",
+      "assignmentFile": "assignments/w1.docx",
+      "entries": [
+        {
+          "name": "student1.docx",
+          "file": "submissions/student1.docx"
+        },
+        {
+          "name": "student2.docx",
+          "file": "submissions/student2.docx"
+        }
+      ]
+    },
+    {
+      "file": "bundles/w2.zip",
+      "sha256": "06768203bf4c24af57d4fcfa851e713e102571d20d3ef33a0626a90ca2dd5fc3",
+      "assignmentFile": "assignments/w2.docx",
+      "entries": [
+        {
+          "name": "student3.docx",
+          "file": "submissions/student3.docx"
+        }
+      ]
+    }
   ]
 }

@@ -42,6 +42,65 @@
       "title": "AssignmentRef",
       "type": "object"
     },
+    "BundleEntry": {
+      "additionalProperties": false,
+      "description": "One DOCX inside a ZIP: the entry holds exactly the bytes of the separate submission file.",
+      "properties": {
+        "file": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.docx$",
+          "title": "File",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.docx$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "file"
+      ],
+      "title": "BundleEntry",
+      "type": "object"
+    },
+    "BundleRef": {
+      "additionalProperties": false,
+      "description": "A ZIP of submissions to one assignment, as a teacher uploads it (A3.3).",
+      "properties": {
+        "assignmentFile": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.docx$",
+          "title": "Assignmentfile",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/BundleEntry"
+          },
+          "minItems": 1,
+          "title": "Entries",
+          "type": "array"
+        },
+        "file": {
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.zip$",
+          "title": "File",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "sha256",
+        "assignmentFile",
+        "entries"
+      ],
+      "title": "BundleRef",
+      "type": "object"
+    },
     "DatasetCase": {
       "additionalProperties": false,
       "properties": {
@@ -275,6 +334,13 @@
   "additionalProperties": false,
   "description": "manifest.json of one dataset version.",
   "properties": {
+    "bundles": {
+      "items": {
+        "$ref": "#/$defs/BundleRef"
+      },
+      "title": "Bundles",
+      "type": "array"
+    },
     "cases": {
       "items": {
         "$ref": "#/$defs/DatasetCase"
@@ -303,7 +369,8 @@
     "schemaVersion",
     "datasetVersion",
     "seed",
-    "cases"
+    "cases",
+    "bundles"
   ],
   "title": "DatasetManifest",
   "type": "object"

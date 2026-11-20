@@ -3,7 +3,7 @@ name = "gorky-backend"
 version = "0.1.0"
 description = "Backend for checking school math work"
 requires-python = ">=3.13"
-dependencies = ["gorky-contracts", "gorky-shared", "gorky-cabinet", "gorky-references", "gorky-grading"]
+dependencies = ["gorky-contracts", "gorky-shared", "gorky-cabinet", "gorky-references", "gorky-grading", "gorky-dataset"]
 
 [dependency-groups]
 dev = [
@@ -15,13 +15,14 @@ dev = [
     "redis>=5.2",
     "boto3>=1.35",
     "boto3-stubs[s3]>=1.35",
+    "python-docx>=1.1",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.workspace]
-members = ["contracts", "packages/shared", "services/cabinet", "services/references", "services/grading"]
+members = ["contracts", "packages/shared", "services/cabinet", "services/references", "services/grading", "tools/dataset"]
 
 [tool.uv.sources]
 gorky-contracts = { workspace = true }
@@ -29,6 +30,7 @@ gorky-shared = { workspace = true }
 gorky-cabinet = { workspace = true }
 gorky-references = { workspace = true }
 gorky-grading = { workspace = true }
+gorky-dataset = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,9 +45,9 @@ markers = ["e2e: end-to-end scenario against the Docker Compose stand (tests/e2e
 strict = true
 python_version = "3.13"
 plugins = ["pydantic.mypy"]
-files = ["contracts/contracts", "packages/shared/shared", "services/cabinet/cabinet", "services/references/references", "services/references/migrations", "services/grading/grading", "tests"]
+files = ["contracts/contracts", "packages/shared/shared", "services/cabinet/cabinet", "services/references/references", "services/references/migrations", "services/grading/grading", "tools/dataset/dataset", "tests"]
 explicit_package_bases = true
-mypy_path = "contracts,packages/shared,services/cabinet,services/references,services/grading"
+mypy_path = "contracts,packages/shared,services/cabinet,services/references,services/grading,tools/dataset"
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

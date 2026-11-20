@@ -1,4 +1,7 @@
-"""A6.1: the manifest of the annotated mini dataset and the validator that guards its links."""
+"""A6.1: the manifest of the annotated mini dataset and the validator that guards its links.
+
+A6.2 added bundles: the ZIPs of submissions that the generator writes next to the separate files.
+"""
 
 import json
 from pathlib import Path
@@ -61,6 +64,10 @@ def testValidatorTellsAMissingCaseIdFromAnIssueOnAnUnknownStep() -> None:
         ("caseSkippedWithSteps.invalid.json", "a skipped task has no steps and no issues"),
         ("manifestDuplicateCaseId.invalid.json", "caseId repeats: vectorLength34Correct"),
         ("manifestClosedSharesSourceTask.invalid.json", "share a source task with the closed split: vectorLength34Correct"),
+        (
+            "manifestBundleOtherAssignment.invalid.json",
+            "bundle bundles/w1.zip: submissions/student3.docx answers another assignment",
+        ),
     ],
 )
 def testLinkErrorsNameTheCase(fileName: str, message: str) -> None:
@@ -82,6 +89,31 @@ def testOneSubmissionFileHasOneHash() -> None:
     manifest["cases"][1]["submissionRef"]["sha256"] = "0" * 64
 
     with pytest.raises(ValidationError, match="submissions/student1.docx differs from another case"):
+        DatasetManifest.model_validate(manifest)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"file": "submissions/student9.docx"}, "submissions/student9.docx is not a submission of this manifest"),
+        ({"name": "student1.docx"}, "bundle bundles/w1.zip: entry name repeats"),
+        ({"file": "submissions/student1.docx"}, "bundle bundles/w1.zip: submission file repeats"),
+        ({"name": "nested/student2.docx"}, "String should match pattern"),
+    ],
+)
+def testBundleEntriesPointToSubmissionsOfTheirAssignment(change: dict[str, str], message: str) -> None:
+    manifest = readExample("manifest.json")
+    manifest["bundles"][0]["entries"][1] |= change
+
+    with pytest.raises(ValidationError, match=message):
+        DatasetManifest.model_validate(manifest)
+
+
+def testOneZipIsListedOnce() -> None:
+    manifest = readExample("manifest.json")
+    manifest["bundles"][1] = manifest["bundles"][0]
+
+    with pytest.raises(ValidationError, match="bundle repeats: bundles/w1.zip"):
         DatasetManifest.model_validate(manifest)
 
 

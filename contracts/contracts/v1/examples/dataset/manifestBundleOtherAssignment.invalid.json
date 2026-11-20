@@ -1,0 +1,199 @@
+{
+  "schemaVersion": "datasetManifest.v1",
+  "datasetVersion": "mini.v1",
+  "seed": 20261120,
+  "cases": [
+    {
+      "caseId": "vectorLength34Correct",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/w1.docx",
+        "taskNumber": "1",
+        "statement": "Длина вектора (3; 4)",
+        "constraints": {},
+        "sourceTaskId": "vectorLength34"
+      },
+      "submissionRef": {
+        "file": "submissions/student1.docx",
+        "sha256": "1bff83e137442b0767cc8a8398d98bf091500df308db5bcc333eb3257ebe73dc",
+        "studentName": "Тестов Пётр"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "5"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$|\\vec a| = \\sqrt{3^2 + 4^2}$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$= \\sqrt{25} = 5$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "vectorLength68Consequence",
+      "split": "demo",
+      "assignmentRef": {
+        "file": "assignments/w1.docx",
+        "taskNumber": "2",
+        "statement": "Длина вектора (6; 8)",
+        "constraints": {},
+        "sourceTaskId": "vectorLength68"
+      },
+      "submissionRef": {
+        "file": "submissions/student1.docx",
+        "sha256": "1bff83e137442b0767cc8a8398d98bf091500df308db5bcc333eb3257ebe73dc",
+        "studentName": "Тестов Пётр"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "10"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$|\\vec a| = \\sqrt{6^2 + 8^2}$"
+        },
+        {
+          "stepId": "s2",
+          "markdown": "$= \\sqrt{12 + 64}$"
+        },
+        {
+          "stepId": "s3",
+          "markdown": "$= \\sqrt{76} \\approx 8{,}7$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "incorrect",
+        "reasoning": "invalid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": [
+        {
+          "issueId": "i1",
+          "stepId": "s2",
+          "category": "arithmetic",
+          "causedByIssueId": null
+        },
+        {
+          "issueId": "i2",
+          "stepId": "s3",
+          "category": "answer",
+          "causedByIssueId": "i1"
+        }
+      ]
+    },
+    {
+      "caseId": "vectorLength34Skipped",
+      "split": "e2e",
+      "assignmentRef": {
+        "file": "assignments/w1.docx",
+        "taskNumber": "1",
+        "statement": "Длина вектора (3; 4)",
+        "constraints": {},
+        "sourceTaskId": "vectorLength34"
+      },
+      "submissionRef": {
+        "file": "submissions/student2.docx",
+        "sha256": "71e844da64465fca7844eb0fc3e0b0d2a6eabad27e3d75158f20fd4133f336ab",
+        "studentName": "Примерова Анна"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "5"
+        }
+      },
+      "expectedSteps": [],
+      "expectedVerdict": {
+        "answer": "skipped",
+        "reasoning": "not_shown",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    },
+    {
+      "caseId": "vectorLength512Correct",
+      "split": "closed",
+      "assignmentRef": {
+        "file": "assignments/w2.docx",
+        "taskNumber": "1",
+        "statement": "Длина вектора (5; 12)",
+        "constraints": {},
+        "sourceTaskId": "vectorLength512"
+      },
+      "submissionRef": {
+        "file": "submissions/student3.docx",
+        "sha256": "23c7250e0073b617e6a7f628def073c60ce3b6b2bbbc836f3623d5edaeeb233c",
+        "studentName": "Образцов Илья"
+      },
+      "expectedReference": {
+        "schemaId": "scalar.v1",
+        "value": {
+          "exact": "13"
+        }
+      },
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "markdown": "$|\\vec a| = \\sqrt{5^2 + 12^2} = \\sqrt{169} = 13$"
+        }
+      ],
+      "expectedVerdict": {
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false
+      },
+      "expectedIssues": []
+    }
+  ],
+  "bundles": [
+    {
+      "file": "bundles/w1.zip",
+      "sha256": "87653227c5c75eff1782cb6ee9e521e3b30573480fb6e1b1f4c6994e5739b86f",
+      "assignmentFile": "assignments/w1.docx",
+      "entries": [
+        {
+          "name": "student1.docx",
+          "file": "submissions/student1.docx"
+        },
+        {
+          "name": "student2.docx",
+          "file": "submissions/student2.docx"
+        },
+        {
+          "name": "student3.docx",
+          "file": "submissions/student3.docx"
+        }
+      ]
+    },
+    {
+      "file": "bundles/w2.zip",
+      "sha256": "06768203bf4c24af57d4fcfa851e713e102571d20d3ef33a0626a90ca2dd5fc3",
+      "assignmentFile": "assignments/w2.docx",
+      "entries": [
+        {
+          "name": "student3.docx",
+          "file": "submissions/student3.docx"
+        }
+      ]
+    }
+  ]
+}

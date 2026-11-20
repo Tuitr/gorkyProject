@@ -6,7 +6,8 @@ and issues; developer 3 checks expectedReference against an independent calculat
 The manifest is the answer key. It never goes into a student's DOCX or into the ZIP of submissions,
 and the closed split never reaches agent prompts or fixtures. The statement (what the student sees)
 and expectedReference (the key) are separate fields on purpose. Names are synthetic; no real school data.
-File paths are relative to the directory of manifest.json.
+File paths are relative to the directory of manifest.json. bundles lists the ZIPs of submissions: every
+entry holds exactly the bytes of its separate submission file, so a duplicate check can reuse them (E1.3).
 """
 
 from typing import Annotated, Literal, Self
@@ -25,6 +26,9 @@ DatasetVersion = Annotated[str, Field(pattern=r"^[a-z][A-Za-z0-9]{0,31}\.v[1-9][
 """One published version of a dataset, for example "mini.v1"."""
 DocxPath = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\.docx$")]
 """Relative POSIX path of a Word file inside the dataset. No segment starts with a dot, so "." and ".." cannot occur."""
+ZipPath = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\.zip$")]
+EntryName = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*\.docx$")]
+"""A file name inside a ZIP of submissions: no folders, so an entry cannot leave the extraction directory."""
 Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 Split = Literal["demo", "e2e", "closed"]
@@ -147,6 +151,26 @@ class DatasetCase(BaseModel):
         return self
 
 
+class BundleEntry(BaseModel):
+    """One DOCX inside a ZIP: the entry holds exactly the bytes of the separate submission file."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: EntryName
+    file: DocxPath
+
+
+class BundleRef(BaseModel):
+    """A ZIP of submissions to one assignment, as a teacher uploads it (A3.3)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    file: ZipPath
+    sha256: Sha256Hex
+    assignmentFile: DocxPath
+    entries: Annotated[list[BundleEntry], Field(min_length=1)]
+
+
 class DatasetManifest(BaseModel):
     """manifest.json of one dataset version."""
 
@@ -156,6 +180,7 @@ class DatasetManifest(BaseModel):
     datasetVersion: DatasetVersion
     seed: Annotated[int, Field(ge=0, strict=True)]
     cases: Annotated[list[DatasetCase], Field(min_length=1)]
+    bundles: list[BundleRef]
 
     @model_validator(mode="after")
     def checkCases(self) -> Self:
@@ -179,4 +204,26 @@ class DatasetManifest(BaseModel):
         )
         if leaked:
             raise ValueError(f"open cases share a source task with the closed split: {', '.join(leaked)}")
+        self.checkBundles()
         return self
+
+    def checkBundles(self) -> None:
+        assignmentsOf: dict[str, set[str]] = {}
+        for case in self.cases:
+            assignmentsOf.setdefault(case.submissionRef.file, set()).add(case.assignmentRef.file)
+        bundleFiles = [bundle.file for bundle in self.bundles]
+        repeated = sorted({file for file in bundleFiles if bundleFiles.count(file) > 1})
+        if repeated:
+            raise ValueError(f"bundle repeats: {', '.join(repeated)}")
+        for bundle in self.bundles:
+            names = [entry.name for entry in bundle.entries]
+            files = [entry.file for entry in bundle.entries]
+            if len(set(names)) != len(names):
+                raise ValueError(f"bundle {bundle.file}: entry name repeats")
+            if len(set(files)) != len(files):
+                raise ValueError(f"bundle {bundle.file}: submission file repeats")
+            for file in files:
+                if file not in assignmentsOf:
+                    raise ValueError(f"bundle {bundle.file}: {file} is not a submission of this manifest")
+                if assignmentsOf[file] != {bundle.assignmentFile}:
+                    raise ValueError(f"bundle {bundle.file}: {file} answers another assignment")
