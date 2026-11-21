@@ -265,15 +265,20 @@ def createApp(
         assignmentDate: Annotated[date | None, Form()] = None,
         assignmentId: Annotated[str | None, Form(min_length=36, max_length=36, pattern=r"^[0-9a-f-]+$")] = None,
         subject: Annotated[Subject | None, Form()] = None,
+        title: Annotated[str | None, Form(max_length=120)] = None,
         teacher: TeacherSession = Depends(currentTeacher),
         event: EventContext = Depends(eventContext),
     ) -> AssignmentVersion:
-        """subject: math or physics; without it a new assignment is math and a new revision keeps its subject."""
+        """subject: math or physics; without it a new assignment is math and a new revision keeps its subject.
+        title: the teacher's name for the assignment; without it a new revision keeps the previous title."""
+        if title is not None and chr(0) in title:
+            raise ApiProblem("invalid_input", "Title must not contain null characters")
+        title = (title or "").strip() or None
         with sessionFactory.begin() as db:
             requireOwnedClass(db, classId, teacher.teacherId, lockForWrite=True)
             return storeAssignment(
                 db, settings, classId, assignmentId, assignmentDate or event.occurredAt.date(),
-                requirements, readDocx(file), event, subject,
+                requirements, readDocx(file), event, subject, title,
             )
 
     @v1.post(

@@ -30,6 +30,7 @@ class AssignmentRecord(Base):
     assignmentDate: Mapped[date] = mapped_column("assignment_date", Date)
     requirements: Mapped[list[dict[str, str | None]]] = mapped_column(JSONB)
     subject: Mapped[str] = mapped_column(String(16), server_default="math")
+    title: Mapped[str | None] = mapped_column(String(120))
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     sha256: Mapped[str] = mapped_column(String(64))
@@ -40,7 +41,7 @@ def listActiveAssignments(db: Session, classId: str) -> list[AssignmentSummary]:
     latest = (
         select(
             AssignmentRecord.assignmentId, AssignmentRecord.assignmentRev, AssignmentRecord.assignmentDate,
-            AssignmentRecord.subject,
+            AssignmentRecord.subject, AssignmentRecord.title,
         )
         .where(AssignmentRecord.classId == classId, AssignmentRecord.deletedAt.is_(None))
         .ext(distinct_on(AssignmentRecord.assignmentId))
@@ -48,15 +49,15 @@ def listActiveAssignments(db: Session, classId: str) -> list[AssignmentSummary]:
         .subquery()
     )
     rows = db.execute(
-        select(latest.c.assignmentId, latest.c.assignmentRev, latest.c.assignmentDate, latest.c.subject)
+        select(latest.c.assignmentId, latest.c.assignmentRev, latest.c.assignmentDate, latest.c.subject, latest.c.title)
         .order_by(latest.c.assignmentDate.desc(), latest.c.assignmentId)
     )
     return [
         AssignmentSummary(
             assignmentId=assignmentId, assignmentRev=revision, assignmentDate=assignmentDate,
-            subject="physics" if subject == "physics" else "math",
+            subject="physics" if subject == "physics" else "math", title=title,
         )
-        for assignmentId, revision, assignmentDate, subject in rows
+        for assignmentId, revision, assignmentDate, subject, title in rows
     ]
 
 
@@ -70,8 +71,10 @@ def storeAssignment(
     original: bytes,
     eventContext: EventContext,
     subject: Subject | None = None,
+    title: str | None = None,
 ) -> AssignmentVersion:
-    """subject None keeps the subject of the previous revision; a new assignment without one is math."""
+    """subject None keeps the subject of the previous revision; a new assignment without one is math.
+    title None keeps the title of the previous revision; a new assignment without one has no title."""
     if any("\x00" in item.text or "\x00" in (item.taskNumber or "") for item in requirements):
         raise ApiProblem("invalid_input", "Requirements must not contain null characters")
 
@@ -97,13 +100,15 @@ def storeAssignment(
         )
         assert latest is not None
         revision = latest + 1
-        if subject is None:
-            previous = db.scalar(
-                select(AssignmentRecord.subject).where(
-                    AssignmentRecord.assignmentId == assignmentId, AssignmentRecord.assignmentRev == latest,
-                )
+        previous = db.execute(
+            select(AssignmentRecord.subject, AssignmentRecord.title).where(
+                AssignmentRecord.assignmentId == assignmentId, AssignmentRecord.assignmentRev == latest,
             )
-            subject = "physics" if previous == "physics" else "math"
+        ).one()
+        if subject is None:
+            subject = "physics" if previous.subject == "physics" else "math"
+        if title is None:
+            title = previous.title
     if subject is None:
         subject = "math"
 
@@ -117,6 +122,7 @@ def storeAssignment(
         assignmentDate=assignmentDate,
         requirements=[{"text": item.text, "taskNumber": item.taskNumber} for item in requirements],
         subject=subject,
+        title=title,
         bucket=docRef.bucket,
         objectKey=docRef.key,
         sha256=docRef.sha256,

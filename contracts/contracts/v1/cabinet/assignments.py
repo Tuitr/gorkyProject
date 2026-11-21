@@ -17,3 +17,5 @@ class AssignmentVersion(BaseModel):
 class AssignmentSummary(AssignmentVersion):
     assignmentDate: date
     subject: Subject = "math"
+    title: str | None = None
+    """Teacher-given title of the latest revision, for example «Тепловые явления»; None when not given."""
