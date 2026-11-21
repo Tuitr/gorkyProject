@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime
 from io import BytesIO
 from typing import Any
 
@@ -22,15 +21,20 @@ from contracts.v1.references.reference import ReferenceReady
 from fastapi import UploadFile
 from grading import photoOcr
 from grading.assignment import AssignmentTask
+from grading.feedback import composeOverallReview
 from grading.inbox import saveEvent
 from grading.intake import AttemptSubmittedInput, InvalidEvent, readEvent
 from grading.photoOcr import OcrRejected, OcrUnavailable, TranscribedLine, transcribePhoto
+from grading.reports import distribution
 from grading.resultArtifacts import parsedTasksAdapter
 from grading.review import reviewTasks
+from grading.scoring import automaticAssessment
 from grading.stream import StreamConsumer
-from grading.submission import readPhotoSubmission, resolveAnchor
+from grading.submission import readPhotoPages, readPhotoSubmission, resolveAnchor
 from grading.tables import AssignmentJob
 from grading.worker import GradingWorker
+from references.gateway.prompts import PromptCatalog
+from shared.clock import ManualClock
 from shared.httperrors import ApiProblem
 
 
@@ -45,7 +49,8 @@ def samplePhoto() -> bytes:
 
 
 @pytest.mark.parametrize("assignment", [False, True])
-def testPhotoIsReadOnceWithoutExif(monkeypatch: pytest.MonkeyPatch, assignment: bool) -> None:
+@pytest.mark.parametrize("useJsonSchema", [True, False])
+def testPhotoIsReadOnceWithoutExif(monkeypatch: pytest.MonkeyPatch, assignment: bool, useJsonSchema: bool) -> None:
     requests: list[dict[str, Any]] = []
 
     class Response:
@@ -77,20 +82,53 @@ def testPhotoIsReadOnceWithoutExif(monkeypatch: pytest.MonkeyPatch, assignment: 
     monkeypatch.setenv("OCR_URL", "https://ocr.example.org:9443/api/read")
     monkeypatch.setenv("OCR_API_KEY", "test-key")
     monkeypatch.setenv("OCR_MODEL", "test-model")
+    if useJsonSchema:
+        monkeypatch.delenv("OCR_JSON_SCHEMA", raising=False)
+    else:
+        monkeypatch.setenv("OCR_JSON_SCHEMA", "0")
     monkeypatch.setattr(photoOcr, "HTTPSConnection", Connection)
     assert transcribePhoto(samplePhoto(), "image/jpeg", assignment=assignment) == (TranscribedLine("$2 + 2 = 5$", "line"),)
     assert len(requests) == 1
     for request in requests:
         assert request["model"] == "test-model"
         assert request["store"] is False
-        assert request["text"]["format"]["strict"] is True
+        if useJsonSchema:
+            assert request["text"]["format"]["strict"] is True
+        else:
+            assert "text" not in request
         assert "previous_response_id" not in request and "$2 + 2 = 5$" not in json.dumps(request)
         imageUrl = request["input"][0]["content"][1]["image_url"]
         assert imageUrl.startswith("data:image/jpeg;base64,")
         with Image.open(BytesIO(base64.b64decode(imageUrl.split(",", 1)[1]))) as image:
             assert image.size == (80, 50) and not image.getexif()
     expected = photoOcr.ASSIGNMENT_INSTRUCTIONS if assignment else photoOcr.TRANSCRIBE
-    assert requests[0]["instructions"] == expected
+    assert requests[0]["instructions"].startswith(expected + "\n\n")
+    assert '{"lines": [...]}' in requests[0]["instructions"]
+
+
+def testOcrAcceptsBareLineArrayFromProvider() -> None:
+    box = {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}
+    body = {
+        "status": "completed",
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps([
+            {"kind": "heading", "text": "1. $x + 2 = 5$"},
+            {"kind": "line", "text": "$x = 3$", "box": box},
+        ])}]}],
+    }
+    heading, solution = photoOcr.parseResponse(json.dumps(body).encode())
+    assert (heading.kind, heading.text, heading.box) == ("heading", "1. $x + 2 = 5$", None)
+    assert (solution.kind, solution.text, solution.box) == ("line", "$x = 3$", PhotoBox.model_validate(box))
+
+
+def testOcrKeepsOnlyNumberAndMarkerForCancelledWork() -> None:
+    lines = [{"kind": "cancelled_heading", "text": "Задание №1. $2 + 2 = 7$"},
+             {"kind": "cancelled", "text": "$x = 7$"}]
+    body = {"status": "completed", "output": [{"type": "message", "content": [
+        {"type": "output_text", "text": json.dumps({"lines": lines})},
+    ]}]}
+    assert [(line.kind, line.text) for line in photoOcr.parseResponse(json.dumps(body).encode())] == [
+        ("cancelled_heading", "Задание №1"), ("cancelled", photoOcr.CANCELLED),
+    ]
 
 
 @pytest.mark.parametrize("missing", ["OCR_URL", "OCR_API_KEY", "OCR_MODEL"])
@@ -134,6 +172,7 @@ def reference() -> ReferenceReady:
         ("~~7~~ $x = 4$", "$x = 4$"),
         ("$x = 4$ ~~7~~", "$x = 4$"),
         ("$x = 4$ ~~[зачёркнуто]~~", "$x = 4$"),
+        ("~~$x = 7$~~ $x = 4$", "$x = 4$"),
         ("$x = 4$ ~~[неразборчиво]~~", "$x = 4$"),
         ("$x = ~~7~~4$", None),
         (r"$\frac{1}{~~7~~4}$", None),
@@ -184,6 +223,225 @@ def testCancelledLineStaysInTranscriptButIsNotGraded(contractExample: Callable[[
     assert [item.status for item in reading.taskReadings] == ["needsReview"]
 
 
+def testCancelledTaskDoesNotConsumeNeighbouringTasks(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("1"), task("2"), task("3"))
+    reading = readPhotoPages((submitted.docRef, submitted.docRef), (
+        (TranscribedLine("№1", "heading"), TranscribedLine(photoOcr.CANCELLED, "cancelled"),
+         TranscribedLine("№2", "cancelled_heading"), TranscribedLine("$x = 45$", "line")),
+        (TranscribedLine("$x = 56$", "line"), TranscribedLine("№3 $x = 4$", "heading")),
+    ), tasks)
+    assert [item.status for item in reading.taskReadings] == ["skipped", "skipped", "answerOnly"]
+    assert [(step.taskId, step.markdown) for step in reading.steps] == [("t3", "$x = 4$")]
+    assert reading.ocrStatus == "readable"
+    results = reviewTasks(submitted.checkId, tasks[:2], reading, {"t1": reference(), "t2": reference()},
+                          lambda _: pytest.fail("Cancelled work reached the model"))
+    assert [(result.answer, result.needsReview) for result in results] == [("skipped", False), ("skipped", False)]
+    assert "Решение полностью зачёркнуто." in composeOverallReview(tasks[:2], reading, results, {})
+
+
+@pytest.mark.parametrize("hasSolution", [True, False])
+def testOmittedPhotoTasksAreIncorrectWithoutManualReview(
+    contractExample: Callable[[str], Any], hasSolution: bool,
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("1"), task("2"), task("3"))
+    lines = [TranscribedLine("№2", "heading"), TranscribedLine("№3", "heading")]
+    if hasSolution:
+        lines.append(TranscribedLine("$x = 4$", "line"))
+    reading = readPhotoSubmission(submitted, lines, tasks)
+    assert [item.status for item in reading.taskReadings] == [
+        "omitted", "omitted", "answerOnly" if hasSolution else "omitted",
+    ]
+    assert reading.ocrStatus == "readable"
+    omitted = tasks[:2] if hasSolution else tasks
+    results = reviewTasks(submitted.checkId, omitted, reading, {}, lambda _: pytest.fail("Missing work reached the model"))
+    for result in results:
+        assert result.answer == "incorrect" and not result.needsReview
+        assert automaticAssessment(result, 2).score == 0
+        report, _ = distribution(result.taskId, [result], studentCount=1, submittedCount=1)
+        assert report.answer["incorrect"] == 1 and report.needsReview == 0
+    assert "Задание 1. Задание пропущено." in composeOverallReview(omitted, reading, results, {})
+
+
+def testPhotoCoverFieldsAndTaskListsDoNotHideOmittedSolutions(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("2"), task("8"), task("10"))
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("Номер: $26$", "heading"),
+        TranscribedLine("Вариант: 2.", "heading"),
+        TranscribedLine("Задание - 2, 4, 6, 8, 10.", "heading"),
+        TranscribedLine("Задание: 8", "heading"),
+        TranscribedLine("$x = 4$", "line"),
+        TranscribedLine("Задача №10.", "heading"),
+        TranscribedLine("$x = 3$", "line"),
+    ), tasks)
+    assert reading.ocrStatus == "readable" and not reading.unassignedFragments
+    assert [(task.taskId, task.status) for task in reading.taskReadings] == [
+        ("t2", "omitted"), ("t8", "answerOnly"), ("t10", "answerOnly"),
+    ]
+    result, = reviewTasks(submitted.checkId, tasks[:1], reading, {},
+                          lambda _: pytest.fail("Missing work reached the model"))
+    assessment = automaticAssessment(result, 2, omitted=result.taskId in reading.omittedTaskIds)
+    assert result.answer == "incorrect" and assessment.score == 0 and assessment.comment == "Задание пропущено."
+
+
+def testVisiblePhotoNumbersAreUsedEvenWhenOcrReturnsOrdinaryLines(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("1"), task("2"))
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("1) $24-3=21$", "line"), TranscribedLine("2) $18+9=19$", "line"),
+    ), tasks)
+    assert reading.ocrStatus == "readable"
+    assert [(step.taskId, step.markdown) for step in reading.steps] == [("t1", "$24-3=21$"), ("t2", "$18+9=19$")]
+
+
+def testCopiedEquationsKeepUnnumberedPhotoColumnsSeparate(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (
+        AssignmentTask("t1", "1", "Найти значение выражения: 24-3", ()),
+        AssignmentTask("t2", "2", "Реши пример: 18+9", ()),
+        AssignmentTask("t3", "3", "Найди корень уравнения: 2x = 16", ()),
+        AssignmentTask("t4", "4", "Реши уравнение: x^2 = 49", ()),
+    )
+    lines = tuple(TranscribedLine(value, "line", PhotoBox(x=x, y=y, w=w, h=0.04)) for value, x, y, w in (
+        ("$24-3=21$", 0.24, 0.28, 0.28), ("$18+9=19$", 0.25, 0.35, 0.28),
+        ("$2x=16$", 0.26, 0.41, 0.16), ("$x^{2}=49$", 0.57, 0.41, 0.14),
+        (r"$x=\frac{16}{2}$", 0.28, 0.46, 0.18), (r"$x=\sqrt{49}$", 0.58, 0.45, 0.15),
+        ("$x=4$", 0.30, 0.52, 0.11), ("$x=7$", 0.60, 0.50, 0.11),
+    ))
+    reading = readPhotoSubmission(submitted, lines, tasks)
+    assert reading.ocrStatus == "readable" and not reading.unassignedFragments
+    assert [(step.taskId, step.sourceAnchor.paragraphIndex) for step in reading.steps] == [
+        ("t1", 0), ("t2", 1), ("t3", 2), ("t4", 3), ("t3", 4), ("t4", 5), ("t3", 6), ("t4", 7),
+    ]
+    references = {task.taskId: reference().model_copy(update={"value": {"exact": value}})
+                  for task, value in zip(tasks, ("21", "27", "8", "-7; 7"), strict=True)}
+
+    def unavailable(_: ModelReviewRequest) -> ModelReviewResponse:
+        raise RuntimeError("model gateway returned HTTP 502")
+
+    results = reviewTasks(submitted.checkId, tasks, reading, references, unavailable)
+    assert [(result.answer, result.needsReview) for result in results] == [
+        ("correct", False), ("incorrect", False), ("incorrect", False), ("incorrect", False),
+    ]
+    exact = reading.answerScoredTaskIds(references)
+    assert [automaticAssessment(result, 1, scoreByAnswer=result.taskId in exact).score for result in results] == [1, 0, 0, 0]
+
+
+def testExactRootsDoNotBypassATeacherRequirement(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    lines = (TranscribedLine("№1", "heading"), TranscribedLine(r"$x=\pm7$", "line"))
+    ref = reference().model_copy(update={"value": {"exact": "-7; 7"}})
+    for requirements in ((), ("Обоснуй способ решения",)):
+        tasks = (AssignmentTask("t1", "1", "Реши уравнение: x^2 = 49", requirements),)
+        reading = readPhotoSubmission(submitted, lines, tasks)
+        assert reading.taskReadings[0].exactVerdict(ref) == (None if requirements else "correct")
+
+
+@pytest.mark.parametrize("unclear", [
+    (),
+    (TranscribedLine("№[неразборчиво]", "heading"),),
+    (TranscribedLine(photoOcr.UNREADABLE, "uncertain"),),
+])
+def testMissingHeadingCouldBeOnAnUnclearPage(
+    contractExample: Callable[[str], Any], unclear: tuple[TranscribedLine, ...],
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("1"), task("2"))
+    readable = (TranscribedLine("№2", "heading"), TranscribedLine("$x = 4$", "line"))
+    reading = readPhotoPages((submitted.docRef, submitted.docRef), (readable, unclear), tasks)
+    result, = reviewTasks(submitted.checkId, tasks[:1], reading, {}, lambda _: pytest.fail("Unclear work reached the model"))
+    assert result.answer == "unreadable" and result.needsReview
+    assert automaticAssessment(result, 2).score is None
+
+
+@pytest.mark.parametrize("cancelledFinalLine", [False, True])
+def testPartialCrossoutChecksPrincipleUsingOnlyIntactSteps(
+    contractExample: Callable[[str], Any], cancelledFinalLine: bool,
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("1"),)
+    lines = [TranscribedLine("№1", "heading"), TranscribedLine("$4x = 1$", "line")]
+    intact = r"$4\cdot\frac{1}{4} = 1$"
+    if cancelledFinalLine:
+        crossed = photoOcr.CANCELLED
+        lines.extend([TranscribedLine(intact, "line"), TranscribedLine(crossed, "cancelled")])
+    else:
+        crossed = r"$x = \frac{1}{~~7~~4}$"
+        lines.extend([TranscribedLine(crossed, "line"), TranscribedLine(intact, "line")])
+    reading = readPhotoSubmission(submitted, lines, tasks)
+    assert reading.taskReadings[0].status == "partialCrossout"
+    assert reading.ocrStatus == "needs_review" and crossed in (reading.transcriptMarkdown or "")
+
+    def grade(request: ModelReviewRequest) -> ModelReviewResponse:
+        assert "Оцени принцип решения" in PromptCatalog().instructions(request.promptVersion)
+        assert [(step.stepId, step.markdown) for step in request.steps] == [
+            ("s1", "$4x = 1$"), ("s2" if cancelledFinalLine else "s3", intact),
+        ]
+        return ModelReviewResponse(
+            schemaVersion="taskResult.v1", modelId="fixture",
+            taskResult=TaskResult(taskId="t1", answer="correct", reasoning="valid", method="optional",
+                                  issues=[], needsReview=False),
+        )
+
+    references = {"t1": reference()}
+    result, = reviewTasks(submitted.checkId, tasks, reading, references, grade)
+    assert result.answer == "unreadable" and result.reasoning == "valid" and result.needsReview
+    assert automaticAssessment(result, 1).score is None
+    assert "В читаемых шагах применён верный принцип" in composeOverallReview(tasks, reading, (result,), references)
+
+
+@pytest.mark.parametrize(("formula", "exact", "score"), [
+    (r"$P(A)=\frac{3}{6}=\frac{1}{2}=0{,}5$", "1/2", 2),
+    (r"$P(A)=\frac{2}{6}=0,(3)$~~3~~", "1/3", 2),
+    (r"$P(A)=\frac{2}{6}$", "1/2", 0),
+])
+def testExactWrittenProbabilityIsScoredAcrossCrossedOutWorking(
+    contractExample: Callable[[str], Any], formula: str, exact: str, score: int,
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (AssignmentTask("t1", "1", "Найдите вероятность события A.", ()),)
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("№1", "heading"), TranscribedLine("Всего ~~[зачёркнуто]~~ $6$", "line"),
+        TranscribedLine("Благоприятных $2$", "line"), TranscribedLine(formula, "line"),
+        TranscribedLine("число меньше $6$.", "line"),
+    ), tasks)
+    assert reading.exactAnswerTaskIds == frozenset({"t1"})
+    ref = reference().model_copy(update={"value": {"exact": exact}})
+
+    def grade(request: ModelReviewRequest) -> ModelReviewResponse:
+        assert request.promptVersion == "reviewPartial.v1"
+        return ModelReviewResponse(
+            schemaVersion="taskResult.v1", modelId="fixture",
+            taskResult=TaskResult(taskId="t1", answer="unreadable", reasoning="unknown", method="optional",
+                                  issues=[], needsReview=True),
+        )
+
+    result, = reviewTasks(submitted.checkId, tasks, reading, {"t1": ref}, grade)
+    assert result.answer == ("correct" if score else "incorrect") and not result.needsReview
+    assert automaticAssessment(result, 2, scoreByAnswer=True).score == score
+
+
+@pytest.mark.parametrize(("tail", "requirements"), [
+    ((TranscribedLine("$P(A)=0,4$", "line"),), ()),
+    ((TranscribedLine("Ответ: $0,4$", "line"),), ()),
+    ((TranscribedLine("$P(A)=\\frac{~~2~~3}{6}$", "line"),), ()),
+    ((TranscribedLine(photoOcr.CANCELLED, "cancelled"),), ()),
+    ((), ("Обоснуйте ответ",)),
+])
+def testConflictingOrCancelledProbabilityAndTeacherCriteriaStayManual(
+    contractExample: Callable[[str], Any], tail: tuple[TranscribedLine, ...], requirements: tuple[str, ...],
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (AssignmentTask("t1", "1", "Найдите вероятность события A.", requirements),)
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("№1", "heading"), TranscribedLine("$x=~~2~~3$", "line"), TranscribedLine("$P(A)=0,5$", "line"),
+        *tail,
+    ), tasks)
+    assert reading.taskReadings[0].status == "partialCrossout" and not reading.exactAnswerTaskIds
+
+
 def testUnreadableHeadingDoesNotMoveStepsToAnotherTask(contractExample: Callable[[str], Any]) -> None:
     submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
     reading = readPhotoSubmission(
@@ -221,14 +479,15 @@ def testPhotoCheckResumesFromPersistedTranscript(
         return (TranscribedLine("1. $2 + 2 = 5$", "heading"),)
 
     redis, streamName = gradingStream
-    worker = GradingWorker(StreamConsumer(redis, "photo-test", streamName=streamName), gradingEngine, ocr=fakeOcr)
+    worker = GradingWorker(StreamConsumer(redis, "photo-test", streamName=streamName), gradingEngine,
+                           clock=ManualClock().now, ocr=fakeOcr)
     lease = worker.jobs.claimCheck()
     assert lease is not None
     first = worker.prepareCheck(lease, lambda _: original)
     assert first is not None and first.reading.transcriptMarkdown == "1. $2 + 2 = 5$"
     pending = worker.results.read(submitted.checkId, None, lambda _: None)
     assert pending is not None and pending.transcriptMarkdown == first.reading.transcriptMarkdown
-    assert worker.jobs.reschedule(lease, "queued", datetime.now(UTC))
+    assert worker.jobs.reschedule(lease, "queued", worker.now())
     retry = worker.jobs.claimCheck()
     assert retry is not None
     second = worker.prepareCheck(retry, lambda _: pytest.fail("OCR must resume from the checkpoint"))
@@ -282,7 +541,8 @@ def testSecondPageResumesAndMarksUseRevisionAndPageLocalLine(
         return TranscribedLine("$x=5+2$", "line", box), TranscribedLine("$x=7$", "line")
 
     redis, stream = gradingStream
-    worker = GradingWorker(StreamConsumer(redis, "photo", streamName=stream), gradingEngine, ocr=ocr)
+    worker = GradingWorker(StreamConsumer(redis, "photo", streamName=stream), gradingEngine,
+                           clock=ManualClock().now, ocr=ocr)
     lease = worker.jobs.claimCheck()
     assert lease is not None
     with pytest.raises(OcrUnavailable):
@@ -295,7 +555,7 @@ def testSecondPageResumesAndMarksUseRevisionAndPageLocalLine(
         assert failed and failed.state == "failed" and failed.reason == "ocr_unavailable"
         assert failed.ocrStatus is None and failed.photoPages == pending.photoPages
         return
-    assert worker.jobs.reschedule(lease, "queued", datetime.now(UTC))
+    assert worker.jobs.reschedule(lease, "queued", worker.now())
     retry = worker.jobs.claimCheck()
     assert retry is not None
     prepared = worker.prepareCheck(retry, lambda ref: ref.key.encode())

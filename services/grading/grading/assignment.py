@@ -47,7 +47,7 @@ PHOTO_HEADER = re.compile(
 
 def photoParagraphs(document: bytes, mediaType: str) -> Iterable[tuple[str | None, str]]:
     for line in transcribePhoto(document, mediaType, assignment=True):
-        if line.kind in ("uncertain", "cancelled") or UNREADABLE in line.text:
+        if line.kind in ("uncertain", "cancelled", "cancelled_heading") or UNREADABLE in line.text:
             raise PhotoClarification("Уточните неразборчивое условие, формулу или рисунок.")
         if line.kind == "heading":
             header = PHOTO_HEADER.match(line.text)

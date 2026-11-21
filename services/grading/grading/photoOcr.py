@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 import os
 import re
 from collections.abc import Iterable
@@ -18,8 +19,16 @@ from contracts.v1.grading.assessment import PhotoBox
 from shared.ocrconfig import parseOcrUrl
 from shared.submissionmedia import imageMediaType
 
+logger = logging.getLogger(__name__)
+
 UNREADABLE = "[неразборчиво]"
+CANCELLED = "[зачёркнуто]"
 CROSSOUT = re.compile(r"~~([^~\r\n]+)~~")
+PHOTO_TASK_HEADING = re.compile(
+    r"^(?:(?:(?:Задание|Задача)\s*[:—–-]?\s*(?:№\s*)?|№\s*)(\d+)(?:[):]|\.(?!\d)|(?=\s|$))"
+    r"|(\d+)(?:[):]|\.(?!\d)|(?=\s*$)))\s*",
+    re.IGNORECASE,
+)
 MAX_OUTPUT_BYTES = 512 * 1024
 MAX_PIXELS = 36_000_000
 MAX_LINES = 180
@@ -39,17 +48,24 @@ TRANSCRIBE = r"""
 оставь kind=heading и поставь [неразборчиво] ровно вместо номера.
 Для строк решения верни box только если границы строки уверенно видны: x, y от левого
 верхнего угла, w, h — ширина и высота, все в долях ориентированного снимка. Иначе box=null.
-Обычная строка решения — line. Полностью зачёркнутая строка — cancelled,
-её текст пиши без внешних тильд. Внутри строки выделяй только зачёркнутые
-символы через ~~...~~. Если зачёркнутое невозможно прочитать, пиши
-~~[зачёркнуто]~~, а для полностью зачёркнутой строки — [зачёркнуто].
+Обычная строка решения — line. Для полностью зачёркнутой строки верни cancelled
+с текстом [зачёркнуто] без расшифровки содержимого. Если целиком зачёркнуто
+решение от заголовка до следующего задания, пометь его заголовок cancelled_heading.
+Для cancelled_heading передай только видимый номер в формате «Задание №2».
+Если номер не виден, передай [неразборчиво]. Остальные строки зачёркнутого блока
+верни как cancelled. Если часть решения сохранилась, используй обычный heading
+и сохраняй все незачёркнутые шаги, даже когда номер перечёркнут.
+Внутри строки выделяй только зачёркнутые символы через ~~...~~.
+Если зачёркнутое невозможно прочитать, пиши ~~[зачёркнуто]~~.
 Если не читается незачёркнутый фрагмент, сохрани всё остальное и поставь
 [неразборчиво] точно на его месте. Для такой строки решения используй
 uncertain. Само зачёркивание не делает строку uncertain.
 Математику заключай в $...$, дробь пиши как \frac{числитель}{знаменатель},
 степень как ^{2}. Числитель и знаменатель одной дроби входят в одну строку.
 Не переписывай ФИО, подпись, класс, дату, имя файла и прочие данные ученика
-вне его решения. Если записи решения нет, верни пустой список.
+вне его решения. Пропускай поля шапки «Номер», «Вариант» и списки номеров заданий
+в шапке. Сохраняй видимый заголовок задания даже без решения под ним.
+Верни пустой список, если не видно ни номерованных заголовков, ни записей решения.
 """.strip()
 
 ASSIGNMENT_INSTRUCTIONS = """
@@ -67,6 +83,13 @@ READING = (
     "степени, скобки, границы дробей, зачёркивания и номера заданий."
 )
 
+RESPONSE_FORMAT = (
+    'Верни только JSON-объект вида {"lines": [...]}. Каждый элемент lines '
+    'содержит поля kind, text и box. Если строк нет, верни {"lines": []}.'
+)
+
+LineKind = Literal["heading", "line", "uncertain", "cancelled", "cancelled_heading"]
+
 
 class OcrUnavailable(RuntimeError):
     """A transient provider failure; the grading queue can retry."""
@@ -79,7 +102,7 @@ class OcrRejected(ValueError):
 class OcrLine(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    kind: Literal["heading", "line", "uncertain", "cancelled"]
+    kind: LineKind
     text: str
     box: PhotoBox | None
 
@@ -93,12 +116,14 @@ class OcrPage(BaseModel):
 @dataclass(frozen=True)
 class TranscribedLine:
     text: str
-    kind: Literal["heading", "line", "uncertain", "cancelled"]
+    kind: LineKind
     box: PhotoBox | None = None
 
 
 def renderTranscript(lines: Iterable[TranscribedLine]) -> str:
-    return "\n".join(f"~~{line.text}~~" if line.kind == "cancelled" else line.text for line in lines) or UNREADABLE
+    return "\n".join(
+        f"~~{line.text}~~" if line.kind in ("cancelled", "cancelled_heading") else line.text for line in lines
+    ) or UNREADABLE
 
 
 def normalizedImage(original: bytes, mediaType: str) -> str:
@@ -136,6 +161,9 @@ def parseResponse(body: bytes) -> list[OcrLine]:
         if len(texts) != 1:
             raise OcrRejected("ocr_incomplete")
         page = json.loads(texts[0])
+        # Some Responses API providers return the lines as a bare array.
+        if isinstance(page, list):
+            page = {"lines": page}
         # Earlier transcripts and providers without geometry contain only kind and text.
         for item in page["lines"]:
             if isinstance(item, dict):
@@ -156,23 +184,35 @@ def parseResponse(body: bytes) -> list[OcrLine]:
         for line in lines
     ):
         raise OcrRejected("ocr_incomplete")
-    return [line.model_copy(update={"text": line.text.strip()}) for line in lines]
+    normalized = []
+    for line in lines:
+        value = line.text.strip()
+        if line.kind == "cancelled":
+            value = CANCELLED
+        elif line.kind == "cancelled_heading":
+            heading = PHOTO_TASK_HEADING.match(value)
+            value = f"Задание №{heading.group(1) or heading.group(2)}" if heading else UNREADABLE
+        normalized.append(line.model_copy(update={"text": value}))
+    return normalized
 
 
 def requestReading(endpoint: SplitResult, apiKey: str, model: str, imageUrl: str, instruction: str,
-                   systemPrompt: str) -> list[OcrLine]:
-    body = json.dumps({
+                   systemPrompt: str, *, useJsonSchema: bool = True) -> list[OcrLine]:
+    payload: dict[str, object] = {
         "model": model,
         "store": False,
-        "instructions": systemPrompt,
+        "instructions": f"{systemPrompt}\n\n{RESPONSE_FORMAT}",
         "input": [{"role": "user", "content": [
             {"type": "input_text", "text": instruction},
             {"type": "input_image", "image_url": imageUrl, "detail": "high"},
         ]}],
-        "text": {"format": {"type": "json_schema", "name": "page_transcription", "strict": True,
-                             "schema": OcrPage.model_json_schema()}},
         "max_output_tokens": 6000,
-    }).encode()
+    }
+    if useJsonSchema:
+        payload["text"] = {"format": {
+            "type": "json_schema", "name": "page_transcription", "strict": True, "schema": OcrPage.model_json_schema(),
+        }}
+    body = json.dumps(payload).encode()
     connection = HTTPSConnection(endpoint.netloc, timeout=60)
     try:
         connection.request("POST", endpoint.path, body=body, headers={
@@ -182,6 +222,7 @@ def requestReading(endpoint: SplitResult, apiKey: str, model: str, imageUrl: str
         if response.status in (408, 409, 429) or response.status >= 500:
             raise OcrUnavailable(f"OCR provider returned HTTP {response.status}")
         if response.status != 200:
+            logger.warning("OCR provider rejected the request with HTTP %d", response.status)
             raise OcrRejected("ocr_provider_error")
         return parseResponse(response.read(MAX_OUTPUT_BYTES + 1))
     except (OSError, HTTPException) as error:
@@ -203,5 +244,6 @@ def transcribePhoto(original: bytes, mediaType: str, *, assignment: bool = False
     imageUrl = normalizedImage(original, mediaType)
     reading = requestReading(endpoint, apiKey, model, imageUrl,
                              "Перепиши условия по номерам." if assignment else READING,
-                             ASSIGNMENT_INSTRUCTIONS if assignment else TRANSCRIBE)
+                             ASSIGNMENT_INSTRUCTIONS if assignment else TRANSCRIBE,
+                             useJsonSchema=os.environ.get("OCR_JSON_SCHEMA", "1").strip() != "0")
     return tuple(TranscribedLine(line.text, line.kind, line.box) for line in reading)

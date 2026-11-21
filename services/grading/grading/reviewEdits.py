@@ -55,15 +55,17 @@ class ReviewEditor:
             changes = [change for requestData in prior for change in ReviewEditRequest.model_validate(requestData).changes]
             base = storedOutcome(latest.outcome)
             overridden = {change.taskId for change in changes if isinstance(change, SetTaskScore)}
-            outcome = applyChanges(base, edit, overridden)
             changes.extend(edit.changes)
+            verdicts = {change.taskId for change in changes if isinstance(change, SetVerdict)}
+            source = loadResultSource(session, check, base)
+            outcome = applyChanges(base, edit, overridden, omittedTasks=source.reading.omittedTaskIds - verdicts,
+                                   answerScoredTasks=source.reading.answerScoredTaskIds(source.references) - verdicts)
             updatesFeedback = any(not isinstance(change, (SetGrade, SetTaskScore, SetTeacherComment))
                                   for change in edit.changes)
             if updatesFeedback and not any(isinstance(change, SetOverallReview) for change in changes):
-                source = loadResultSource(session, check, outcome)
                 feedback = composeOverallReview(
                     source.tasks, source.reading, tuple(outcome.taskResults), source.references,
-                    teacherVerdicts={change.taskId for change in changes if isinstance(change, SetVerdict)},
+                    teacherVerdicts=verdicts,
                 )
                 outcome = outcome.model_copy(update={"overallReview": feedback})
             session.add(CheckResultRevision(
@@ -75,7 +77,9 @@ class ReviewEditor:
             return ReviewEditReceipt(checkId=checkId, editId=edit.editId, resultRev=outcome.resultRev)
 
 
-def applyChanges(base: CheckOutcome, edit: ReviewEditRequest, overridden: set[str]) -> CheckOutcome:
+def applyChanges(base: CheckOutcome, edit: ReviewEditRequest, overridden: set[str], *,
+                 omittedTasks: frozenset[str] = frozenset(),
+                 answerScoredTasks: frozenset[str] = frozenset()) -> CheckOutcome:
     maxima = {a.taskId: a.maxScore for a in base.taskAssessments}
     overrides = {a.taskId: a.score for a in base.taskAssessments if a.taskId in overridden}
     gradeUpdate: dict[str, int | None] = {}
@@ -119,4 +123,4 @@ def applyChanges(base: CheckOutcome, edit: ReviewEditRequest, overridden: set[st
         results[change.taskId] = task.model_copy(update={"issues": issues})
     updated = base.model_copy(update={"resultRev": base.resultRev + 1, "taskResults": list(results.values()),
                                       "overallReview": overall, "teacherComment": teacherComment, **gradeUpdate})
-    return withScores(updated, maxima, overrides)
+    return withScores(updated, maxima, overrides, omittedTasks=omittedTasks, answerScoredTasks=answerScoredTasks)
