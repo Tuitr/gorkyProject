@@ -106,7 +106,11 @@ def testSandboxStopsMisbehavingCode() -> None:
     sandbox = LocalSandbox(timeoutS=2)
 
     assert sandbox.run(code("42")["code"], {}).value == {"exact": "42"}  # type: ignore[arg-type]
-    assert "longer than" in (sandbox.run("def solve(task):\n    while True:\n        pass\n", {}).error or "")
+    loop = sandbox.run("def solve(task):\n    while True:\n        pass\n", {})
+    # Linux can enforce the CPU limit before the parent's wall-clock timeout.
+    assert not loop.ok and loop.error in (
+        "the solver ran longer than 2 s", "the solver process failed (exit code -9)",
+    )
     assert "ImportError" in (sandbox.run("def solve(task):\n    import socket\n", {}).error or "")
     assert "NameError" in (sandbox.run("def solve(task):\n    return open('/etc/hostname')\n", {}).error or "")
     assert "must return a dict" in (sandbox.run("def solve(task):\n    return 5\n", {}).error or "")

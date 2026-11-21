@@ -98,7 +98,14 @@ def clock() -> ManualClock:
 
 @pytest.fixture
 def client(cabinetSessions: sessionmaker[Session], hasher: CountingHasher, clock: ManualClock) -> TestClient:
-    return TestClient(createApp(SETTINGS, sessionFactory=cabinetSessions, passwords=Passwords(hasher), clock=clock), base_url="https://testserver")
+    settings = replace(
+        Settings.fromEnv(), loginMaxFailures=SETTINGS.loginMaxFailures,
+        clientMaxFailures=SETTINGS.clientMaxFailures, loginWindowS=SETTINGS.loginWindowS,
+    )
+    return TestClient(
+        createApp(settings, sessionFactory=cabinetSessions, passwords=Passwords(hasher), clock=clock),
+        base_url="https://testserver",
+    )
 
 
 def addTeacher(sessions: sessionmaker[Session], login: str, name: str = "Учитель Синтетический") -> str:
