@@ -138,7 +138,6 @@ export function CreateWorkDialog({ classes, selectedClass, onClose, onCreated }:
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File>()
   const [notes, setNotes] = useState('')
-  const [subject, setSubject] = useState('')
   const [classId, setClassId] = useState(selectedClass || (classes.length === 1 ? classes[0].classId : ''))
   const [date, setDate] = useState(today)
   const [busy, setBusy] = useState(false)
@@ -148,14 +147,14 @@ export function CreateWorkDialog({ classes, selectedClass, onClose, onCreated }:
   const classroom = classes.find((item) => item.classId === classId)
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!file || !classroom || !subject || !title.trim() || !date || parsed.error || formatError) return
+    if (!file || !classroom || !title.trim() || !date || parsed.error || formatError) return
     setBusy(true)
     setError('')
     try {
-      const created = await api.uploadTask(classId, await prepare(file), subject, title.trim(), {
+      const created = await api.uploadTask(classId, await prepare(file), 'math', title.trim(), {
         assignmentDate: date, requirements: parsed.requirements, taskPoints: parsed.taskPoints,
       })
-      onCreated({ ...created, assignmentDate: date, title: title.trim(), subject, classId, className: classroom.name })
+      onCreated({ ...created, assignmentDate: date, title: title.trim(), subject: 'math', classId, className: classroom.name })
     } catch (cause) { setError(errorText(cause)); setBusy(false) }
   }
   return <Dialog title="Создать работу" onClose={busy ? () => {} : onClose}>
@@ -169,10 +168,6 @@ export function CreateWorkDialog({ classes, selectedClass, onClose, onCreated }:
       <label>Критерии проверки<textarea rows={3} placeholder="Например, № 1 — 3 балла. № 2: требовать пояснение."
         value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
       {parsed.taskPoints.length > 0 && <p className="hint">Максимум по заданиям · {parsed.taskPoints.map((item) => '№ ' + item.taskNumber + ' — ' + number(item.maxScore)).join(', ')}</p>}
-      <fieldset className="subject-field"><legend>Предмет</legend>
-        <label><input type="radio" name="subject" required checked={subject === 'math'} onChange={() => setSubject('math')} />Математика</label>
-        <label><input type="radio" name="subject" required checked={subject === 'physics'} onChange={() => setSubject('physics')} />Физика</label>
-      </fieldset>
       <div className="field-row">
         <label>Класс<select aria-label="Класс" required value={classId} onChange={(event) => setClassId(event.target.value)}>
           <option value="" disabled>Выберите класс</option>

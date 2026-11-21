@@ -91,7 +91,7 @@ export function App({ account }: { account: Account }) {
           {visible.map((work) => <article className="work-card saved-card" key={work.assignmentId}>
             <button type="button" className="card-remove" aria-label={'Удалить работу ' + workName(work)}
               title="Удалить работу" onClick={() => setToDelete(work)}>×</button>
-            <div className="card-top"><time dateTime={work.assignmentDate}>{dateLabel(work.assignmentDate)}</time><span className="subject-pill">{subjectName(work.subject)}</span></div>
+            <div className="card-top"><time dateTime={work.assignmentDate}>{dateLabel(work.assignmentDate)}</time><span className="subject-pill">{subjectName()}</span></div>
             <a className="card-title" href={'#work/' + work.assignmentId}>{workName(work)}</a>
             <div className="card-bottom"><span>{work.className}</span>
               <span aria-hidden="true">↗</span>

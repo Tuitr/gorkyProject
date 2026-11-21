@@ -3,8 +3,9 @@ import { api, type Check, type ReadyCheck, type Report, type Requirement, type S
 export type Row = { student: Student; submission?: Submission; check?: Check }
 export type TaskColumn = { id: string; number: string }
 
-export const subjectName = (subject: string) => subject === 'physics' ? 'Физика' : 'Математика'
-export const workName = (work: Work) => work.title || 'Контрольная по предмету «' + subjectName(work.subject) + '»'
+// Платформа только для математики.
+export const subjectName = () => 'Математика'
+export const workName = (work: Work) => work.title || 'Контрольная по математике'
 export const taskNumber = (taskId: string) => taskId.replace(/^[Tt](?=\d)/, '')
 export const number = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 4 })
 export const ready = (check?: Check): ReadyCheck | undefined => check && 'taskResults' in check ? check : undefined

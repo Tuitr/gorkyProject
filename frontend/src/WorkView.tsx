@@ -175,7 +175,7 @@ export function WorkView({ work }: { work: Work }) {
       </nav>
     </div>
     <div className="page-head work-head">
-      <div><div className="work-meta">{work.className} · {subjectName(work.subject)} · {dateLabel(work.assignmentDate)}</div>
+      <div><div className="work-meta">{work.className} · {subjectName()} · {dateLabel(work.assignmentDate)}</div>
         <h1>{workName(work)}</h1></div>
     </div>
     {mode === 'table' && <div className="student-filters" role="search" aria-label="Фильтры учеников">

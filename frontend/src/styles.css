@@ -96,9 +96,6 @@ input[type="file"]::file-selector-button { font: inherit; border: 0; border-radi
 .form label, .feedback-label { display: grid; gap: 5px; color: var(--ink); font-size: .88rem; font-weight: 620; }
 .form small { color: var(--muted); font-weight: 400; }
 .form .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.subject-field { border: 0; padding: 0; margin: 0; display: flex; gap: 18px; }
-.subject-field legend { font-size: .88rem; font-weight: 620; margin-bottom: 5px; }
-.form .subject-field label { display: flex; align-items: center; gap: 6px; padding: 6px 0; font-weight: 500; }
 .actions { justify-content: end; padding-top: 5px; }
 .hint, .notice-error, .upload-hint { border-radius: 9px; padding: 10px 13px; font-size: .87rem; }
 .hint, .upload-hint { color: var(--accent-dark); background: var(--tint); }
