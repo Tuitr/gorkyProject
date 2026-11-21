@@ -47,7 +47,7 @@ class CheckRecord(Base):
     assignmentId: Mapped[str] = mapped_column("assignment_id", String(36))
     assignmentRev: Mapped[int] = mapped_column("assignment_rev")
     grade: Mapped[int | None] = mapped_column(SmallInteger)
-    """The teacher's grade from 1 to 5; None until the teacher sets it."""
+    """The teacher's grade from 2 to 5. Older rows may contain a 1."""
 
 
 def ensureAttempt(

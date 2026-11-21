@@ -5,6 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from contracts.v1.cabinet.classes import StudentSummary
+from contracts.v1.cabinet.grades import Grade
 from contracts.v1.events.checks import NonEmptyStr, Revision
 from contracts.v1.grading.checks import ResultRevision
 
@@ -16,7 +17,7 @@ class ReportResult(BaseModel):
     studentId: NonEmptyStr
     checkId: NonEmptyStr
     resultRev: ResultRevision
-    grade: Annotated[int, Field(ge=1, le=5)] | None = None
+    grade: Grade | None = None
     """The teacher's grade from PUT /v1/checks/{checkId}/grade; None until set."""
 
 

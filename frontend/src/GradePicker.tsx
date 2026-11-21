@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react'
 
-const COLOR: Record<number, string> = { 1: '#b91c1c', 2: '#dc2626', 3: '#d97706', 4: '#16a34a', 5: '#15803d' }
+const COLOR: Record<number, string> = { 2: '#dc2626', 3: '#d97706', 4: '#16a34a', 5: '#15803d' }
 
-// Оценка учителя 1–5. Повторный клик по выбранной оценке снимает её.
+// Повторный клик по выбранной оценке снимает её.
 export function GradePicker(props: {
   grade: number | null | undefined
   disabled?: boolean
@@ -13,7 +13,7 @@ export function GradePicker(props: {
   const big = props.size === 'large'
   return (
     <div style={st.row} title={props.title} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      {[1, 2, 3, 4, 5].map((g) => {
+      {[2, 3, 4, 5].map((g) => {
         const active = props.grade === g
         return (
           <button

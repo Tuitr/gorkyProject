@@ -68,7 +68,7 @@ export type Report = {
   submittedCount: number
   notSubmitted: Student[]
   waiting: Student[]
-  /** grade — оценка учителя 1–5 (null — ещё не выставлена). */
+  /** grade — оценка учителя 2–5 (null — ещё не выставлена). */
   results: { studentId: string; checkId: string; resultRev: number; grade?: number | null }[]
   tasks: ReportTask[]
 }
@@ -131,7 +131,7 @@ export const api = {
     call<References>('GET', `/v1/assignments/${e(a.assignmentId)}/references?rev=${a.assignmentRev}`),
   report: (a: Assignment) => call<Report>('GET', `/v1/assignments/${e(a.assignmentId)}/report?rev=${a.assignmentRev}`),
   check: (checkId: string) => call<Check>('GET', `/v1/checks/${e(checkId)}`),
-  // Оценка учителя 1–5; null снимает оценку.
+  // Оценка учителя 2–5; null снимает оценку.
   setGrade: (checkId: string, grade: number | null) =>
     call<{ checkId: string; grade: number | null }>('PUT', `/v1/checks/${e(checkId)}/grade`, { grade }),
   // Публикация результата: вместе с оценкой учитель принимает разбор работы.

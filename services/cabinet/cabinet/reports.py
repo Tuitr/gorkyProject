@@ -45,9 +45,9 @@ def readReportGrades(db: Session, checkIds: list[str]) -> dict[str, int]:
         checkId: grade
         for checkId, grade in db.execute(
             select(CheckRecord.checkId, CheckRecord.grade).where(
-                CheckRecord.checkId.in_(checkIds), CheckRecord.grade.is_not(None),
+                CheckRecord.checkId.in_(checkIds),
             )
-        )
+        ) if grade is not None and 2 <= grade <= 5
     }
 
 

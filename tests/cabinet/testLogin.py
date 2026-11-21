@@ -438,15 +438,16 @@ def testClassAssignmentListUsesLatestActiveRevisions(
                 classId=otherClassId if assignmentId == other else classId,
                 requirements=[], bucket="sources", objectKey=f"{assignmentId}/{revision}", sha256="0" * 64,
                 deletedAt=clock.now() if assignmentId == removed else None,
+                title=f"Контрольная {revision}" if assignmentId == first else None,
             ))
 
     listed = client.get(path)
     assert listed.status_code == 200
     assert listed.headers["Cache-Control"] == "no-store"
     assert listed.json() == [
-        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11", "subject": "math"},
-        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math"},
-        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10", "subject": "math"},
+        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11", "subject": "math", "title": None},
+        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math", "title": "Контрольная 2"},
+        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10", "subject": "math", "title": None},
     ]
     assert client.delete(f"/v1/classes/{classId}").status_code == 204
     missing = client.get(path)
@@ -1353,6 +1354,20 @@ def reviewedCheck(cabinetSessions: sessionmaker[Session], clock: ManualClock) ->
         db.flush()
         db.add(CheckRecord(checkId=checkId, attemptId=attemptId, assignmentId=assignmentId, assignmentRev=1))
     return checkId, owner
+
+
+def testTeacherGradeRange(client: TestClient, reviewedCheck: tuple[str, str], cabinetSessions: sessionmaker[Session]) -> None:
+    checkId, _ = reviewedCheck
+    path = f"/v1/checks/{checkId}/grade"
+    assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+    with cabinetSessions.begin() as db:
+        db.get_one(CheckRecord, checkId).grade = 1
+    assert client.get(path).json()["grade"] is None
+    for grade in (2, 3, 4, 5, None):
+        response = client.put(path, json={"grade": grade})
+        assert response.status_code == 200 and client.get(path).json()["grade"] == grade
+    for invalid in (1, 6, True, 2.5):
+        assert client.put(path, json={"grade": invalid}).status_code == 422
 
 
 def testRemovingRosterEntriesKeepsHistoryAndPreventsNewBindings(

@@ -154,7 +154,7 @@ def testCabinetEventsCarryReadableDocuments(
                 assert published.status_code == 201, published.text
                 assignment = published.json()
                 assignmentPath = f"/v1/assignments/{assignment['assignmentId']}"
-                assignmentRow = {**assignment, "assignmentDate": "2025-12-12", "subject": "math"}
+                assignmentRow = {**assignment, "assignmentDate": "2025-12-12", "subject": "math", "title": None}
                 listed = api.get(assignmentsPath)
                 assert listed.status_code == 200 and listed.json() == [assignmentRow]
 
