@@ -1,10 +1,11 @@
-"""Independently transcribe a student photo twice through the OCR provider."""
+"""Transcribe a student photo through the OCR provider."""
 
 import base64
 import json
 import os
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from http.client import HTTPException, HTTPSConnection
 from io import BytesIO
 from typing import Literal
@@ -17,6 +18,7 @@ from shared.ocrconfig import parseOcrUrl
 from shared.submissionmedia import imageMediaType
 
 UNREADABLE = "[неразборчиво]"
+CROSSOUT = re.compile(r"~~([^~\r\n]+)~~")
 MAX_OUTPUT_BYTES = 512 * 1024
 MAX_PIXELS = 36_000_000
 MAX_LINES = 180
@@ -31,22 +33,25 @@ TRANSCRIBE = r"""
 задачу, не исправляй вычисления, не восстанавливай пропуски и не добавляй
 условие, ответ, объяснение, номера, заголовки или переходы от себя.
 Каждый элемент — одна видимая строка без перевода строки внутри text.
-Используй heading только при явно написанном номере задачи, оставляй номер
-и остальной текст той же строки. Обычная строка решения — line. Полностью
-зачёркнутая строка — cancelled. Когда часть записи неразличима, используй
-uncertain и ровно маркер [неразборчиво] на месте пропуска. Сокращения, текст
-и математические записи переписывай без перевода и без исправлений.
+Используй heading для явно написанного заголовка задания. Сохраняй номер
+и остальной текст той же строки. Если номер в таком заголовке неразличим,
+оставь kind=heading и поставь [неразборчиво] ровно вместо номера.
+Обычная строка решения — line. Полностью зачёркнутая строка — cancelled,
+её текст пиши без внешних тильд. Внутри строки выделяй только зачёркнутые
+символы через ~~...~~. Если зачёркнутое невозможно прочитать, пиши
+~~[зачёркнуто]~~, а для полностью зачёркнутой строки — [зачёркнуто].
+Если не читается незачёркнутый фрагмент, сохрани всё остальное и поставь
+[неразборчиво] точно на его месте. Для такой строки решения используй
+uncertain. Само зачёркивание не делает строку uncertain.
 Математику заключай в $...$, дробь пиши как \frac{числитель}{знаменатель},
 степень как ^{2}. Числитель и знаменатель одной дроби входят в одну строку.
 Не переписывай ФИО, подпись, класс, дату, имя файла и прочие данные ученика
 вне его решения. Если записи решения нет, верни пустой список.
 """.strip()
 
-READINGS = (
-    "Перепиши видимые записи по порядку сверху вниз, с сохранением границ строк.",
-    "Независимо перечитай весь снимок. Проверь каждый минус и плюс, знак равенства, "
-    "цифры, индексы, степени, скобки, границы дробей и номера задач. Просмотри края "
-    "страницы и короткие строки, которые легко пропустить.",
+READING = (
+    "Перепиши видимые записи сверху вниз. Сохрани видимые знаки, цифры, индексы, "
+    "степени, скобки, границы дробей, зачёркивания и номера заданий."
 )
 
 
@@ -75,7 +80,10 @@ class OcrPage(BaseModel):
 class TranscribedLine:
     text: str
     kind: Literal["heading", "line", "uncertain", "cancelled"]
-    uncertainHeading: bool = False
+
+
+def renderTranscript(lines: Iterable[TranscribedLine]) -> str:
+    return "\n".join(f"~~{line.text}~~" if line.kind == "cancelled" else line.text for line in lines) or UNREADABLE
 
 
 def normalizedImage(original: bytes, mediaType: str) -> str:
@@ -156,17 +164,6 @@ def requestReading(endpoint: SplitResult, apiKey: str, model: str, imageUrl: str
         connection.close()
 
 
-def agree(first: list[OcrLine], second: list[OcrLine]) -> tuple[TranscribedLine, ...]:
-    result: list[TranscribedLine] = []
-    for op, a, b, c, d in SequenceMatcher(None, first, second, autojunk=False).get_opcodes():
-        if op == "equal":
-            result.extend(TranscribedLine(line.text, line.kind) for line in first[a:b])
-        else:
-            heading = any(line.kind == "heading" for line in (*first[a:b], *second[c:d]))
-            result.extend(TranscribedLine(UNREADABLE, "uncertain", heading) for _ in range(max(b - a, d - c)))
-    return tuple(result)
-
-
 def transcribePhoto(original: bytes, mediaType: str) -> tuple[TranscribedLine, ...]:
     apiKey = os.environ.get("OCR_API_KEY", "").strip()
     url = os.environ.get("OCR_URL", "").strip()
@@ -178,5 +175,5 @@ def transcribePhoto(original: bytes, mediaType: str) -> tuple[TranscribedLine, .
     except ValueError:
         raise OcrRejected("ocr_invalid_url") from None
     imageUrl = normalizedImage(original, mediaType)
-    first, second = (requestReading(endpoint, apiKey, model, imageUrl, instruction) for instruction in READINGS)
-    return agree(first, second)
+    reading = requestReading(endpoint, apiKey, model, imageUrl, READING)
+    return tuple(TranscribedLine(line.text, line.kind) for line in reading)

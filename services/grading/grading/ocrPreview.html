@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тест распознавания фото</title>
+  <style>
+    body { font: 16px Inter, system-ui, sans-serif; margin: 24px; }
+    h1 { font-size: 24px; }
+    h2 { font-size: 18px; }
+    form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    #notice, #status { color: #444; font-size: 14px; }
+    .panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    section { min-height: 240px; border: 1px solid #ddd; padding: 12px; }
+    section h2 { margin: 0 0 12px; }
+    img { max-width: 100%; max-height: 75vh; object-fit: contain; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; margin: 0; }
+    @media (max-width: 640px) {
+      body { margin: 12px; }
+      .panes { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Тест распознавания фото</h1>
+  <form id="form">
+    <input id="file" type="file" accept=".jpg,.jpeg,.png,.webp" aria-label="Фото работы">
+    <button id="run" disabled>Распознать</button>
+  </form>
+  <p id="notice">{{notice}}</p>
+  <p id="status" role="status"></p>
+  <main class="panes">
+    <section>
+      <h2>Фото</h2>
+      <img id="photo" alt="Загруженное фото" hidden>
+    </section>
+    <section>
+      <h2>Расшифровка</h2>
+      <pre id="markdown"></pre>
+    </section>
+  </main>
+  <script>
+    const form = document.querySelector('#form')
+    const file = document.querySelector('#file')
+    const run = document.querySelector('#run')
+    const photo = document.querySelector('#photo')
+    const markdown = document.querySelector('#markdown')
+    const status = document.querySelector('#status')
+    let photoUrl
+    function showTranscript(text) {
+      const parts = text.split(/~~([^~\n]+)~~/g)
+      markdown.replaceChildren(...parts.map((part, i) => {
+        if (i % 2 === 0) return document.createTextNode(part)
+        const crossedOut = document.createElement('del')
+        crossedOut.textContent = part
+        return crossedOut
+      }))
+    }
+
+    file.addEventListener('change', () => {
+      if (photoUrl) URL.revokeObjectURL(photoUrl)
+      const selected = file.files[0]
+      photo.hidden = !selected
+      run.disabled = !selected
+      if (selected) {
+        photoUrl = URL.createObjectURL(selected)
+        photo.src = photoUrl
+      } else {
+        photoUrl = undefined
+        photo.removeAttribute('src')
+      }
+      markdown.textContent = ''
+      status.textContent = ''
+    })
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const selected = file.files[0]
+      if (!selected) return
+      run.disabled = file.disabled = true
+      status.textContent = 'Распознаю…'
+      markdown.textContent = ''
+      try {
+        const response = await fetch('/transcribe', { method: 'POST', body: selected })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.detail)
+        showTranscript(result.markdown)
+        status.textContent = ''
+      } catch (error) {
+        status.textContent = error.message || 'Не удалось распознать фото.'
+      } finally {
+        run.disabled = file.disabled = false
+      }
+    })
+  </script>
+</body>
+</html>

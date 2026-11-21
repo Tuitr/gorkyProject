@@ -10,7 +10,7 @@ from xml.etree.ElementTree import Element
 from grading.assignment import AssignmentTask
 from grading.formulas import M, MathParagraph, ReadStatus
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
-from grading.photoOcr import UNREADABLE, TranscribedLine
+from grading.photoOcr import CROSSOUT, UNREADABLE, TranscribedLine, renderTranscript
 from grading.word import W, WordReadError, documentBody, paragraphText
 
 TASK_START = re.compile(r"^\s*Задание\b", re.IGNORECASE)
@@ -269,6 +269,31 @@ def readSubmission(
     return readSubmissionDetails(submitted, document, tasks).steps
 
 
+def withoutDetachedCrossouts(text: str) -> str | None:
+    """Omit crossed-out alternatives at the edges, preserving anything inside an expression."""
+    active = CROSSOUT.sub("", text).strip()
+    if not active and CROSSOUT.fullmatch(text.strip()):
+        return ""
+    # Strip only standalone numbers, never operators or pieces of a formula.
+    if any(
+        match[1].strip() not in ("[зачёркнуто]", UNREADABLE) and not re.fullmatch(r"[+-−]?\d+(?:[.,]\d+)?", match[1].strip())
+        for match in CROSSOUT.finditer(text)
+    ):
+        return None
+    while match := CROSSOUT.match(text):
+        if match.end() < len(text) and not text[match.end()].isspace():
+            return None
+        text = text[match.end():].lstrip()
+    for match in CROSSOUT.finditer(text):
+        if match.start() and text[match.start() - 1].isspace():
+            if not CROSSOUT.sub("", text[match.start():]).strip():
+                text = text[:match.start()].rstrip()
+                break
+    if "~" in text or text.count("$") % 2 or text.endswith(tuple("=+-−*/^_\\{([")):
+        return None
+    return text
+
+
 def readPhotoSubmission(
     submitted: AttemptSubmittedInput, lines: Sequence[TranscribedLine], tasks: Sequence[AssignmentTask],
 ) -> SubmissionReading:
@@ -276,20 +301,17 @@ def readPhotoSubmission(
     byTask: dict[str, list[SolutionStep]] = {}
     unassigned: list[UnassignedFragment] = []
     ordered: list[SolutionStep] = []
-    transcript: list[str] = []
     current = None
-    reason = "Распознавания разошлись или запись нельзя прочитать. Сверьте с фотографией."
+    reason = "Часть записи нужно сверить с фотографией."
 
     for index, line in enumerate(lines):
         text = line.text
-        transcript.append(f"~~{text}~~" if line.kind == "cancelled" else text)
         if line.kind == "cancelled":
             continue
         anchor = SourceAnchor(submitted.docRef, (), index, 0, len(text), "ocr")
-        ambiguous = line.kind == "uncertain" or UNREADABLE in text or "~~" in text
         if line.kind == "heading":
             heading = PHOTO_TASK_HEADING.match(text)
-            current = byNumber.get(heading.group(1) or heading.group(2)) if heading and not ambiguous else None
+            current = byNumber.get(heading.group(1) or heading.group(2)) if heading else None
             if current is None:
                 unassigned.append(UnassignedFragment("Номер задания на фото нужно сверить.", anchor))
                 continue
@@ -297,6 +319,9 @@ def readPhotoSubmission(
             byTask.setdefault(current, [])
             anchor = replace(anchor, start=heading.end())
             text = text[heading.end():]
+        active = withoutDetachedCrossouts(text) if "~~" in text else text
+        ambiguous = active is None or line.kind == "uncertain" or UNREADABLE in active
+        text = text if active is None else active
         if not text or ANSWER_LABEL.fullmatch(text):
             continue
         if current is None:
@@ -306,8 +331,6 @@ def readPhotoSubmission(
             step = SolutionStep(current, f"s{len(steps) + 1}", text, anchor, "ambiguous" if ambiguous else "read")
             steps.append(step)
             ordered.append(step)
-        if line.uncertainHeading:
-            current = None
 
     readings = []
     for task in tasks:
@@ -315,4 +338,4 @@ def readPhotoSubmission(
         if reading.status in ("skipped", "needsReview"):
             reading = TaskReading(task.taskId, "needsReview", reason)
         readings.append(reading)
-    return SubmissionReading(tuple(ordered), tuple(readings), tuple(unassigned), "\n".join(transcript) or UNREADABLE)
+    return SubmissionReading(tuple(ordered), tuple(readings), tuple(unassigned), renderTranscript(lines))

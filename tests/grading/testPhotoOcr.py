@@ -1,4 +1,4 @@
-"""OCR readings may agree on a wrong calculation, or disagree on a single symbol."""
+"""OCR preserves visible mistakes, crossed-out text, and uncertain fragments."""
 
 import base64
 import hashlib
@@ -22,7 +22,7 @@ from grading import photoOcr
 from grading.assignment import AssignmentTask
 from grading.inbox import saveEvent
 from grading.intake import AttemptSubmittedInput, readEvent
-from grading.photoOcr import OcrLine, OcrRejected, TranscribedLine, agree, transcribePhoto
+from grading.photoOcr import OcrRejected, TranscribedLine, transcribePhoto
 from grading.resultArtifacts import parsedTasksAdapter
 from grading.review import reviewTasks
 from grading.stream import StreamConsumer
@@ -76,7 +76,7 @@ def testTwoIndependentReadsOfImageWithoutExif(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("OCR_MODEL", "test-model")
     monkeypatch.setattr(photoOcr, "HTTPSConnection", Connection)
     assert transcribePhoto(samplePhoto(), "image/jpeg") == (TranscribedLine("$2 + 2 = 5$", "line"),)
-    assert len(requests) == 2
+    assert len(requests) == 1
     for request in requests:
         assert request["model"] == "test-model"
         assert request["store"] is False
@@ -86,7 +86,7 @@ def testTwoIndependentReadsOfImageWithoutExif(monkeypatch: pytest.MonkeyPatch) -
         assert imageUrl.startswith("data:image/jpeg;base64,")
         with Image.open(BytesIO(base64.b64decode(imageUrl.split(",", 1)[1]))) as image:
             assert image.size == (80, 50) and not image.getexif()
-    assert requests[0]["input"] != requests[1]["input"]
+    assert "~~...~~" in requests[0]["instructions"]
 
 
 @pytest.mark.parametrize("missing", ["OCR_URL", "OCR_API_KEY", "OCR_MODEL"])
@@ -124,47 +124,73 @@ def reference() -> ReferenceReady:
                           value={"exact": "4"}, solverVersion=None)
 
 
-def testOnlyAgreedReadingsGoToGrader(contractExample: Callable[[str], Any]) -> None:
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("~~7~~ $x = 4$", "$x = 4$"),
+        ("$x = 4$ ~~7~~", "$x = 4$"),
+        ("$x = 4$ ~~[зачёркнуто]~~", "$x = 4$"),
+        ("$x = 4$ ~~[неразборчиво]~~", "$x = 4$"),
+        ("$x = ~~7~~4$", None),
+        (r"$\frac{1}{~~7~~4}$", None),
+        ("x = ~~7~~", None),
+        ("~~-~~ $7$", None),
+        ("$x = 4$ ~~+ 1~~", None),
+        ("1 ~~2~~ 3", None),
+        ("$x = 4$ ~~7", None),
+        ("$x = [неразборчиво]$", None),
+    ],
+)
+def testCrossoutsPreserveTranscriptAndOnlySafeTextReachesGrader(
+    source: str, expected: str | None, contractExample: Callable[[str], Any],
+) -> None:
     original = samplePhoto()
     payload = contractExample("events/attemptSubmitted.json")["payload"]
     payload["docRef"].update({"key": "uploads/page.jpg", "sha256": hashlib.sha256(original).hexdigest()})
     submitted = AttemptSubmittedInput.model_validate(payload)
-    agreed = [
-        OcrLine(kind="heading", text="1)$2 + 2 = 5$"),
-        OcrLine(kind="cancelled", text="$2 + 2 = 7$"),
-        OcrLine(kind="heading", text="Задание №2"),
-    ]
-    lines = agree(
-        [*agreed, OcrLine(kind="line", text="$x = -7$")],
-        [*agreed, OcrLine(kind="line", text="$x = 7$")],
-    )
-    tasks = (task("1"), task("2"))
+    lines = (TranscribedLine("Задание №2", "heading"), TranscribedLine(source, "line"))
+    tasks = (task("2"),)
     reading = readPhotoSubmission(submitted, lines, tasks)
-    assert reading.transcriptMarkdown == "1)$2 + 2 = 5$\n~~$2 + 2 = 7$~~\nЗадание №2\n[неразборчиво]"
-    assert resolveAnchor(original, reading.steps[0].sourceAnchor,
-                         transcriptMarkdown=reading.transcriptMarkdown) == "$2 + 2 = 5$"
-    requests = []
+    assert reading.transcriptMarkdown == f"Задание №2\n{source}"
+    assert resolveAnchor(original, reading.steps[0].sourceAnchor, transcriptMarkdown=reading.transcriptMarkdown) == source
+    requests: list[ModelReviewRequest] = []
 
     def grade(request: ModelReviewRequest) -> ModelReviewResponse:
         requests.append(request)
         return ModelReviewResponse.model_validate(contractExample("gateway/responseAnswerOnly.json"))
 
-    results = reviewTasks(submitted.checkId, tasks, reading, {t.taskId: reference() for t in tasks}, grade)
-    assert [(r.taskId, [s.markdown for s in r.steps]) for r in requests] == [("t1", ["$2 + 2 = 5$"])]
-    assert results[1].answer == "unreadable" and results[1].needsReview and not results[1].issues
+    result, = reviewTasks(submitted.checkId, tasks, reading, {"t2": reference()}, grade)
+    if expected is None:
+        assert not requests and result.needsReview
+    else:
+        assert len(requests) == 1
+        assert [step.markdown for step in requests[0].steps] == [expected]
 
 
-def testMissingHeadingDoesNotMoveStepsToAnotherTask(contractExample: Callable[[str], Any]) -> None:
-    payload = contractExample("events/attemptSubmitted.json")["payload"]
-    submitted = AttemptSubmittedInput.model_validate(payload)
-    start = [OcrLine(kind="heading", text="№1"), OcrLine(kind="line", text="$x = 4$")]
-    end = [OcrLine(kind="line", text="$x = 8$"), OcrLine(kind="heading", text="№3 $y = 3$")]
+def testCancelledLineStaysInTranscriptButIsNotGraded(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    lines = (
+        TranscribedLine("1)$2 + 2 = 5$", "heading"),
+        TranscribedLine("$2 + 2 = 7$", "cancelled"),
+        TranscribedLine("Всего событий: [неразборчиво]", "uncertain"),
+    )
+    reading = readPhotoSubmission(submitted, lines, (task("1"),))
+    assert reading.transcriptMarkdown == "1)$2 + 2 = 5$\n~~$2 + 2 = 7$~~\nВсего событий: [неразборчиво]"
+    assert [step.markdown for step in reading.steps] == ["$2 + 2 = 5$", "Всего событий: [неразборчиво]"]
+    assert [item.status for item in reading.taskReadings] == ["needsReview"]
+
+
+def testUnreadableHeadingDoesNotMoveStepsToAnotherTask(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
     reading = readPhotoSubmission(
-        submitted, agree([*start, OcrLine(kind="heading", text="№2"), *end], [*start, *end]),
+        submitted,
+        (TranscribedLine("№1", "heading"), TranscribedLine("$x = 4$", "line"),
+         TranscribedLine("Задание №[неразборчиво]", "heading"), TranscribedLine("$x = 8$", "line"),
+         TranscribedLine("№3 $y = 3$", "heading")),
         (task("1"), task("2"), task("3")),
     )
     assert all(step.markdown != "$x = 8$" for step in reading.steps)
-    assert [item.status for item in reading.taskReadings] == ["needsReview", "needsReview", "answerOnly"]
+    assert [item.status for item in reading.taskReadings] == ["answerOnly", "needsReview", "answerOnly"]
 
 
 def testPhotoCheckResumesFromPersistedTranscript(
