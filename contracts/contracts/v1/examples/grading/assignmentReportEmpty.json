@@ -3,6 +3,9 @@
   "assignmentRev": 2,
   "rev": 4,
   "studentCount": 0,
+  "submittedCount": 0,
+  "waitingStudentIds": [],
+  "trends": [],
   "students": [],
   "tasks": [
     {
@@ -13,6 +16,8 @@
       "needsReview": 0,
       "missing": 0,
       "correctShare": null,
+      "unchecked": 0,
+      "incorrectShare": null,
       "categories": []
     }
   ]

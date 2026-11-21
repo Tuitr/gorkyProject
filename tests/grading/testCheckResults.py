@@ -199,9 +199,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert "Вычислите сумму" not in revised and "Ответ верный" in revised
     with closing(storage.client.get_object(Bucket="results", Key=firstRef.key)["Body"]) as streamBody:
         assert streamBody.read() == report.encode("utf-8")
-    after = AssignmentReport.model_validate(api.get(reportUrl, headers=headers).json())
-    assert after.rev == before.rev + 1 and after.students[0].resultRev == 2
-    assert after.tasks[0].categories == []
+    assert api.get(reportUrl, headers=headers).json() == before.model_dump(mode="json")
     assert api.get(reportUrl, params={"rev": before.rev}, headers=headers).json() == before.model_dump(mode="json")
     assert api.get(url, params={"resultRev": 3}, headers=headers).status_code == 404
     withoutDeleted = api.get(reportUrl, params={"assignmentRev": 1, "excludeCheckId": checkId}, headers=headers)
@@ -232,6 +230,10 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert api.get(downloadUrl, params={"rev": 2}, headers=headers).status_code == 404
     publishedSecond = api.post(publishUrl, headers=headers, json={"resultRev": 2, "actorId": "teacher"})
     assert publishedSecond.status_code == 200 and publishedSecond.json()["resultRev"] == 2
+    after = AssignmentReport.model_validate(api.get(reportUrl, headers=headers).json())
+    assert after.rev > before.rev and after.students[0].resultRev == 2
+    assert after.tasks[0].categories == []
+    assert after.students[0].grade is None
     assert api.get(downloadUrl, params={"rev": 4}, headers=headers).status_code == 404
     download = api.get(downloadUrl, params={"rev": 2}, headers=headers)
     assert download.status_code == 200 and download.headers["Content-Type"] == "text/markdown; charset=utf-8"

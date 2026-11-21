@@ -46,7 +46,7 @@ def createApp(settings: Settings | None = None, *, engine: Engine | None = None,
             raise ApiProblem("not_found", "Check or result revision not found")
         return result
 
-    @app.get("/internal/v1/assignments/{id}/report")
+    @app.get("/internal/v1/assignments/{id}/report", response_model_exclude_unset=True)
     def getReport(id: str, caller: Annotated[ServiceIdentity, Depends(requireRight("reports.read"))],
                   rev: Annotated[int | None, Query(ge=1)] = None,
                   assignmentRev: Annotated[int | None, Query(ge=1)] = None,

@@ -3,9 +3,12 @@
   "assignmentRev": 1,
   "rev": 2,
   "studentCount": 2,
+  "submittedCount": 3,
+  "waitingStudentIds": ["s3"],
+  "trends": [],
   "students": [
-    {"studentId": "s1", "attemptId": "a1", "checkId": "c1", "resultRev": 1, "selection": "accepted"},
-    {"studentId": "s2", "attemptId": "a3", "checkId": "c3", "resultRev": 1, "selection": "draft"}
+    {"studentId": "s1", "attemptId": "a1", "checkId": "c1", "resultRev": 1, "grade": null, "selection": "accepted"},
+    {"studentId": "s2", "attemptId": "a3", "checkId": "c3", "resultRev": 1, "grade": null, "selection": "draft"}
   ],
   "tasks": [
     {
@@ -16,8 +19,10 @@
       "needsReview": 0,
       "missing": 0,
       "correctShare": 0.0,
+      "unchecked": 1,
+      "incorrectShare": 0.3333333333333333,
       "categories": [
-        {"category": "sign_error", "affectedStudents": 1, "primaryIssues": 2}
+        {"category": "sign_error", "affectedStudents": 1, "primaryIssues": 2, "affectedShare": 0.3333333333333333}
       ]
     }
   ]

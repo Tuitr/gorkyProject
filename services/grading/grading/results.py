@@ -133,8 +133,9 @@ class ResultStore:
                                    state="running", reason="awaiting_artifact").model_copy(update=ocr)
             ref = MarkdownRef.model_validate(row.markdownRef)
             accepted = session.scalar(
-                select(func.max(CheckResultRevision.resultRev))
+                select(CheckResultRevision.resultRev)
                 .where(CheckResultRevision.checkId == checkId, CheckResultRevision.acceptedAt.is_not(None))
+                .order_by(CheckResultRevision.acceptedAt.desc(), CheckResultRevision.resultRev.desc()).limit(1)
             )
             result = publishedResult(row.outcome, ref).model_copy(update={"publishedResultRev": accepted, **ocr})
         requireArtifact(ref)
