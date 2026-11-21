@@ -58,7 +58,8 @@ class ReviewEditor:
             changes.extend(edit.changes)
             verdicts = {change.taskId for change in changes if isinstance(change, SetVerdict)}
             source = loadResultSource(session, check, base)
-            outcome = applyChanges(base, edit, overridden, omittedTasks=source.reading.omittedTaskIds - verdicts)
+            outcome = applyChanges(base, edit, overridden, omittedTasks=source.reading.omittedTaskIds - verdicts,
+                                   answerScoredTasks=source.reading.answerScoredTaskIds(source.references) - verdicts)
             updatesFeedback = any(not isinstance(change, (SetGrade, SetTaskScore, SetTeacherComment))
                                   for change in edit.changes)
             if updatesFeedback and not any(isinstance(change, SetOverallReview) for change in changes):
@@ -77,7 +78,8 @@ class ReviewEditor:
 
 
 def applyChanges(base: CheckOutcome, edit: ReviewEditRequest, overridden: set[str], *,
-                 omittedTasks: frozenset[str] = frozenset()) -> CheckOutcome:
+                 omittedTasks: frozenset[str] = frozenset(),
+                 answerScoredTasks: frozenset[str] = frozenset()) -> CheckOutcome:
     maxima = {a.taskId: a.maxScore for a in base.taskAssessments}
     overrides = {a.taskId: a.score for a in base.taskAssessments if a.taskId in overridden}
     gradeUpdate: dict[str, int | None] = {}
@@ -121,4 +123,4 @@ def applyChanges(base: CheckOutcome, edit: ReviewEditRequest, overridden: set[st
         results[change.taskId] = task.model_copy(update={"issues": issues})
     updated = base.model_copy(update={"resultRev": base.resultRev + 1, "taskResults": list(results.values()),
                                       "overallReview": overall, "teacherComment": teacherComment, **gradeUpdate})
-    return withScores(updated, maxima, overrides, omittedTasks=omittedTasks)
+    return withScores(updated, maxima, overrides, omittedTasks=omittedTasks, answerScoredTasks=answerScoredTasks)

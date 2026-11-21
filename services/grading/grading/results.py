@@ -46,6 +46,7 @@ class ResultStore:
         self, checkId: str, calculationId: str, taskResults: tuple[TaskResult, ...], overallReview: str, *,
         lease: JobLease | None = None, maxima: dict[str, float] | None = None,
         omittedTasks: frozenset[str] = frozenset(),
+        answerScoredTasks: frozenset[str] = frozenset(),
     ) -> CheckOutcome:
         if not calculationId or not taskResults or len({task.taskId for task in taskResults}) != len(taskResults):
             raise ValueError("expected an identified calculation with distinct task results")
@@ -63,7 +64,7 @@ class ResultStore:
                 checkId=checkId, attemptId=submitted.attemptId, taskResults=list(taskResults), overallReview=overallReview,
                 resultRev=existing.resultRev if existing is not None else (latest.resultRev + 1 if latest is not None else 1),
             )
-            outcome = withScores(outcome, maxima or {}, {}, omittedTasks=omittedTasks)
+            outcome = withScores(outcome, maxima or {}, {}, omittedTasks=omittedTasks, answerScoredTasks=answerScoredTasks)
             if existing is not None:
                 if outcome != storedOutcome(existing.outcome):
                     raise ResultConflict("the calculation already has a different result")
@@ -167,8 +168,17 @@ def photoDetails(checkpoint: dict[str, object], outcome: CheckOutcome | None) ->
     ]
     details: dict[str, object] = {"transcriptMarkdown": transcript, "photoPages": list(reading.photoPages),
                                   "ocrStatus": reading.ocrStatus, "photoMarks": marks}
-    if reading.ocrReason:
-        details["ocrReason"] = reading.ocrReason
+    detail = reading.ocrReason
+    if outcome is not None and reading.exactAnswerTaskIds and not reading.unassignedFragments:
+        unresolved = {task.taskId for task in outcome.taskResults if task.needsReview}
+        remaining = next((task for task in reading.taskReadings if task.taskId in unresolved and task.reviewReason), None)
+        if not unresolved and outcome.total is not None and outcome.total.pendingCount == 0:
+            details["ocrStatus"] = "readable"
+            detail = None
+        elif remaining is not None:
+            detail = f"Задание № {remaining.taskId.removeprefix('t')}. {remaining.reviewReason}"
+    if detail:
+        details["ocrReason"] = detail
     return details
 
 

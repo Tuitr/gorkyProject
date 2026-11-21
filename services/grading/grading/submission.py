@@ -2,17 +2,21 @@
 
 import hashlib
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 from xml.etree.ElementTree import Element
 
 from contracts.v1.grading.assessment import OcrStatus, PhotoBox
 from contracts.v1.grading.checkresult import PhotoPage
+from contracts.v1.references.reference import ReferenceReady, ReferenceResult
 from grading.assignment import AssignmentTask
+from grading.elementaryAnswers import elementaryAnswer, elementaryVerdict
 from grading.formulas import M, MathParagraph, ReadStatus
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
-from grading.photoOcr import CANCELLED, CROSSOUT, PHOTO_TASK_HEADING, UNREADABLE, TranscribedLine, renderTranscript
+from grading.photoLayout import conditionTaskNumbers, photoHeading
+from grading.photoOcr import CANCELLED, CROSSOUT, UNREADABLE, TranscribedLine, renderTranscript
+from grading.probability import PROBABILITY_START, canGradeProbability, probabilityVerdict, writtenProbability
 from grading.word import W, WordReadError, documentBody, paragraphText
 
 TASK_START = re.compile(r"^\s*Задание\b", re.IGNORECASE)
@@ -70,6 +74,11 @@ class TaskReading:
     taskId: str
     status: Literal["skipped", "omitted", "answerOnly", "hasSteps", "needsReview", "partialCrossout"]
     reviewReason: str | None = None
+    probabilityAnswer: str | None = None
+    elementaryAnswer: str | None = None
+
+    def exactVerdict(self, reference: ReferenceReady) -> Literal["correct", "incorrect"] | None:
+        return probabilityVerdict(self.probabilityAnswer, reference) or elementaryVerdict(self.elementaryAnswer, reference)
 
 
 @dataclass(frozen=True)
@@ -91,6 +100,15 @@ class SubmissionReading:
     @property
     def omittedTaskIds(self) -> frozenset[str]:
         return frozenset(task.taskId for task in self.taskReadings if task.status == "omitted")
+
+    @property
+    def exactAnswerTaskIds(self) -> frozenset[str]:
+        return frozenset(task.taskId for task in self.taskReadings
+                         if task.probabilityAnswer is not None or task.elementaryAnswer is not None)
+
+    def answerScoredTaskIds(self, references: Mapping[str, ReferenceResult]) -> frozenset[str]:
+        return frozenset(task.taskId for task in self.taskReadings
+                         if isinstance(ref := references.get(task.taskId), ReferenceReady) and task.exactVerdict(ref))
 
 
 def verifiedBody(document: bytes, ref: IncomingDocRef) -> Element:
@@ -337,10 +355,13 @@ def readPhotoPages(
     current = None
     cancelledSection = False
     endsWithCrossout: dict[str, bool] = {}
+    probabilities: dict[str, set[str | None]] = {}
+    safeProbabilityTail: set[str] = set()
     reason = "Часть записи нужно сверить с фотографией."
 
     hasReadableContent = False
     for pageIndex, (ref, lines) in enumerate(zip(refs, pages, strict=True)):
+        conditionNumbers = conditionTaskNumbers(lines, tasks)
         if not lines:
             # An unreadable page may contain a new task heading.
             anchor = SourceAnchor(ref, (), 0, 0, len(UNREADABLE), "ocr", pageIndex)
@@ -361,9 +382,9 @@ def readPhotoPages(
                     endsWithCrossout[current] = True
                 continue
             anchor = SourceAnchor(ref, (), index, 0, len(text), "ocr", pageIndex, line.box)
-            if line.kind in ("heading", "cancelled_heading"):
+            heading = photoHeading(line)
+            if heading is not None or line.kind in ("heading", "cancelled_heading"):
                 cancelledSection = line.kind == "cancelled_heading"
-                heading = PHOTO_TASK_HEADING.match(text)
                 current = byNumber.get(heading.group(1) or heading.group(2)) if heading else None
                 if current is None:
                     unassigned.append(UnassignedFragment("Номер задания на фото нужно сверить.", anchor))
@@ -374,6 +395,12 @@ def readPhotoPages(
                     endsWithCrossout[current] = True
                 anchor = replace(anchor, start=heading.end())
                 text = text[heading.end():]
+            elif index in conditionNumbers:
+                number = conditionNumbers[index]
+                current = byNumber[number] if number is not None else None
+                cancelledSection = False
+                if current is not None:
+                    byTask.setdefault(current, [])
             if cancelledSection:
                 continue
             active = withoutDetachedCrossouts(text) if "~~" in text else text
@@ -394,6 +421,14 @@ def readPhotoPages(
             else:
                 if current in endsWithCrossout:
                     endsWithCrossout[current] = False
+                probability = None
+                if PROBABILITY_START.match(text):
+                    probability = writtenProbability(text) if line.kind != "uncertain" else None
+                    probabilities.setdefault(current, set()).add(str(probability) if probability is not None else None)
+                if readStatus == "read" or probability is not None:
+                    safeProbabilityTail.add(current)
+                else:
+                    safeProbabilityTail.discard(current)
                 steps = byTask[current]
                 markdown = "Формулу с зачёркиванием нужно сверить с фото." if readStatus == "crossout" else text
                 step = SolutionStep(current, f"s{len(steps) + 1}", markdown, anchor, readStatus)
@@ -415,6 +450,15 @@ def readPhotoPages(
             reading = taskReading(task, taskSteps, bool(unassigned), endsWithCrossout=endsWithCrossout.get(task.taskId, False))
             if reading.status in ("skipped", "needsReview"):
                 reading = TaskReading(task.taskId, "needsReview", reason)
+            answers = probabilities.get(task.taskId, set())
+            if (reading.status == "partialCrossout" and not unassigned and not endsWithCrossout.get(task.taskId)
+                    and task.taskId in safeProbabilityTail
+                    and len(answers) == 1 and canGradeProbability(task.statement, task.requirements)):
+                reading = replace(reading, probabilityAnswer=next(iter(answers)))
+            elif taskSteps and reading.status in ("hasSteps", "answerOnly") and not unassigned:
+                answer = elementaryAnswer(task, [step.markdown for step in taskSteps])
+                if answer is not None:
+                    reading = replace(reading, elementaryAnswer=answer)
         readings.append(reading)
     transcripts = tuple(PhotoPage(pageIndex=i, transcriptMarkdown=renderTranscript(page)) for i, page in enumerate(pages))
     status: OcrStatus = "readable"

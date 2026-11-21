@@ -286,6 +286,59 @@ def testPhotoCoverFieldsAndTaskListsDoNotHideOmittedSolutions(contractExample: C
     assert result.answer == "incorrect" and assessment.score == 0 and assessment.comment == "Задание пропущено."
 
 
+def testVisiblePhotoNumbersAreUsedEvenWhenOcrReturnsOrdinaryLines(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (task("1"), task("2"))
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("1) $24-3=21$", "line"), TranscribedLine("2) $18+9=19$", "line"),
+    ), tasks)
+    assert reading.ocrStatus == "readable"
+    assert [(step.taskId, step.markdown) for step in reading.steps] == [("t1", "$24-3=21$"), ("t2", "$18+9=19$")]
+
+
+def testCopiedEquationsKeepUnnumberedPhotoColumnsSeparate(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (
+        AssignmentTask("t1", "1", "Найти значение выражения: 24-3", ()),
+        AssignmentTask("t2", "2", "Реши пример: 18+9", ()),
+        AssignmentTask("t3", "3", "Найди корень уравнения: 2x = 16", ()),
+        AssignmentTask("t4", "4", "Реши уравнение: x^2 = 49", ()),
+    )
+    lines = tuple(TranscribedLine(value, "line", PhotoBox(x=x, y=y, w=w, h=0.04)) for value, x, y, w in (
+        ("$24-3=21$", 0.24, 0.28, 0.28), ("$18+9=19$", 0.25, 0.35, 0.28),
+        ("$2x=16$", 0.26, 0.41, 0.16), ("$x^{2}=49$", 0.57, 0.41, 0.14),
+        (r"$x=\frac{16}{2}$", 0.28, 0.46, 0.18), (r"$x=\sqrt{49}$", 0.58, 0.45, 0.15),
+        ("$x=4$", 0.30, 0.52, 0.11), ("$x=7$", 0.60, 0.50, 0.11),
+    ))
+    reading = readPhotoSubmission(submitted, lines, tasks)
+    assert reading.ocrStatus == "readable" and not reading.unassignedFragments
+    assert [(step.taskId, step.sourceAnchor.paragraphIndex) for step in reading.steps] == [
+        ("t1", 0), ("t2", 1), ("t3", 2), ("t4", 3), ("t3", 4), ("t4", 5), ("t3", 6), ("t4", 7),
+    ]
+    references = {task.taskId: reference().model_copy(update={"value": {"exact": value}})
+                  for task, value in zip(tasks, ("21", "27", "8", "-7; 7"), strict=True)}
+
+    def unavailable(_: ModelReviewRequest) -> ModelReviewResponse:
+        raise RuntimeError("model gateway returned HTTP 502")
+
+    results = reviewTasks(submitted.checkId, tasks, reading, references, unavailable)
+    assert [(result.answer, result.needsReview) for result in results] == [
+        ("correct", False), ("incorrect", False), ("incorrect", False), ("incorrect", False),
+    ]
+    exact = reading.answerScoredTaskIds(references)
+    assert [automaticAssessment(result, 1, scoreByAnswer=result.taskId in exact).score for result in results] == [1, 0, 0, 0]
+
+
+def testExactRootsDoNotBypassATeacherRequirement(contractExample: Callable[[str], Any]) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    lines = (TranscribedLine("№1", "heading"), TranscribedLine(r"$x=\pm7$", "line"))
+    ref = reference().model_copy(update={"value": {"exact": "-7; 7"}})
+    for requirements in ((), ("Обоснуй способ решения",)):
+        tasks = (AssignmentTask("t1", "1", "Реши уравнение: x^2 = 49", requirements),)
+        reading = readPhotoSubmission(submitted, lines, tasks)
+        assert reading.taskReadings[0].exactVerdict(ref) == (None if requirements else "correct")
+
+
 @pytest.mark.parametrize("unclear", [
     (),
     (TranscribedLine("№[неразборчиво]", "heading"),),
@@ -337,6 +390,56 @@ def testPartialCrossoutChecksPrincipleUsingOnlyIntactSteps(
     assert result.answer == "unreadable" and result.reasoning == "valid" and result.needsReview
     assert automaticAssessment(result, 1).score is None
     assert "В читаемых шагах применён верный принцип" in composeOverallReview(tasks, reading, (result,), references)
+
+
+@pytest.mark.parametrize(("formula", "exact", "score"), [
+    (r"$P(A)=\frac{3}{6}=\frac{1}{2}=0{,}5$", "1/2", 2),
+    (r"$P(A)=\frac{2}{6}=0,(3)$~~3~~", "1/3", 2),
+    (r"$P(A)=\frac{2}{6}$", "1/2", 0),
+])
+def testExactWrittenProbabilityIsScoredAcrossCrossedOutWorking(
+    contractExample: Callable[[str], Any], formula: str, exact: str, score: int,
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (AssignmentTask("t1", "1", "Найдите вероятность события A.", ()),)
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("№1", "heading"), TranscribedLine("Всего ~~[зачёркнуто]~~ $6$", "line"),
+        TranscribedLine("Благоприятных $2$", "line"), TranscribedLine(formula, "line"),
+        TranscribedLine("число меньше $6$.", "line"),
+    ), tasks)
+    assert reading.exactAnswerTaskIds == frozenset({"t1"})
+    ref = reference().model_copy(update={"value": {"exact": exact}})
+
+    def grade(request: ModelReviewRequest) -> ModelReviewResponse:
+        assert request.promptVersion == "reviewPartial.v1"
+        return ModelReviewResponse(
+            schemaVersion="taskResult.v1", modelId="fixture",
+            taskResult=TaskResult(taskId="t1", answer="unreadable", reasoning="unknown", method="optional",
+                                  issues=[], needsReview=True),
+        )
+
+    result, = reviewTasks(submitted.checkId, tasks, reading, {"t1": ref}, grade)
+    assert result.answer == ("correct" if score else "incorrect") and not result.needsReview
+    assert automaticAssessment(result, 2, scoreByAnswer=True).score == score
+
+
+@pytest.mark.parametrize(("tail", "requirements"), [
+    ((TranscribedLine("$P(A)=0,4$", "line"),), ()),
+    ((TranscribedLine("Ответ: $0,4$", "line"),), ()),
+    ((TranscribedLine("$P(A)=\\frac{~~2~~3}{6}$", "line"),), ()),
+    ((TranscribedLine(photoOcr.CANCELLED, "cancelled"),), ()),
+    ((), ("Обоснуйте ответ",)),
+])
+def testConflictingOrCancelledProbabilityAndTeacherCriteriaStayManual(
+    contractExample: Callable[[str], Any], tail: tuple[TranscribedLine, ...], requirements: tuple[str, ...],
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    tasks = (AssignmentTask("t1", "1", "Найдите вероятность события A.", requirements),)
+    reading = readPhotoSubmission(submitted, (
+        TranscribedLine("№1", "heading"), TranscribedLine("$x=~~2~~3$", "line"), TranscribedLine("$P(A)=0,5$", "line"),
+        *tail,
+    ), tasks)
+    assert reading.taskReadings[0].status == "partialCrossout" and not reading.exactAnswerTaskIds
 
 
 def testUnreadableHeadingDoesNotMoveStepsToAnotherTask(contractExample: Callable[[str], Any]) -> None:

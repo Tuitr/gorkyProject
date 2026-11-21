@@ -284,7 +284,8 @@ class GradingWorker:
         if overallReview is None:
             overallReview = composeOverallReview(prepared.tasks, prepared.reading, results, prepared.references)
         return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease, maxima=prepared.maxima,
-                                      omittedTasks=prepared.reading.omittedTaskIds)
+                                      omittedTasks=prepared.reading.omittedTaskIds,
+                                      answerScoredTasks=prepared.reading.answerScoredTaskIds(prepared.references))
 
     def completeCheck(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], storage: MarkdownStorage, *,

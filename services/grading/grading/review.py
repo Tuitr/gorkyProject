@@ -128,5 +128,14 @@ def reviewTasks(checkId: str, tasks: tuple[AssignmentTask, ...], reading: Submis
         except DocumentMetadataInReview:
             results.append(localResult(task.taskId, required=bool(task.requirements)))
             continue
-        results.append(validatedResult(request, transport(request).taskResult, item))
+        verdict = item.exactVerdict(reference)
+        try:
+            checked = validatedResult(request, transport(request).taskResult, item)
+        except (OSError, RuntimeError):
+            if verdict is None:
+                raise
+            checked = localResult(task.taskId, required=False)
+        if verdict is not None:
+            checked = checked.model_copy(update={"answer": verdict, "needsReview": False})
+        results.append(checked)
     return tuple(results)

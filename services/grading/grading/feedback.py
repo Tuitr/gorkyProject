@@ -82,7 +82,8 @@ def composeOverallReview(
         elif not isinstance(reference, ReferenceReady):
             lines = ["Эталон недоступен. Задание требует ручной проверки."]
         else:
-            lines = taskFeedback(result, steps[task.taskId], exact, partial=source.status == "partialCrossout")
+            lines = taskFeedback(result, steps[task.taskId], exact,
+                                 partial=source.status == "partialCrossout" and result.needsReview)
         sections.append(f"Задание {task.taskNumber}. " + " ".join(lines))
     if reading.unassignedFragments:
         sections.append("Часть записи не удалось отнести к заданию. Эти фрагменты требуют ручной проверки.")
