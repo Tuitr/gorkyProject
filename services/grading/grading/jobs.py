@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from typing import Literal, cast
 
 from sqlalchemy import DateTime, Engine, and_, func, or_, select, update
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import case, literal
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -74,6 +76,12 @@ class JobQueue:
         return self._write(lease, {"completedStage": stage, "stageData": data})
 
     def finish(self, lease: JobLease, state: FinalState, stage: str, data: dict[str, object] | None = None) -> bool:
+        if state == "failed" and isinstance(lease.key, str):
+            # The last page may have been checkpointed after the lease was claimed.
+            stageData = case((CheckJob.completedStage == "photo_pages_read",
+                              CheckJob.stageData.op("||")(literal(data or {}, type_=JSONB))),
+                             else_=literal(data, type_=JSONB(none_as_null=True)))
+            return self._write(lease, {"state": state, "completedStage": stage, "stageData": stageData, "leaseUntil": None})
         return self._write(lease, {"state": state, "completedStage": stage, "stageData": data, "leaseUntil": None})
 
     def reschedule(self, lease: JobLease, state: RetryState, nextAttemptAt: datetime) -> bool:

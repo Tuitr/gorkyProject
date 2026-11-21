@@ -13,8 +13,9 @@ before any business processing. Rejection messages name fields and error kinds, 
 import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
+from shared.submissionmedia import photoMediaType
 from contracts.v1.events.checks import NonEmptyStr, Revision, UtcTimestamp
 
 class EventRejected(Exception):
@@ -76,6 +77,15 @@ class AttemptSubmittedInput(BaseModel):
     attemptId: NonEmptyStr
     checkId: NonEmptyStr
     docRef: IncomingDocRef
+
+    pageRefs: list[IncomingDocRef] | None = Field(default=None, min_length=1, exclude_if=lambda refs: refs is None)
+
+    @model_validator(mode="after")
+    def verifyPages(self) -> "AttemptSubmittedInput":
+        if self.pageRefs is not None:
+            if self.pageRefs[0] != self.docRef or any(photoMediaType(ref.key) is None for ref in self.pageRefs):
+                raise ValueError("pageRefs must contain ordered photo references starting with docRef")
+        return self
 
 
 def rejectBooleanVersion(value: object) -> object:

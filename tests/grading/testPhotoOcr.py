@@ -15,14 +15,16 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from cabinet.uploads import readSubmission
+from contracts.v1.grading.checkresult import MarkdownRef, PhotoBox, PublishedCheck
+from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceReady
 from fastapi import UploadFile
 from grading import photoOcr
 from grading.assignment import AssignmentTask
 from grading.inbox import saveEvent
-from grading.intake import AttemptSubmittedInput, readEvent
-from grading.photoOcr import OcrRejected, TranscribedLine, transcribePhoto
+from grading.intake import AttemptSubmittedInput, InvalidEvent, readEvent
+from grading.photoOcr import OcrRejected, OcrUnavailable, TranscribedLine, transcribePhoto
 from grading.resultArtifacts import parsedTasksAdapter
 from grading.review import reviewTasks
 from grading.stream import StreamConsumer
@@ -231,3 +233,99 @@ def testPhotoCheckResumesFromPersistedTranscript(
     assert retry is not None
     second = worker.prepareCheck(retry, lambda _: pytest.fail("OCR must resume from the checkpoint"))
     assert second == first and reads == ["image/jpeg"]
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("[неразборчиво]", "unreadable"), ("x = [неразборчиво]", "needs_review"),
+])
+def testOcrDistinguishesUnclearFragmentFromUnreadableWork(
+    text: str, expected: str, contractExample: Callable[[str], Any],
+) -> None:
+    submitted = AttemptSubmittedInput.model_validate(contractExample("events/attemptSubmitted.json")["payload"])
+    reading = readPhotoSubmission(submitted, (TranscribedLine("№1", "heading"), TranscribedLine(text, "uncertain")),
+                                  (task("1"),))
+    assert reading.ocrStatus == expected and reading.ocrReason
+    result, = reviewTasks(submitted.checkId, (task("1"),), reading, {}, lambda _: pytest.fail("unexpected model call"))
+    assert result.answer == "unreadable" and result.needsReview
+
+
+@pytest.mark.parametrize("terminalFailure", [False, True])
+def testSecondPageResumesAndMarksUseRevisionAndPageLocalLine(
+    terminalFailure: bool, gradingEngine: Engine, gradingStream: tuple[Redis, str], contractExample: Callable[[str], Any],
+) -> None:
+    event = contractExample("events/attemptSubmitted.json")
+    payload = event["payload"]
+    first = dict(payload["docRef"], key="uploads/01.jpg")
+    second = dict(first, key="uploads/02.png")
+    payload.update(docRef=first, pageRefs=[second, first])
+    with pytest.raises(InvalidEvent):
+        readEvent(json.dumps(event))
+    payload["pageRefs"] = [first, second]
+    submitted = AttemptSubmittedInput.model_validate(payload)
+    with Session(gradingEngine) as db, db.begin():
+        db.add(AssignmentJob(
+            assignmentId=submitted.assignmentId, assignmentRev=submitted.assignmentRev, traceId="two-pages",
+            state="ready", completedStage="references_requested", payload={},
+            stageData={"tasks": parsedTasksAdapter.dump_python((task("1"),), mode="json"),
+                       "references": {"t1": reference().model_dump(mode="json")}},
+        ))
+        saveEvent(db, readEvent(json.dumps(event)))
+
+    calls: list[str] = []
+    box = PhotoBox(x=0.1, y=0.2, w=0.3, h=0.1)
+
+    def ocr(document: bytes, media: str) -> tuple[TranscribedLine, ...]:
+        calls.append(media)
+        if media == "image/jpeg":
+            return TranscribedLine("№1", "heading"), TranscribedLine("$x+2=5$", "line")
+        if len(calls) == 2:
+            raise OcrUnavailable("temporarily unavailable")
+        return TranscribedLine("$x=5+2$", "line", box), TranscribedLine("$x=7$", "line")
+
+    redis, stream = gradingStream
+    worker = GradingWorker(StreamConsumer(redis, "photo", streamName=stream), gradingEngine, ocr=ocr)
+    lease = worker.jobs.claimCheck()
+    assert lease is not None
+    with pytest.raises(OcrUnavailable):
+        worker.prepareCheck(lease, lambda ref: ref.key.encode())
+    pending = worker.results.read(submitted.checkId, None, lambda _: None)
+    assert pending and len(pending.photoPages) == 1 and pending.ocrStatus is None
+    if terminalFailure:
+        assert worker.jobs.finish(lease, "failed", "ocr_unavailable", {"attempts": 5})
+        failed = worker.results.read(submitted.checkId, None, lambda _: None)
+        assert failed and failed.state == "failed" and failed.reason == "ocr_unavailable"
+        assert failed.ocrStatus is None and failed.photoPages == pending.photoPages
+        return
+    assert worker.jobs.reschedule(lease, "queued", datetime.now(UTC))
+    retry = worker.jobs.claimCheck()
+    assert retry is not None
+    prepared = worker.prepareCheck(retry, lambda ref: ref.key.encode())
+    assert prepared and calls == ["image/jpeg", "image/png", "image/png"]
+    assert [(step.stepId, step.sourceAnchor.pageIndex, step.sourceAnchor.paragraphIndex)
+            for step in prepared.reading.steps] == [("s1", 0, 1), ("s2", 1, 0), ("s3", 1, 1)]
+    issue = Issue(issueId="i1", stepId="s2", category="sign", comment="Знак", correction="x=5−2")
+    result = TaskResult(taskId="t1", answer="incorrect", reasoning="invalid", method="optional",
+                        needsReview=False, issues=[issue, issue.model_copy(update={"issueId": "i2", "stepId": "s3"})])
+    ref = MarkdownRef(bucket="results", key="feedback", sha256="a"*64)
+    for rev, issues in [(1, result.issues), (2, result.issues[:1])]:
+        worker.results.saveDraft(submitted.checkId, str(rev), (result.model_copy(update={"issues": issues}),), "Отзыв")
+        worker.results.publish(submitted.checkId, rev, ref, lambda _: None)
+    for rev, expectedCount in [(1, 2), (2, 1)]:
+        shown = worker.results.read(submitted.checkId, rev, lambda _: None)
+        assert isinstance(shown, PublishedCheck) and shown.ocrStatus == "readable"
+        assert shown.photoPages[1].transcriptMarkdown == "$x=5+2$\n$x=7$"
+        assert len(shown.photoMarks) == expectedCount
+        mark = shown.photoMarks[0]
+        assert (mark.taskId, mark.issueId, mark.pageIndex, mark.lineIndex, mark.box) == ("t1", "i1", 1, 0, box)
+        if rev == 1:
+            assert shown.photoMarks[1].box is None and shown.photoMarks[1].lineIndex == 1
+
+@pytest.mark.parametrize("geometry", [
+    {"x": 0.9, "y": 0.4, "w": 0.3, "h": 0.1}, {"x": 0}, None,
+])
+def testDubiousGeometryKeepsTheLine(geometry: dict[str, float] | None) -> None:
+    content = json.dumps({"lines": [{"kind": "line", "text": "x=3", "box": geometry}]})
+    body = json.dumps({"status": "completed", "output": [
+        {"type": "message", "content": [{"type": "output_text", "text": content}]},
+    ]}).encode()
+    line, = photoOcr.parseResponse(body)
+    assert line.text == "x=3" and line.box is None

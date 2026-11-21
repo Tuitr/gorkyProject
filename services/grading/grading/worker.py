@@ -25,14 +25,15 @@ from grading.resultArtifacts import referencesAdapter as referencesAdapter
 from grading.results import ResultStore
 from grading.review import PROMPT_VERSION, reviewTasks, sendReview
 from grading.stream import StreamConsumer, StreamDelivery
-from grading.submission import SolutionStep, SubmissionReading, readPhotoSubmission, readSubmissionDetails
+from grading.submission import SolutionStep, SubmissionReading, readPhotoPages, readSubmissionDetails
 from grading.tables import AssignmentJob
 from shared.submissionmedia import photoMediaType
 
 deadlinesAdapter: TypeAdapter[dict[str, datetime]] = TypeAdapter(dict[str, datetime])
 referenceAttemptsAdapter: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, int])
 referenceErrorsAdapter: TypeAdapter[dict[str, dict[str, object]]] = TypeAdapter(dict[str, dict[str, object]])
-SUBMISSION_PARSE_VERSION = 3
+photoPagesAdapter = TypeAdapter(list[tuple[TranscribedLine, ...]])
+SUBMISSION_PARSE_VERSION = 4
 ASSIGNMENT_RECHECK_DELAY = timedelta(seconds=5)
 REFERENCE_RETRY_LIMIT = 3
 
@@ -242,7 +243,7 @@ class GradingWorker:
                 **submissionReadingAdapter.dump_python(reading, mode="json"), "parserVersion": SUBMISSION_PARSE_VERSION,
                 "references": referencesAdapter.dump_python(references, mode="json"), "referenceErrors": referenceErrors,
             }
-            if not available:
+            if not available and reading.ocrStatus != "unreadable":
                 if not self.jobs.finish(lease, "needs_review", "reference_unavailable", data):
                     raise RuntimeError("check lease expired before reference failure was saved")
                 return None
@@ -298,26 +299,34 @@ class GradingWorker:
     def parseSubmissionDetails(self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes]) -> SubmissionReading:
         if not isinstance(lease.key, str):
             raise ValueError("expected a submission check job")
+        submitted = AttemptSubmittedInput.model_validate(lease.payload)
         if lease.completedStage == "submission_parsed" and lease.stageData is not None:
             version = lease.stageData.get("parserVersion", 1)
-            if version == SUBMISSION_PARSE_VERSION:
+            if version == SUBMISSION_PARSE_VERSION or (version == 3 and not submitted.pageRefs):
                 return submissionReadingAdapter.validate_python(lease.stageData)
-            if version not in (1, 2):
+            if version not in (1, 2, 3):
                 raise ValueError("unsupported submission parser checkpoint version")
-        elif lease.completedStage is not None:
+        elif lease.completedStage not in (None, "photo_pages_read"):
             raise ValueError("unexpected checkpoint for submission parsing")
-        submitted = AttemptSubmittedInput.model_validate(lease.payload)
         with Session(self.engine) as session:
             assignment = session.get(AssignmentJob, (submitted.assignmentId, submitted.assignmentRev))
             if assignment is None or assignment.stageData is None or "tasks" not in assignment.stageData:
                 raise ValueError("parsed tasks are unavailable for the submitted assignment revision")
             tasks = parsedTasksAdapter.validate_python(assignment.stageData["tasks"])
-        document = loadDocument(submitted.docRef)
         media = photoMediaType(submitted.docRef.key)
         if media is None:
-            reading = readSubmissionDetails(submitted, document, tasks)
+            reading = readSubmissionDetails(submitted, loadDocument(submitted.docRef), tasks)
         else:
-            reading = readPhotoSubmission(submitted, self.ocr(document, media), tasks)
+            refs = submitted.pageRefs or [submitted.docRef]
+            pages = photoPagesAdapter.validate_python((lease.stageData or {}).get("ocrLines", []))
+            for ref in refs[len(pages):]:
+                pageMedia = photoMediaType(ref.key)
+                assert pageMedia is not None
+                pages.append(self.ocr(loadDocument(ref), pageMedia))
+                progress = {"ocrLines": photoPagesAdapter.dump_python(pages, mode="json")}
+                if not self.jobs.checkpoint(lease, "photo_pages_read", progress):
+                    raise RuntimeError("check lease expired before photo progress was saved")
+            reading = readPhotoPages(refs, pages, tasks)
         data = {"parserVersion": SUBMISSION_PARSE_VERSION, **submissionReadingAdapter.dump_python(reading, mode="json")}
         if not self.jobs.checkpoint(lease, "submission_parsed", data):
             raise RuntimeError("check lease expired before the submission parse could be saved")

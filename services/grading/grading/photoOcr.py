@@ -14,6 +14,7 @@ from urllib.parse import SplitResult
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from contracts.v1.grading.checkresult import PhotoBox
 from shared.ocrconfig import parseOcrUrl
 from shared.submissionmedia import imageMediaType
 
@@ -36,6 +37,8 @@ TRANSCRIBE = r"""
 Используй heading для явно написанного заголовка задания. Сохраняй номер
 и остальной текст той же строки. Если номер в таком заголовке неразличим,
 оставь kind=heading и поставь [неразборчиво] ровно вместо номера.
+Для строк решения верни box только если границы строки уверенно видны: x, y от левого
+верхнего угла, w, h — ширина и высота, все в долях ориентированного снимка. Иначе box=null.
 Обычная строка решения — line. Полностью зачёркнутая строка — cancelled,
 её текст пиши без внешних тильд. Внутри строки выделяй только зачёркнутые
 символы через ~~...~~. Если зачёркнутое невозможно прочитать, пиши
@@ -56,7 +59,7 @@ ASSIGNMENT_INSTRUCTIONS = """
 и условием, если они на одной строке. Сохраняй исходную нумерацию. Продолжения — line.
 Передавай формулы, числа, единицы и все существенные данные рисунка буквально.
 Если номер, формула, связь на рисунке или другая существенная деталь неоднозначны,
-верни uncertain с [неразборчиво]. Если заданий не видно, верни пустой список.
+верни uncertain с [неразборчиво]. Для строк условия указывай box=null. Если заданий не видно, верни пустой список.
 """.strip()
 
 READING = (
@@ -78,6 +81,7 @@ class OcrLine(BaseModel):
 
     kind: Literal["heading", "line", "uncertain", "cancelled"]
     text: str
+    box: PhotoBox | None
 
 
 class OcrPage(BaseModel):
@@ -90,6 +94,7 @@ class OcrPage(BaseModel):
 class TranscribedLine:
     text: str
     kind: Literal["heading", "line", "uncertain", "cancelled"]
+    box: PhotoBox | None = None
 
 
 def renderTranscript(lines: Iterable[TranscribedLine]) -> str:
@@ -130,7 +135,17 @@ def parseResponse(body: bytes) -> list[OcrLine]:
         ]
         if len(texts) != 1:
             raise OcrRejected("ocr_incomplete")
-        lines = OcrPage.model_validate_json(texts[0]).lines
+        page = json.loads(texts[0])
+        # Earlier transcripts and providers without geometry contain only kind and text.
+        for item in page["lines"]:
+            if isinstance(item, dict):
+                geometry = item.get("box")
+                try:
+                    box = PhotoBox.model_validate(geometry) if geometry is not None else None
+                except ValidationError:
+                    box = None
+                item["box"] = box if box and box.fitsPage() else None
+        lines = OcrPage.model_validate(page).lines
     except (TypeError, KeyError, ValidationError, ValueError) as error:
         if isinstance(error, OcrRejected):
             raise
@@ -189,4 +204,4 @@ def transcribePhoto(original: bytes, mediaType: str, *, assignment: bool = False
     reading = requestReading(endpoint, apiKey, model, imageUrl,
                              "Перепиши условия по номерам." if assignment else READING,
                              ASSIGNMENT_INSTRUCTIONS if assignment else TRANSCRIBE)
-    return tuple(TranscribedLine(line.text, line.kind) for line in reading)
+    return tuple(TranscribedLine(line.text, line.kind, line.box) for line in reading)
