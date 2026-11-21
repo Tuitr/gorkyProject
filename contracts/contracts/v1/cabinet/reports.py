@@ -16,6 +16,8 @@ class ReportResult(BaseModel):
     studentId: NonEmptyStr
     checkId: NonEmptyStr
     resultRev: ResultRevision
+    grade: Annotated[int, Field(ge=1, le=5)] | None = None
+    """The teacher's grade from PUT /v1/checks/{checkId}/grade; None until set."""
 
 
 class GradingTaskTotals(BaseModel):

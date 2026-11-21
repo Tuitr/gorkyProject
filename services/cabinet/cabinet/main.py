@@ -13,14 +13,14 @@ import httpx
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Query, Request, Response, UploadFile
 from pydantic import Json
 from starlette.datastructures import UploadFile as MultipartFile
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, delete, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from cabinet.assignments import (
     AssignmentRecord, deleteAssignment, listActiveAssignments, requireOwnedAssignment, storeAssignment,
 )
-from cabinet.attempts import deleteAttempt
+from cabinet.attempts import CheckRecord, deleteAttempt
 from cabinet.auth.passwords import Passwords
 from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
@@ -32,13 +32,14 @@ from cabinet.cleanupuploads import tryCleanUpload
 from cabinet.documents import readDocx
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
-from cabinet.reports import combineReport, deletedReportCheckIds, readReportRoster
+from cabinet.reports import combineReport, deletedReportCheckIds, readReportGrades, readReportRoster
 from cabinet.reviews import gradingChanges, readMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, readUploadPhoto, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
+from contracts.v1.cabinet.grades import CheckGrade, SetGrade
 from contracts.v1.cabinet.registration import TeacherRegistration
 from contracts.v1.cabinet.reports import AssignmentReport
 from contracts.v1.cabinet.reviews import EditReview, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
@@ -418,7 +419,8 @@ def createApp(
             summary = readGradingModel(upstream, GradingReport)
         with sessionFactory() as db:
             roster, checks = readReportRoster(db, classId, assignmentId, rev)
-        return combineReport(assignmentId, rev, roster, checks, summary)
+            grades = readReportGrades(db, [student.checkId for student in summary.students])
+        return combineReport(assignmentId, rev, roster, checks, summary, grades)
 
     @v1.get(
         "/assignments/{assignmentId}/references",
@@ -481,6 +483,28 @@ def createApp(
         if receipt.checkId != checkId or receipt.editId != body.editId or receipt.resultRev <= body.baseRev:
             raise invalidGradingResponse()
         return receipt
+
+    @v1.put(
+        "/checks/{checkId}/grade",
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError}},
+    )
+    def setCheckGrade(checkId: str, body: SetGrade, teacher: TeacherSession = Depends(currentTeacher)) -> CheckGrade:
+        """The teacher grades the submission from 1 to 5; null removes the grade. Repeating the same grade is harmless."""
+        with sessionFactory.begin() as db:
+            requireOwnedCheck(db, checkId, teacher.teacherId)
+            db.execute(update(CheckRecord).where(CheckRecord.checkId == checkId).values(grade=body.grade))
+        return CheckGrade(checkId=checkId, grade=body.grade)
+
+    @v1.get(
+        "/checks/{checkId}/grade",
+        responses={401: {"model": ApiError}, 404: {"model": ApiError}},
+    )
+    def readCheckGrade(checkId: str, response: Response, teacher: TeacherSession = Depends(currentTeacher)) -> CheckGrade:
+        with sessionFactory() as db:
+            requireOwnedCheck(db, checkId, teacher.teacherId)
+            grade = db.scalar(select(CheckRecord.grade).where(CheckRecord.checkId == checkId))
+        response.headers["Cache-Control"] = "no-store"
+        return CheckGrade(checkId=checkId, grade=grade)
 
     @v1.post(
         "/checks/{checkId}/publish", response_model=ReviewRevision,

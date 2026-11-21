@@ -37,6 +37,20 @@ def readReportRoster(
     return list(roster.values()), checks
 
 
+def readReportGrades(db: Session, checkIds: list[str]) -> dict[str, int]:
+    """Teacher grades of the given checks; checks without a grade are left out."""
+    if not checkIds:
+        return {}
+    return {
+        checkId: grade
+        for checkId, grade in db.execute(
+            select(CheckRecord.checkId, CheckRecord.grade).where(
+                CheckRecord.checkId.in_(checkIds), CheckRecord.grade.is_not(None),
+            )
+        )
+    }
+
+
 def deletedReportCheckIds(db: Session, assignmentId: str, assignmentRev: int) -> list[str]:
     return list(db.scalars(
         select(CheckRecord.checkId)
@@ -51,12 +65,16 @@ def deletedReportCheckIds(db: Session, assignmentId: str, assignmentRev: int) ->
 
 def combineReport(
     assignmentId: str, assignmentRev: int, roster: list[StudentSummary], checks: dict[str, str], upstream: GradingReport,
+    grades: dict[str, int] | None = None,
 ) -> AssignmentReport:
     """grading counts its selected result per student; the cabinet adds the roster and the public shares."""
     if (upstream.assignmentId, upstream.assignmentRev) != (assignmentId, assignmentRev):
         raise invalidGradingResponse()
     results = [
-        ReportResult(studentId=student.studentId, checkId=student.checkId, resultRev=student.resultRev)
+        ReportResult(
+            studentId=student.studentId, checkId=student.checkId, resultRev=student.resultRev,
+            grade=(grades or {}).get(student.checkId),
+        )
         for student in upstream.students
     ]
     reviewed = {result.studentId for result in results}

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Index, String, UniqueConstraint, select, text
+from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Index, SmallInteger, String, UniqueConstraint, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -46,6 +46,8 @@ class CheckRecord(Base):
     attemptId: Mapped[str] = mapped_column("attempt_id", ForeignKey("cabinet.attempts.attempt_id"))
     assignmentId: Mapped[str] = mapped_column("assignment_id", String(36))
     assignmentRev: Mapped[int] = mapped_column("assignment_rev")
+    grade: Mapped[int | None] = mapped_column(SmallInteger)
+    """The teacher's grade from 1 to 5; None until the teacher sets it."""
 
 
 def ensureAttempt(
