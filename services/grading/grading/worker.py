@@ -34,7 +34,7 @@ referenceAttemptsAdapter: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, in
 referenceErrorsAdapter: TypeAdapter[dict[str, dict[str, object]]] = TypeAdapter(dict[str, dict[str, object]])
 taskPointsAdapter = TypeAdapter(list[TaskPoints])
 photoPagesAdapter = TypeAdapter(list[tuple[TranscribedLine, ...]])
-SUBMISSION_PARSE_VERSION = 4
+SUBMISSION_PARSE_VERSION = 5
 ASSIGNMENT_RECHECK_DELAY = timedelta(seconds=5)
 REFERENCE_RETRY_LIMIT = 3
 
@@ -247,7 +247,8 @@ class GradingWorker:
                 **submissionReadingAdapter.dump_python(reading, mode="json"), "parserVersion": SUBMISSION_PARSE_VERSION,
                 "references": referencesAdapter.dump_python(references, mode="json"), "referenceErrors": referenceErrors,
             }
-            if not available and reading.ocrStatus != "unreadable":
+            if (not available and reading.ocrStatus != "unreadable"
+                    and not any(item.status in ("skipped", "omitted") for item in reading.taskReadings)):
                 if not self.jobs.finish(lease, "needs_review", "reference_unavailable", data):
                     raise RuntimeError("check lease expired before reference failure was saved")
                 return None
@@ -282,7 +283,8 @@ class GradingWorker:
         results = reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport)
         if overallReview is None:
             overallReview = composeOverallReview(prepared.tasks, prepared.reading, results, prepared.references)
-        return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease, maxima=prepared.maxima)
+        return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease, maxima=prepared.maxima,
+                                      omittedTasks=prepared.reading.omittedTaskIds)
 
     def completeCheck(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], storage: MarkdownStorage, *,
@@ -306,7 +308,7 @@ class GradingWorker:
         submitted = AttemptSubmittedInput.model_validate(lease.payload)
         if lease.completedStage == "submission_parsed" and lease.stageData is not None:
             version = lease.stageData.get("parserVersion", 1)
-            if version == SUBMISSION_PARSE_VERSION or (version == 3 and not submitted.pageRefs):
+            if version in (4, SUBMISSION_PARSE_VERSION) or (version == 3 and not submitted.pageRefs):
                 return submissionReadingAdapter.validate_python(lease.stageData)
             if version not in (1, 2, 3):
                 raise ValueError("unsupported submission parser checkpoint version")

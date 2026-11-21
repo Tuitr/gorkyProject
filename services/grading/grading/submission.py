@@ -12,20 +12,22 @@ from contracts.v1.grading.checkresult import PhotoPage
 from grading.assignment import AssignmentTask
 from grading.formulas import M, MathParagraph, ReadStatus
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
-from grading.photoOcr import CROSSOUT, UNREADABLE, TranscribedLine, renderTranscript
+from grading.photoOcr import CANCELLED, CROSSOUT, PHOTO_TASK_HEADING, UNREADABLE, TranscribedLine, renderTranscript
 from grading.word import W, WordReadError, documentBody, paragraphText
 
 TASK_START = re.compile(r"^\s*Задание\b", re.IGNORECASE)
 TASK_HEADING = re.compile(r"^\s*Задание\s+(?:№\s*)?(\d+)(?:[.):](?=\s|$)|(?=\s*$))\s*", re.IGNORECASE)
-PHOTO_TASK_HEADING = re.compile(
-    r"^(?:(?:Задание\s+(?:№\s*)?|№\s*)(\d+)(?:[):]|\.(?!\d)|(?=\s|$))|(\d+)(?:[):]|\.(?!\d)))\s*",
-    re.IGNORECASE,
-)
 TEXT_LINE = re.compile(r"[^\r\n]+")
 ANSWER_LABEL = re.compile(r"^ответ\s*:\s*", re.IGNORECASE)
 SCALAR = r"[+-]?(?:\d+(?:[.,]\d+)?(?:/\d+)?|\\sqrt\{\d+\})"
 ANSWER_VALUE = re.compile(rf"(?:[a-zA-Z]\s*=\s*)?(?:{SCALAR}|\(\s*{SCALAR}\s*[;,]\s*{SCALAR}\s*\)|да|нет)", re.I)
 PREAMBLE = re.compile(r"^\s*(?:ученик\s*:|самостоятельная работа\b)", re.I)
+PHOTO_VARIANT = re.compile(r"^вариант\s*[:№—–-]?\s*\$?\d+\$?\.?$", re.I)
+PHOTO_SHEET_NUMBER = re.compile(r"^номер\s*[:№]\s*\$?(\d+)\$?\.?$", re.I)
+PHOTO_TASK_LIST = re.compile(
+    r"^задани[ея]\s*[:—–-]?\s*№?\s*\d+(?:\s*[,;]\s*№?\s*\d+)+\.?$", re.I,
+)
+PARTIAL_CROSSOUT = "Часть решения зачёркнута. Читаемые шаги проверяются отдельно. Итог нужно сверить с фото."
 
 
 @dataclass(frozen=True)
@@ -60,13 +62,13 @@ class SolutionStep:
     stepId: str
     markdown: str
     sourceAnchor: SourceAnchor
-    readStatus: ReadStatus
+    readStatus: ReadStatus | Literal["crossout"]
 
 
 @dataclass(frozen=True)
 class TaskReading:
     taskId: str
-    status: Literal["skipped", "answerOnly", "hasSteps", "needsReview"]
+    status: Literal["skipped", "omitted", "answerOnly", "hasSteps", "needsReview", "partialCrossout"]
     reviewReason: str | None = None
 
 
@@ -85,6 +87,10 @@ class SubmissionReading:
     photoPages: tuple[PhotoPage, ...] = ()
     ocrStatus: OcrStatus | None = None
     ocrReason: str | None = None
+
+    @property
+    def omittedTaskIds(self) -> frozenset[str]:
+        return frozenset(task.taskId for task in self.taskReadings if task.status == "omitted")
 
 
 def verifiedBody(document: bytes, ref: IncomingDocRef) -> Element:
@@ -202,10 +208,16 @@ def afterStatement(lines: list[SourceLine], statement: str) -> Iterator[SourceLi
         skip = max(0, skip - length - 1)
 
 
-def taskReading(task: AssignmentTask, steps: list[SolutionStep] | None, unassigned: bool) -> TaskReading:
+def taskReading(
+    task: AssignmentTask, steps: list[SolutionStep] | None, unassigned: bool, *, endsWithCrossout: bool = False,
+) -> TaskReading:
     if steps is None:
         return TaskReading(task.taskId, "needsReview", "В работе не найден заголовок этого задания.")
-    if any(step.readStatus == "ambiguous" for step in steps):
+    if (endsWithCrossout or any(step.readStatus == "crossout" for step in steps)) and any(
+        step.readStatus == "read" for step in steps
+    ):
+        return TaskReading(task.taskId, "partialCrossout", PARTIAL_CROSSOUT)
+    if any(step.readStatus != "read" for step in steps):
         return TaskReading(task.taskId, "needsReview", "Часть записи не удалось прочитать. Сверьте отмеченный шаг с оригиналом.")
     if not steps:
         if unassigned:
@@ -279,11 +291,12 @@ def readSubmission(
 def withoutDetachedCrossouts(text: str) -> str | None:
     """Omit crossed-out alternatives at the edges, preserving anything inside an expression."""
     active = CROSSOUT.sub("", text).strip()
-    if not active and CROSSOUT.fullmatch(text.strip()):
+    if not active:
         return ""
-    # Strip only standalone numbers, never operators or pieces of a formula.
+    # Strip standalone answers or complete math expressions at the edges.
     if any(
-        match[1].strip() not in ("[зачёркнуто]", UNREADABLE) and not re.fullmatch(r"[+-−]?\d+(?:[.,]\d+)?", match[1].strip())
+        match[1].strip() not in (CANCELLED, UNREADABLE)
+        and not re.fullmatch(r"[+-−]?\d+(?:[.,]\d+)?|\$[^$]+\$", match[1].strip())
         for match in CROSSOUT.finditer(text)
     ):
         return None
@@ -307,6 +320,13 @@ def readPhotoSubmission(
     return readPhotoPages((submitted.docRef,), (lines,), tasks)
 
 
+def isPhotoPreamble(text: str, byNumber: dict[str, str]) -> bool:
+    text = text.strip()
+    number = PHOTO_SHEET_NUMBER.fullmatch(text)
+    return bool(PHOTO_VARIANT.fullmatch(text) or PHOTO_TASK_LIST.fullmatch(text)
+                or (number and number.group(1) not in byNumber))
+
+
 def readPhotoPages(
     refs: Sequence[IncomingDocRef], pages: Sequence[Sequence[TranscribedLine]], tasks: Sequence[AssignmentTask],
 ) -> SubmissionReading:
@@ -315,6 +335,8 @@ def readPhotoPages(
     unassigned: list[UnassignedFragment] = []
     ordered: list[SolutionStep] = []
     current = None
+    cancelledSection = False
+    endsWithCrossout: dict[str, bool] = {}
     reason = "Часть записи нужно сверить с фотографией."
 
     hasReadableContent = False
@@ -323,18 +345,24 @@ def readPhotoPages(
             # An unreadable page may contain a new task heading.
             anchor = SourceAnchor(ref, (), 0, 0, len(UNREADABLE), "ocr", pageIndex)
             unassigned.append(UnassignedFragment("На странице не прочитано ни одной строки.", anchor))
-            if current is not None:
+            if current is not None and not cancelledSection:
                 steps = byTask[current]
                 step = SolutionStep(current, f"s{len(steps) + 1}", UNREADABLE, anchor, "ambiguous")
                 steps.append(step)
                 ordered.append(step)
             current = None
+            cancelledSection = False
         for index, line in enumerate(lines):
             text = line.text
+            if not byTask and isPhotoPreamble(text, byNumber):
+                continue
             if line.kind == "cancelled":
+                if current is not None:
+                    endsWithCrossout[current] = True
                 continue
             anchor = SourceAnchor(ref, (), index, 0, len(text), "ocr", pageIndex, line.box)
-            if line.kind == "heading":
+            if line.kind in ("heading", "cancelled_heading"):
+                cancelledSection = line.kind == "cancelled_heading"
                 heading = PHOTO_TASK_HEADING.match(text)
                 current = byNumber.get(heading.group(1) or heading.group(2)) if heading else None
                 if current is None:
@@ -342,10 +370,20 @@ def readPhotoPages(
                     continue
                 assert heading is not None
                 byTask.setdefault(current, [])
+                if cancelledSection:
+                    endsWithCrossout[current] = True
                 anchor = replace(anchor, start=heading.end())
                 text = text[heading.end():]
+            if cancelledSection:
+                continue
             active = withoutDetachedCrossouts(text) if "~~" in text else text
-            ambiguous = active is None or line.kind == "uncertain" or UNREADABLE in active
+            readStatus: ReadStatus | Literal["crossout"] = "read"
+            if active is None:
+                readStatus = "crossout"
+            elif line.kind == "uncertain" or UNREADABLE in active:
+                readStatus = "ambiguous"
+            if active == "" and "~~" in text and current is not None:
+                endsWithCrossout[current] = True
             text = text if active is None else active
             if not text or ANSWER_LABEL.fullmatch(text):
                 continue
@@ -354,31 +392,44 @@ def readPhotoPages(
             if current is None:
                 unassigned.append(UnassignedFragment("Не удалось определить номер задания для строки на фото.", anchor))
             else:
+                if current in endsWithCrossout:
+                    endsWithCrossout[current] = False
                 steps = byTask[current]
-                step = SolutionStep(current, f"s{len(steps) + 1}", text, anchor, "ambiguous" if ambiguous else "read")
+                markdown = "Формулу с зачёркиванием нужно сверить с фото." if readStatus == "crossout" else text
+                step = SolutionStep(current, f"s{len(steps) + 1}", markdown, anchor, readStatus)
                 steps.append(step)
                 ordered.append(step)
 
+    # An unresolved page or heading can hide a task that was actually attempted.
+    completeReading = bool(byTask) and not unassigned and not any(
+        step.readStatus == "ambiguous" and step.markdown == UNREADABLE for step in ordered
+    )
     readings = []
     for task in tasks:
-        reading = taskReading(task, byTask.get(task.taskId), bool(unassigned))
-        if reading.status in ("skipped", "needsReview"):
-            reading = TaskReading(task.taskId, "needsReview", reason)
+        taskSteps = byTask.get(task.taskId)
+        if not taskSteps and task.taskId in endsWithCrossout:
+            reading = TaskReading(task.taskId, "skipped", "Решение полностью зачёркнуто.")
+        elif not taskSteps and completeReading:
+            reading = TaskReading(task.taskId, "omitted")
+        else:
+            reading = taskReading(task, taskSteps, bool(unassigned), endsWithCrossout=endsWithCrossout.get(task.taskId, False))
+            if reading.status in ("skipped", "needsReview"):
+                reading = TaskReading(task.taskId, "needsReview", reason)
         readings.append(reading)
     transcripts = tuple(PhotoPage(pageIndex=i, transcriptMarkdown=renderTranscript(page)) for i, page in enumerate(pages))
     status: OcrStatus = "readable"
     detail = None
-    if not hasReadableContent:
+    if not hasReadableContent and not endsWithCrossout and not completeReading:
         status, detail = "unreadable", "На снимках не удалось прочитать решение."
-    elif unassigned or any(item.status == "needsReview" for item in readings):
+    elif unassigned or any(item.status in ("needsReview", "partialCrossout") for item in readings):
         status = "needs_review"
         if unassigned:
             fragment = unassigned[0]
             page = fragment.sourceAnchor.pageIndex + 1 if fragment.sourceAnchor else 1
             detail = f"Страница {page}. {fragment.reviewReason}"
         else:
-            item = next(item for item in readings if item.status == "needsReview")
+            item = next(item for item in readings if item.status in ("needsReview", "partialCrossout"))
             number = next(task.taskNumber for task in tasks if task.taskId == item.taskId)
-            detail = f"Задание № {number}. {reason}"
+            detail = f"Задание № {number}. {item.reviewReason or reason}"
     return SubmissionReading(tuple(ordered), tuple(readings), tuple(unassigned),
                              "\n".join(page.transcriptMarkdown for page in transcripts), transcripts, status, detail)

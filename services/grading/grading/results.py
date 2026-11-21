@@ -45,6 +45,7 @@ class ResultStore:
     def saveDraft(
         self, checkId: str, calculationId: str, taskResults: tuple[TaskResult, ...], overallReview: str, *,
         lease: JobLease | None = None, maxima: dict[str, float] | None = None,
+        omittedTasks: frozenset[str] = frozenset(),
     ) -> CheckOutcome:
         if not calculationId or not taskResults or len({task.taskId for task in taskResults}) != len(taskResults):
             raise ValueError("expected an identified calculation with distinct task results")
@@ -62,7 +63,7 @@ class ResultStore:
                 checkId=checkId, attemptId=submitted.attemptId, taskResults=list(taskResults), overallReview=overallReview,
                 resultRev=existing.resultRev if existing is not None else (latest.resultRev + 1 if latest is not None else 1),
             )
-            outcome = withScores(outcome, maxima or {}, {})
+            outcome = withScores(outcome, maxima or {}, {}, omittedTasks=omittedTasks)
             if existing is not None:
                 if outcome != storedOutcome(existing.outcome):
                     raise ResultConflict("the calculation already has a different result")

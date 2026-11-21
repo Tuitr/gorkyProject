@@ -7,6 +7,7 @@ import re
 from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Mapping
 from http.client import HTTPConnection, HTTPSConnection
+from typing import Literal
 from urllib.parse import urlsplit
 
 from contracts.v1.grading.taskresult import Issue, TaskResult
@@ -16,6 +17,7 @@ from grading.assignment import AssignmentTask, subjectOf
 from grading.submission import SubmissionReading, TaskReading
 
 PROMPT_VERSION = "review.v2"
+PARTIAL_REVIEW_PROMPT = "reviewPartial.v1"
 SUBJECT_PROMPT_VERSIONS = {"physics": "review.v3"}
 """A subject with its own review prompt; math uses the promptVersion the caller passes (review.v2 by default)."""
 DOCUMENT_LABEL = re.compile(
@@ -81,20 +83,23 @@ def anchoredIssues(issues: list[Issue], stepIds: set[str]) -> list[Issue]:
 
 def validatedResult(request: ModelReviewRequest, result: TaskResult, reading: TaskReading) -> TaskResult:
     if result.taskId != request.taskId:
-        return localResult(request.taskId, skipped=False, required=bool(request.rubric))
+        return localResult(request.taskId, required=bool(request.rubric))
     issues = anchoredIssues(result.issues, {step.stepId for step in request.steps})
+    partial = reading.status == "partialCrossout"
     reasoning = "not_shown" if reading.status == "answerOnly" else result.reasoning
     method = result.method if request.rubric else "optional"
     if reading.status == "answerOnly" and request.rubric:
         method = "unconfirmed"
-    return result.model_copy(update={"issues": issues, "reasoning": reasoning, "method": method,
-                                     "needsReview": result.needsReview or result.answer == "unreadable" or len(issues) != len(result.issues)})
+    return result.model_copy(update={
+        "answer": "unreadable" if partial else result.answer, "issues": issues, "reasoning": reasoning, "method": method,
+        "needsReview": partial or result.needsReview or result.answer == "unreadable" or len(issues) != len(result.issues),
+    })
 
 
-def localResult(taskId: str, *, skipped: bool, required: bool) -> TaskResult:
-    return TaskResult(taskId=taskId, answer="skipped" if skipped else "unreadable",
-                      reasoning="not_shown" if skipped else "unknown", method="unconfirmed" if required else "optional",
-                      issues=[], needsReview=not skipped)
+def localResult(taskId: str, *, required: bool, answer: Literal["skipped", "incorrect", "unreadable"] = "unreadable") -> TaskResult:
+    return TaskResult(taskId=taskId, answer=answer,
+                      reasoning="unknown" if answer == "unreadable" else "not_shown",
+                      method="unconfirmed" if required else "optional", issues=[], needsReview=answer == "unreadable")
 
 
 def reviewTasks(checkId: str, tasks: tuple[AssignmentTask, ...], reading: SubmissionReading,
@@ -108,15 +113,20 @@ def reviewTasks(checkId: str, tasks: tuple[AssignmentTask, ...], reading: Submis
     results = []
     for task in tasks:
         item = taskReadings[task.taskId]
+        if item.status == "omitted":
+            results.append(localResult(task.taskId, required=bool(task.requirements), answer="incorrect"))
+            continue
         reference = references.get(task.taskId)
         if item.status in ("skipped", "needsReview") or not isinstance(reference, ReferenceReady) or not steps[task.taskId]:
-            results.append(localResult(task.taskId, skipped=item.status == "skipped", required=bool(task.requirements)))
+            results.append(localResult(task.taskId, required=bool(task.requirements),
+                                       answer="skipped" if item.status == "skipped" else "unreadable"))
             continue
         try:
-            taskPrompt = SUBJECT_PROMPT_VERSIONS.get(subjectOf(task), promptVersion)
+            taskPrompt = (PARTIAL_REVIEW_PROMPT if item.status == "partialCrossout"
+                          else SUBJECT_PROMPT_VERSIONS.get(subjectOf(task), promptVersion))
             request = buildReviewRequest(checkId, task, steps[task.taskId], reference, taskPrompt)
         except DocumentMetadataInReview:
-            results.append(localResult(task.taskId, skipped=False, required=bool(task.requirements)))
+            results.append(localResult(task.taskId, required=bool(task.requirements)))
             continue
         results.append(validatedResult(request, transport(request).taskResult, item))
     return tuple(results)

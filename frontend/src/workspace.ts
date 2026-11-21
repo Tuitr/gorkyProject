@@ -26,11 +26,13 @@ export const categories: Record<string, string> = {
 
 export function rowStatus(row: Row) {
   const check = row.check
+  const result = ready(check)
   if (!row.submission) return { label: 'Не сдано', tone: 'muted' }
+  if (result && result.publishedResultRev === result.resultRev) return { label: 'Проверено', tone: 'success' }
   if (check?.ocrStatus === 'unreadable') return { label: 'Ручная проверка', tone: 'danger' }
   if (check?.state === 'failed') return { label: 'Ошибка проверки', tone: 'danger' }
-  if (check?.state === 'needs_review' || check?.ocrStatus === 'needs_review' || ready(check)?.total?.pendingCount) {
-    return { label: ready(check) ? 'Проверить фрагмент' : 'Ручная проверка', tone: 'warning' }
+  if (check?.state === 'needs_review' || check?.ocrStatus === 'needs_review' || result?.total?.pendingCount) {
+    return { label: result ? 'Проверить фрагмент' : 'Ручная проверка', tone: 'warning' }
   }
   if (check?.state === 'ready') return { label: 'Проверено', tone: 'success' }
   if (check?.state === 'waiting_reference') return { label: 'Ожидает эталон', tone: 'muted' }

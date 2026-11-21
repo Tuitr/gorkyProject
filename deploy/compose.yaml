@@ -89,6 +89,7 @@ services:
       OCR_URL: ${OCR_URL:-}
       OCR_API_KEY: ${OCR_API_KEY:-}
       OCR_MODEL: ${OCR_MODEL:-}
+      OCR_JSON_SCHEMA: ${OCR_JSON_SCHEMA:-1}
     command: ["python", "-m", "grading.runner"]
     restart: on-failure
 

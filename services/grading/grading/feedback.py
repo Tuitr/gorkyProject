@@ -10,14 +10,17 @@ from grading.review import anchoredIssues
 from grading.submission import SubmissionReading
 
 
-def taskFeedback(result: TaskResult, stepIds: list[str], exact: str | None) -> list[str]:
-    if result.needsReview or result.answer in ("unreadable", "skipped"):
+def taskFeedback(result: TaskResult, stepIds: list[str], exact: str | None, *, partial: bool = False) -> list[str]:
+    if partial:
+        lines = ["Проверены читаемые шаги. Итог нужно сверить с фотографией."]
+    elif result.needsReview or result.answer in ("unreadable", "skipped"):
         return ["Задание требует ручной проверки. Итог пока не подтверждён."]
-
-    answer = "Ответ верный." if result.answer == "correct" else "Ответ отличается от эталона."
-    lines = [answer]
+    else:
+        lines = ["Ответ верный." if result.answer == "correct" else "Ответ отличается от эталона."]
     if result.reasoning == "valid":
-        lines.append(f"Ход решения верен. Проверенные шаги — {', '.join(stepIds)}." if stepIds else "Ход решения верен.")
+        lines.append("В читаемых шагах применён верный принцип решения." if partial else "Ход решения верен.")
+        if stepIds and not partial:
+            lines[-1] += f" Проверенные шаги — {', '.join(stepIds)}."
     elif result.reasoning == "not_shown":
         lines.append("Записан только ответ. Покажите, как вы его получили.")
     elif result.reasoning == "unknown":
@@ -43,7 +46,7 @@ def taskFeedback(result: TaskResult, stepIds: list[str], exact: str | None) -> l
         else:
             causeStep = issueSteps[issue.causedByIssueId]
             lines.append(f"Шаг {issue.stepId}. Следствие замечания к шагу {causeStep}.")
-    if exact is not None and (result.answer == "incorrect" or result.reasoning == "invalid"):
+    if not partial and exact is not None and (result.answer == "incorrect" or result.reasoning == "invalid"):
         lines.append(f"Пересчитайте зависимые шаги и сравните итог с эталоном ({exact}).")
     return lines
 
@@ -72,14 +75,14 @@ def composeOverallReview(
         elif source is None or source.status == "needsReview":
             detail = source.reviewReason if source is not None else None
             lines = ["Запись требует ручной проверки.", *([detail] if detail else [])]
-        elif source.status == "skipped":
-            lines = ["Задание пропущено. Допишите решение."]
+        elif source.status in ("skipped", "omitted"):
+            lines = [source.reviewReason or "Задание пропущено. Допишите решение."]
         elif result is None:
             lines = ["Итог проверки ещё не подтверждён."]
         elif not isinstance(reference, ReferenceReady):
             lines = ["Эталон недоступен. Задание требует ручной проверки."]
         else:
-            lines = taskFeedback(result, steps[task.taskId], exact)
+            lines = taskFeedback(result, steps[task.taskId], exact, partial=source.status == "partialCrossout")
         sections.append(f"Задание {task.taskNumber}. " + " ".join(lines))
     if reading.unassignedFragments:
         sections.append("Часть записи не удалось отнести к заданию. Эти фрагменты требуют ручной проверки.")

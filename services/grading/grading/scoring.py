@@ -14,11 +14,11 @@ TOPICS = {
 }
 
 
-def automaticAssessment(task: TaskResult, maximum: float) -> TaskAssessment:
+def automaticAssessment(task: TaskResult, maximum: float, *, omitted: bool = False) -> TaskAssessment:
     score: float | None
     if task.needsReview or task.answer == "unreadable":
         score, comment = None, "Требуется ручная проверка."
-    elif task.answer == "skipped":
+    elif task.answer == "skipped" or (task.answer == "incorrect" and omitted):
         score, comment = 0, "Задание пропущено."
     elif task.answer == "incorrect" or task.reasoning == "invalid" or task.method == "unmet":
         score = 0
@@ -36,11 +36,12 @@ def points(values: Sequence[float]) -> float:
     return float(sum(Decimal(str(value)) for value in values))
 
 
-def withScores(outcome: CheckOutcome, maxima: Mapping[str, float], overrides: Mapping[str, float | None]) -> CheckOutcome:
+def withScores(outcome: CheckOutcome, maxima: Mapping[str, float], overrides: Mapping[str, float | None],
+               *, omittedTasks: frozenset[str] = frozenset()) -> CheckOutcome:
     assessments = []
     suggestions: dict[tuple[str, str], Recommendation] = {}
     for task in outcome.taskResults:
-        assessment = automaticAssessment(task, maxima.get(task.taskId, 1))
+        assessment = automaticAssessment(task, maxima.get(task.taskId, 1), omitted=task.taskId in omittedTasks)
         if task.taskId in overrides:
             assessment = assessment.model_copy(update={"score": overrides[task.taskId]})
         assessments.append(assessment)
