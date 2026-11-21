@@ -1,0 +1,648 @@
+{
+  "createAssignmentMultipart": {
+    "classId": "90000000-0000-4000-8000-000000000001",
+    "fileName": "Линейные уравнения.jpg",
+    "formFields": {
+      "title": "Контрольная по линейным уравнениям",
+      "subject": "math",
+      "requirements": [
+        {
+          "taskNumber": null,
+          "text": "Проверять ход рассуждения отдельно от ответа."
+        },
+        {
+          "taskNumber": "1",
+          "text": "Показать перенос слагаемого и объяснить смену знака."
+        }
+      ],
+      "taskPoints": [
+        {
+          "taskNumber": "1",
+          "maxScore": 3
+        },
+        {
+          "taskNumber": "2",
+          "maxScore": 2
+        }
+      ],
+      "assignmentDate": "2026-11-21"
+    }
+  },
+  "assignmentCreated": {
+    "assignmentId": "80000000-0000-4000-8000-000000000001",
+    "assignmentRev": 1
+  },
+  "assignmentList": [
+    {
+      "assignmentId": "80000000-0000-4000-8000-000000000001",
+      "assignmentRev": 1,
+      "title": "Контрольная по линейным уравнениям",
+      "assignmentDate": "2026-11-21",
+      "subject": "math"
+    }
+  ],
+  "assignmentPublishedEvent": {
+    "v": 1,
+    "eventId": "a0000000-0000-4000-8000-000000000001",
+    "traceId": "photo-demo",
+    "occurredAt": "2026-11-21T09:30:01Z",
+    "type": "assignment.published",
+    "payload": {
+      "assignmentId": "80000000-0000-4000-8000-000000000001",
+      "assignmentRev": 1,
+      "docRef": {
+        "bucket": "sources",
+        "key": "assignments/80000000-0000-4000-8000-000000000001/1/source.jpg",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "subject": "math",
+      "requirements": [
+        {
+          "taskNumber": null,
+          "text": "Проверять ход рассуждения отдельно от ответа."
+        },
+        {
+          "taskNumber": "1",
+          "text": "Показать перенос слагаемого и объяснить смену знака."
+        }
+      ],
+      "taskPoints": [
+        {
+          "taskNumber": "1",
+          "maxScore": 3
+        },
+        {
+          "taskNumber": "2",
+          "maxScore": 2
+        }
+      ]
+    }
+  },
+  "referencesPreparing": {
+    "assignmentId": "80000000-0000-4000-8000-000000000001",
+    "assignmentRev": 1,
+    "state": "running",
+    "tasks": []
+  },
+  "referencesReady": {
+    "assignmentId": "80000000-0000-4000-8000-000000000001",
+    "assignmentRev": 1,
+    "state": "ready",
+    "tasks": [
+      {
+        "taskId": "t1",
+        "taskNumber": "1",
+        "statement": "Решите уравнение x + 2 = 5.",
+        "state": "ready",
+        "answer": "3"
+      },
+      {
+        "taskId": "t2",
+        "taskNumber": "2",
+        "statement": "Решите уравнение 2x = 8.",
+        "state": "ready",
+        "answer": "4"
+      }
+    ]
+  },
+  "uploadZipMultipart": {
+    "fileNames": [
+      "7А-контрольная.zip"
+    ],
+    "formFields": {
+      "assignmentRev": 1
+    }
+  },
+  "uploadPhotosMultipart": {
+    "fileNames": [
+      "Смирнова Анна__02.jpg",
+      "Смирнова Анна__01.jpg"
+    ],
+    "formFields": {
+      "assignmentRev": 1
+    }
+  },
+  "uploadAccepted": {
+    "uploadId": "10000000-0000-4000-8000-000000000001"
+  },
+  "uploadBound": {
+    "uploadId": "10000000-0000-4000-8000-000000000001",
+    "files": [
+      {
+        "fileId": "20000000-0000-4000-8000-000000000001",
+        "originalName": "Смирнова Анна__01.jpg",
+        "isPhoto": true,
+        "status": "bound",
+        "candidates": [],
+        "studentId": "30000000-0000-4000-8000-000000000001",
+        "attemptId": "40000000-0000-4000-8000-000000000001",
+        "checkId": "50000000-0000-4000-8000-000000000001",
+        "groupId": "b0000000-0000-4000-8000-000000000001",
+        "pageIndex": 0
+      },
+      {
+        "fileId": "20000000-0000-4000-8000-000000000003",
+        "originalName": "Смирнова Анна__02.jpg",
+        "isPhoto": true,
+        "status": "bound",
+        "candidates": [],
+        "studentId": "30000000-0000-4000-8000-000000000001",
+        "attemptId": "40000000-0000-4000-8000-000000000001",
+        "checkId": "50000000-0000-4000-8000-000000000001",
+        "groupId": "b0000000-0000-4000-8000-000000000001",
+        "pageIndex": 1
+      },
+      {
+        "fileId": "20000000-0000-4000-8000-000000000004",
+        "originalName": "Волков Иван.png",
+        "isPhoto": true,
+        "status": "bound",
+        "candidates": [],
+        "studentId": "30000000-0000-4000-8000-000000000002",
+        "attemptId": "40000000-0000-4000-8000-000000000002",
+        "checkId": "50000000-0000-4000-8000-000000000002",
+        "groupId": "b0000000-0000-4000-8000-000000000002",
+        "pageIndex": 0
+      }
+    ]
+  },
+  "uploadNeedsConfirmation": {
+    "uploadId": "10000000-0000-4000-8000-000000000002",
+    "files": [
+      {
+        "fileId": "20000000-0000-4000-8000-000000000002",
+        "originalName": "IMG_0452.jpg",
+        "isPhoto": true,
+        "status": "needs_confirmation",
+        "candidates": [],
+        "reason": "Укажите ученика для этой фотографии.",
+        "groupId": "b0000000-0000-4000-8000-000000000003"
+      }
+    ]
+  },
+  "attemptSubmittedEvent": {
+    "v": 1,
+    "eventId": "a0000000-0000-4000-8000-000000000002",
+    "traceId": "photo-demo",
+    "occurredAt": "2026-11-21T09:30:02Z",
+    "type": "attempt.submitted",
+    "payload": {
+      "assignmentId": "80000000-0000-4000-8000-000000000001",
+      "assignmentRev": 1,
+      "studentId": "30000000-0000-4000-8000-000000000001",
+      "attemptId": "40000000-0000-4000-8000-000000000001",
+      "checkId": "50000000-0000-4000-8000-000000000001",
+      "docRef": {
+        "bucket": "sources",
+        "key": "uploads/10000000-0000-4000-8000-000000000001/20000000-0000-4000-8000-000000000001.jpg",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "pageRefs": [
+        {
+          "bucket": "sources",
+          "key": "uploads/10000000-0000-4000-8000-000000000001/20000000-0000-4000-8000-000000000001.jpg",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "bucket": "sources",
+          "key": "uploads/10000000-0000-4000-8000-000000000001/20000000-0000-4000-8000-000000000003.jpg",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    }
+  },
+  "submissions": {
+    "assignmentId": "80000000-0000-4000-8000-000000000001",
+    "assignmentRev": 1,
+    "submissions": [
+      {
+        "studentId": "30000000-0000-4000-8000-000000000001",
+        "checkId": "50000000-0000-4000-8000-000000000001",
+        "attemptId": "40000000-0000-4000-8000-000000000001",
+        "pageCount": 2
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000002",
+        "checkId": "50000000-0000-4000-8000-000000000002",
+        "attemptId": "40000000-0000-4000-8000-000000000002",
+        "pageCount": 1
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000003",
+        "checkId": "50000000-0000-4000-8000-000000000003",
+        "attemptId": "40000000-0000-4000-8000-000000000003",
+        "pageCount": 1
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000004",
+        "checkId": "50000000-0000-4000-8000-000000000004",
+        "attemptId": "40000000-0000-4000-8000-000000000004",
+        "pageCount": 1
+      }
+    ]
+  },
+  "checkQueued": {
+    "checkId": "50000000-0000-4000-8000-000000000001",
+    "attemptId": "40000000-0000-4000-8000-000000000001",
+    "state": "queued",
+    "reason": "queued_for_grading"
+  },
+  "checkReady": {
+    "checkId": "50000000-0000-4000-8000-000000000001",
+    "attemptId": "40000000-0000-4000-8000-000000000001",
+    "state": "ready",
+    "resultRev": 1,
+    "taskResults": [
+      {
+        "taskId": "t1",
+        "answer": "incorrect",
+        "reasoning": "invalid",
+        "method": "optional",
+        "needsReview": false,
+        "issues": [
+          {
+            "issueId": "i1",
+            "stepId": "s2",
+            "category": "sign",
+            "comment": "При переносе слагаемого знак должен измениться.",
+            "correction": "Запишите x = 5 − 2."
+          },
+          {
+            "issueId": "i2",
+            "stepId": "s3",
+            "category": "sign",
+            "comment": "Полученный результат следует из ошибочного знака на предыдущем шаге.",
+            "correction": "x = 3.",
+            "causedByIssueId": "i1"
+          }
+        ]
+      },
+      {
+        "taskId": "t2",
+        "answer": "correct",
+        "reasoning": "valid",
+        "method": "optional",
+        "needsReview": false,
+        "issues": []
+      }
+    ],
+    "overallReview": "Проверьте знак при переносе слагаемого.",
+    "transcriptMarkdown": "№ 1\n$x+2=5$\n$x=5+2$\n$x=7$\n№ 2\n$2x=8$\n$x=4$",
+    "grade": null,
+    "teacherComment": null,
+    "photoMarks": [
+      {
+        "taskId": "t1",
+        "issueId": "i1",
+        "lineIndex": 0,
+        "box": {
+          "x": 0.12,
+          "y": 0.34,
+          "w": 0.51,
+          "h": 0.08
+        },
+        "pageIndex": 1
+      },
+      {
+        "taskId": "t1",
+        "issueId": "i2",
+        "lineIndex": 1,
+        "box": null,
+        "pageIndex": 1
+      }
+    ],
+    "ocrStatus": "readable",
+    "photoPages": [
+      {
+        "pageIndex": 0,
+        "url": "/v1/uploads/10000000-0000-4000-8000-000000000001/files/20000000-0000-4000-8000-000000000001/photo",
+        "transcriptMarkdown": "№ 1\n$x+2=5$"
+      },
+      {
+        "pageIndex": 1,
+        "url": "/v1/uploads/10000000-0000-4000-8000-000000000001/files/20000000-0000-4000-8000-000000000003/photo",
+        "transcriptMarkdown": "$x=5+2$\n$x=7$\n№ 2\n$2x=8$\n$x=4$"
+      }
+    ],
+    "taskAssessments": [
+      {
+        "taskId": "t1",
+        "score": 0,
+        "maxScore": 3,
+        "comment": "Знак изменён неверно при переходе к x = 5 + 2."
+      },
+      {
+        "taskId": "t2",
+        "score": 2,
+        "maxScore": 2,
+        "comment": "Уравнение решено верно."
+      }
+    ],
+    "total": {
+      "score": 2,
+      "maxScore": 5,
+      "pendingCount": 0
+    },
+    "recommendations": [
+      {
+        "topic": "Линейные уравнения",
+        "text": "Повторите правило переноса слагаемых и проверьте решение подстановкой."
+      }
+    ]
+  },
+  "checkUnreadable": {
+    "checkId": "50000000-0000-4000-8000-000000000003",
+    "attemptId": "40000000-0000-4000-8000-000000000003",
+    "state": "needs_review",
+    "resultRev": 1,
+    "ocrStatus": "unreadable",
+    "ocrReason": "На снимке не читаются записи решения.",
+    "overallReview": "Проверьте оригинал вручную.",
+    "taskResults": [
+      {
+        "taskId": "t1",
+        "answer": "unreadable",
+        "reasoning": "unknown",
+        "method": "optional",
+        "needsReview": true,
+        "issues": []
+      },
+      {
+        "taskId": "t2",
+        "answer": "unreadable",
+        "reasoning": "unknown",
+        "method": "optional",
+        "needsReview": true,
+        "issues": []
+      }
+    ],
+    "taskAssessments": [
+      {
+        "taskId": "t1",
+        "score": null,
+        "maxScore": 3,
+        "comment": "Требуется ручная проверка."
+      },
+      {
+        "taskId": "t2",
+        "score": null,
+        "maxScore": 2,
+        "comment": "Требуется ручная проверка."
+      }
+    ],
+    "total": {
+      "score": 0,
+      "maxScore": 5,
+      "pendingCount": 2
+    },
+    "photoPages": [
+      {
+        "pageIndex": 0,
+        "url": "/v1/uploads/10000000-0000-4000-8000-000000000003/files/20000000-0000-4000-8000-000000000005/photo"
+      }
+    ],
+    "photoMarks": [],
+    "recommendations": [],
+    "grade": null,
+    "teacherComment": null
+  },
+  "editReviewRequest": {
+    "baseRev": 1,
+    "editId": "60000000-0000-4000-8000-000000000001",
+    "changes": [
+      {
+        "type": "set_grade",
+        "grade": 3
+      },
+      {
+        "type": "set_teacher_comment",
+        "teacherComment": "Перепроверьте перенос слагаемых в задании № 1."
+      },
+      {
+        "type": "set_task_score",
+        "taskId": "t1",
+        "score": 1
+      }
+    ]
+  },
+  "editReviewInternalRequest": {
+    "baseRev": 1,
+    "editId": "60000000-0000-4000-8000-000000000001",
+    "actorId": "70000000-0000-4000-8000-000000000001",
+    "changes": [
+      {
+        "op": "setGrade",
+        "grade": 3
+      },
+      {
+        "op": "setTeacherComment",
+        "teacherComment": "Перепроверьте перенос слагаемых в задании № 1."
+      },
+      {
+        "op": "setTaskScore",
+        "taskId": "t1",
+        "score": 1
+      }
+    ]
+  },
+  "editReviewResponse": {
+    "checkId": "50000000-0000-4000-8000-000000000001",
+    "editId": "60000000-0000-4000-8000-000000000001",
+    "resultRev": 2
+  },
+  "publishRequest": {
+    "resultRev": 2
+  },
+  "publishResponse": {
+    "checkId": "50000000-0000-4000-8000-000000000001",
+    "resultRev": 2
+  },
+  "checkReadyAfterPublishOverrides": {
+    "resultRev": 2,
+    "publishedResultRev": 2,
+    "grade": 3,
+    "teacherComment": "Перепроверьте перенос слагаемых в задании № 1.",
+    "taskAssessments": [
+      {
+        "taskId": "t1",
+        "score": 1,
+        "maxScore": 3,
+        "comment": "Знак изменён неверно при переходе к x = 5 + 2."
+      },
+      {
+        "taskId": "t2",
+        "score": 2,
+        "maxScore": 2,
+        "comment": "Уравнение решено верно."
+      }
+    ],
+    "total": {
+      "score": 3,
+      "maxScore": 5,
+      "pendingCount": 0
+    }
+  },
+  "report": {
+    "assignmentId": "80000000-0000-4000-8000-000000000001",
+    "assignmentRev": 1,
+    "submittedCount": 4,
+    "students": [
+      {
+        "studentId": "30000000-0000-4000-8000-000000000001",
+        "name": "Смирнова Анна"
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000002",
+        "name": "Волков Иван"
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000003",
+        "name": "Соколова Мария"
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000004",
+        "name": "Орлов Пётр"
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000005",
+        "name": "Котова Вера"
+      }
+    ],
+    "notSubmitted": [
+      {
+        "studentId": "30000000-0000-4000-8000-000000000005",
+        "name": "Котова Вера"
+      }
+    ],
+    "waiting": [
+      {
+        "studentId": "30000000-0000-4000-8000-000000000004",
+        "name": "Орлов Пётр"
+      }
+    ],
+    "results": [
+      {
+        "studentId": "30000000-0000-4000-8000-000000000001",
+        "checkId": "50000000-0000-4000-8000-000000000001",
+        "resultRev": 2
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000002",
+        "checkId": "50000000-0000-4000-8000-000000000002",
+        "resultRev": 1
+      },
+      {
+        "studentId": "30000000-0000-4000-8000-000000000003",
+        "checkId": "50000000-0000-4000-8000-000000000003",
+        "resultRev": 1
+      }
+    ],
+    "tasks": [
+      {
+        "taskId": "t1",
+        "correct": 0,
+        "incorrect": 2,
+        "skipped": 0,
+        "unchecked": 2,
+        "unreadable": 1,
+        "correctShare": 0.0,
+        "incorrectShare": 0.5,
+        "skippedShare": 0.0,
+        "issuesByCategory": {
+          "sign": 2
+        }
+      },
+      {
+        "taskId": "t2",
+        "correct": 2,
+        "incorrect": 0,
+        "skipped": 0,
+        "unchecked": 2,
+        "unreadable": 1,
+        "correctShare": 0.5,
+        "incorrectShare": 0.0,
+        "skippedShare": 0.0,
+        "issuesByCategory": {}
+      }
+    ],
+    "trends": [
+      {
+        "taskId": "t1",
+        "category": "sign",
+        "topic": "Перенос слагаемых в линейных уравнениях",
+        "exampleComment": "При переносе слагаемого знак должен измениться."
+      }
+    ]
+  },
+  "checkNeedsReviewOverrides": {
+    "state": "needs_review",
+    "ocrStatus": "needs_review",
+    "ocrReason": "Неоднозначное чтение в задании № 2.",
+    "taskResults": [
+      {
+        "taskId": "t1",
+        "answer": "incorrect",
+        "reasoning": "invalid",
+        "method": "optional",
+        "needsReview": false,
+        "issues": [
+          {
+            "issueId": "i1",
+            "stepId": "s2",
+            "category": "sign",
+            "comment": "При переносе слагаемого знак должен измениться.",
+            "correction": "Запишите x = 5 − 2."
+          },
+          {
+            "issueId": "i2",
+            "stepId": "s3",
+            "category": "sign",
+            "comment": "Полученный результат следует из ошибочного знака на предыдущем шаге.",
+            "correction": "x = 3.",
+            "causedByIssueId": "i1"
+          }
+        ]
+      },
+      {
+        "taskId": "t2",
+        "answer": "unreadable",
+        "reasoning": "unknown",
+        "method": "optional",
+        "needsReview": true,
+        "issues": []
+      }
+    ],
+    "taskAssessments": [
+      {
+        "taskId": "t1",
+        "score": 0,
+        "maxScore": 3,
+        "comment": "Знак изменён неверно при переходе к x = 5 + 2."
+      },
+      {
+        "taskId": "t2",
+        "score": null,
+        "maxScore": 2,
+        "comment": "Перепроверьте цифру в правой части уравнения."
+      }
+    ],
+    "total": {
+      "score": 0,
+      "maxScore": 5,
+      "pendingCount": 1
+    },
+    "photoPages": [
+      {
+        "pageIndex": 0,
+        "url": "/v1/uploads/10000000-0000-4000-8000-000000000001/files/20000000-0000-4000-8000-000000000001/photo",
+        "transcriptMarkdown": "№ 1\n$x+2=5$"
+      },
+      {
+        "pageIndex": 1,
+        "url": "/v1/uploads/10000000-0000-4000-8000-000000000001/files/20000000-0000-4000-8000-000000000003/photo",
+        "transcriptMarkdown": "$x=5+2$\n$x=7$\n№ 2\n$2x=[неразборчиво]$\n$x=4$"
+      }
+    ],
+    "transcriptMarkdown": "№ 1\n$x+2=5$\n$x=5+2$\n$x=7$\n№ 2\n$2x=[неразборчиво]$\n$x=4$"
+  }
+}
