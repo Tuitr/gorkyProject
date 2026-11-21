@@ -28,6 +28,10 @@ export type UploadFile = {
   reasonCode?: 'invalid_page_order'
 }
 export type Upload = { uploadId: string; files: UploadFile[] }
+export type Teacher = { teacherId: string; displayName: string }
+
+/** Кабинет ответил 401 на обычный запрос — сессия истекла, нужно войти заново. */
+export const SESSION_EXPIRED = 'cabinet:session-expired'
 
 // Результат проверки (GET /v1/checks/{checkId}): пока нет taskResults — проверка идёт или не удалась.
 export type TaskResult = {
@@ -127,7 +131,9 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   }
   if (!res.ok) {
     const data = await res.json().catch(() => null)
-    throw new ApiError(res.status, explain(res.status, data?.message))
+    const auth = path === '/v1/sessions' || path === '/v1/teachers/register'
+    if (res.status === 401 && !auth) window.dispatchEvent(new Event(SESSION_EXPIRED))
+    throw new ApiError(res.status, explain(res.status, data?.message, auth))
   }
   return res
 }
@@ -138,8 +144,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return response.json()
 }
 
-function explain(status: number, message?: string): string {
-  if (status === 401) return 'Кабинет не пустил служебного учителя — проверьте CHECKER_TEACHER_EMAIL/PASSWORD в .env.local'
+function explain(status: number, message?: string, auth = false): string {
+  if (status === 401) return auth ? 'Неверная почта или пароль' : 'Сессия истекла — войдите снова'
+  if (auth && status === 409) return 'Учитель с такой почтой уже зарегистрирован'
+  if (auth && status === 422) return 'Проверьте почту; пароль — не короче 8 символов'
   if (status === 404) return 'Не найдено'
   if (status === 413) return 'Файл слишком большой'
   if (status === 422) return message ?? 'Проверьте введённые данные'
@@ -161,6 +169,10 @@ function feedbackUrl(checkId: string, rev: number) {
 }
 
 export const api = {
+  login: (email: string, password: string) => call<Teacher>('POST', '/v1/sessions', { email, password }),
+  register: (email: string, displayName: string, password: string) =>
+    call<Teacher>('POST', '/v1/teachers/register', { email, displayName, password }),
+  logout: () => call<void>('POST', '/auth/logout'),
   classes: () => call<ClassItem[]>('GET', '/v1/classes'),
   createClass: (name: string) => call<ClassItem>('POST', '/v1/classes', { name }),
   addStudent: (classId: string, name: string) => call<Student>('POST', `/v1/classes/${e(classId)}/students`, { name }),

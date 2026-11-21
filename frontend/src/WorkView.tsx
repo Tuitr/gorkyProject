@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Report, type Student, type Submission, type Upload, type UploadFile, type Work } from './api'
-import { ConfirmDialog, ErrorText, errorText, NameDialog, UploadSolutionsDialog } from './Dialogs'
+import { ConfirmDialog, ErrorText, errorText, NameDialog, StudentUploadDialog } from './Dialogs'
 import { ReviewDialog } from './ReviewDialog'
+import { StudentCarousel } from './StudentCarousel'
 import { useChecks } from './useChecks'
 import { categories, dateLabel, exportFeedback, exportWorkbook, number, ready, rowStatus, subjectName, taskCell, taskNumber, workName, type Row, type TaskColumn } from './workspace'
 
@@ -12,6 +13,23 @@ function loadUploadIds(work: Work): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
   } catch { return [] }
 }
+
+type StatusFilter = '' | 'missing' | 'progress' | 'review' | 'done'
+const statusFilters: { value: StatusFilter; label: string }[] = [
+  { value: '', label: 'Все статусы' }, { value: 'missing', label: 'Не сдано' }, { value: 'progress', label: 'Проверяется' },
+  { value: 'review', label: 'Нужна проверка' }, { value: 'done', label: 'Проверено' },
+]
+function statusGroup(row: Row): StatusFilter {
+  const status = rowStatus(row)
+  if (!row.submission) return 'missing'
+  if (status.tone === 'success') return 'done'
+  if (status.tone === 'warning' || status.tone === 'danger') return 'review'
+  return 'progress'
+}
+// Свёрнута ли таблица итогов — запоминаем в браузере для всех работ.
+const COLLAPSE_KEY = 'teacher-workspace:results-collapsed'
+const readCollapsed = () => { try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false } }
+const normalize = (text: string) => text.toLocaleLowerCase('ru').replace(/ё/g, 'е')
 
 export function WorkView({ work }: { work: Work }) {
   const [mode, setMode] = useState<'table' | 'report'>('table')
@@ -26,12 +44,20 @@ export function WorkView({ work }: { work: Work }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [uploadIds, setUploadIds] = useState(() => loadUploadIds(work))
   const [uploads, setUploads] = useState<Upload[]>([])
-  const [modal, setModal] = useState<'upload' | 'student' | null>(null)
+  const [modal, setModal] = useState<'student' | null>(null)
   const [studentId, setStudentId] = useState<string>()
   const [bindTarget, setBindTarget] = useState<{ file: UploadFile; uploadId: string }>()
-  const [marked, setMarked] = useState(false)
   const [removeStudent, setRemoveStudent] = useState<Student>()
+  const [uploadFor, setUploadFor] = useState<Student>()
   const [actionError, setActionError] = useState('')
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
+  const [gradeFilter, setGradeFilter] = useState('')
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  function toggleCollapsed() {
+    setCollapsed(!collapsed)
+    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '0' : '1') } catch { /* просто не запомним */ }
+  }
   const refresh = () => setRefreshKey((value) => value + 1)
   const assignmentId = work.assignmentId
   const assignmentRev = work.assignmentRev
@@ -101,8 +127,24 @@ export function WorkView({ work }: { work: Work }) {
     }
     return [...columns.values()].sort((a, b) => a.number.localeCompare(b.number, 'ru', { numeric: true }))
   }, [taskColumns, report, rows])
-  const rowIndex = rows.findIndex((row) => row.student.studentId === studentId)
-  const row = rows[rowIndex]
+  const gradeOf = (item: Row) => item.check?.grade === undefined
+    ? report?.results.find((entry) => entry.checkId === item.submission?.checkId)?.grade : item.check.grade
+  // Поиск — по всем словам запроса в любом порядке: «анна смир» найдёт «Смирнова Анна».
+  const words = normalize(query).split(/\s+/).filter(Boolean)
+  const filtered = Boolean(words.length || statusFilter || gradeFilter)
+  const visibleRows = rows.filter((item) => {
+    const name = normalize(item.student.name)
+    if (!words.every((word) => name.includes(word))) return false
+    if (statusFilter && statusGroup(item) !== statusFilter) return false
+    if (gradeFilter) {
+      const grade = gradeOf(item)
+      if (gradeFilter === 'none' ? grade != null : String(grade) !== gradeFilter) return false
+    }
+    return true
+  })
+  const resetFilters = () => { setQuery(''); setStatusFilter(''); setGradeFilter('') }
+  const row = rows.find((item) => item.student.studentId === studentId)
+  const rowIndex = visibleRows.findIndex((item) => item.student.studentId === studentId)
   const pending = uploads.flatMap((upload) => {
     const seen = new Set<string>()
     return upload.files.filter((file) => {
@@ -125,23 +167,36 @@ export function WorkView({ work }: { work: Work }) {
   }
 
   return <>
-    <a className="back-link" href="#">← Все работы</a>
-    <div className="page-head work-head">
-      <div><div className="work-meta">{work.className} · {subjectName(work.subject)} · {dateLabel(work.assignmentDate)}</div>
-        <h1>{workName(work)}</h1></div>
-      <button className="button primary" type="button" onClick={() => setModal('upload')}>↑ Загрузить решения</button>
-    </div>
-    <div className="work-nav">
+    <div className="work-top">
+      <a className="button back-link" href="#">← Все работы</a>
       <nav className="tabs" aria-label="Режим просмотра">
         <button type="button" className="tab" aria-current={mode === 'table' ? 'page' : undefined} onClick={() => setMode('table')}>Ведомость</button>
         <button type="button" className="tab" aria-current={mode === 'report' ? 'page' : undefined} onClick={() => setMode('report')}>Отчёт класса</button>
       </nav>
-      {mode === 'table' && <div className="toolbar">
-        <button className="button" type="button" onClick={() => setModal('student')}>+ Добавить ученика</button>
-        <button className="button" type="button" onClick={() => setMarked(!marked)} aria-pressed={marked}>Удалить ученика</button>
-        <button className="button" type="button" disabled title="Фильтр появится в следующей версии">Фильтр</button>
-      </div>}
     </div>
+    <div className="page-head work-head">
+      <div><div className="work-meta">{work.className} · {subjectName(work.subject)} · {dateLabel(work.assignmentDate)}</div>
+        <h1>{workName(work)}</h1></div>
+    </div>
+    {mode === 'table' && <div className="student-filters" role="search" aria-label="Фильтры учеников">
+      {rows.length > 0 && <input type="search" className="student-search" placeholder="Поиск по ФИО" aria-label="Поиск по ФИО"
+        value={query} onChange={(event) => setQuery(event.target.value)} />}
+      <button className="button" type="button" onClick={() => setModal('student')}>+ Добавить ученика</button>
+      {rows.length > 0 && <>
+      <select aria-label="Статус" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+        {statusFilters.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+      </select>
+      <select aria-label="Оценка" value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)}>
+        <option value="">Все оценки</option>
+        {['5', '4', '3', '2'].map((grade) => <option key={grade} value={grade}>Оценка {grade}</option>)}
+        <option value="none">Без оценки</option>
+      </select>
+      {filtered && <>
+        <span className="subtle filter-count">{visibleRows.length} из {rows.length}</span>
+        <button type="button" className="text-button" onClick={resetFilters}>Сбросить</button>
+      </>}
+      </>}
+    </div>}
     <ErrorText message={error || actionError} />
     {loading && <p className="empty-inline" role="status">Загружаем ведомость…</p>}
     {['queued', 'running', 'waiting_reference'].includes(referenceState) && <p className="hint" role="status">Готовятся задания и эталонные ответы. Решения уже можно загрузить.</p>}
@@ -161,19 +216,27 @@ export function WorkView({ work }: { work: Work }) {
         </div>}
       </div>)}
     </section>}
-    {mode === 'table' ? <div className="table-frame">
+    {mode === 'table' && <StudentCarousel rows={visibleRows} tasks={tasks} gradeOf={gradeOf} onOpen={setStudentId} onRemove={(item) => setRemoveStudent(item.student)}
+      onUpload={(item) => setUploadFor(item.student)}
+      onFeedback={(item) => { const result = ready(item.check); if (result) void exportFeedback(result, item.student).catch((cause) => setActionError(errorText(cause))) }} />}
+    {mode === 'table' ? <section className="table-frame results-panel" aria-label="Итоги и оценки">
+      <button type="button" className="results-toggle" aria-expanded={!collapsed} aria-controls="results-table" onClick={toggleCollapsed}>
+        <span className="results-title">Итоги и оценки</span>
+        <span className="subtle results-count">{filtered ? visibleRows.length + ' из ' + rows.length : rows.length} уч.</span>
+        <span className="results-chevron" aria-hidden="true">▾</span>
+        <span className="results-action">{collapsed ? 'Развернуть' : 'Свернуть'}</span>
+      </button>
+      {!collapsed && <div id="results-table">
       <table>
         <thead><tr><th scope="col">Ученик</th>{tasks.map((task) => <th scope="col" key={task.id}>Задание {task.number}</th>)}
           <th scope="col">Итого</th><th scope="col">Оценка</th><th scope="col">Статус</th><th scope="col">Отзыв</th></tr></thead>
         <tbody>
-          {rows.map((item) => {
+          {visibleRows.map((item) => {
             const status = rowStatus(item)
             const result = ready(item.check)
-            const grade = item.check?.grade === undefined
-              ? report?.results.find((entry) => entry.checkId === item.submission?.checkId)?.grade : item.check.grade
+            const grade = gradeOf(item)
             return <tr key={item.student.studentId}>
-              <th scope="row">{marked && <button type="button" className="delete-student" aria-label={'Удалить: ' + item.student.name}
-                onClick={() => setRemoveStudent(item.student)}>−</button>}
+              <th scope="row">
                 <button type="button" className="text-button student-link" onClick={() => setStudentId(item.student.studentId)}>{item.student.name}</button></th>
               {tasks.map((task) => {
                 const cell = taskCell(item.check, task.id)
@@ -184,7 +247,9 @@ export function WorkView({ work }: { work: Work }) {
               })}
               <td><span className="score">{result?.total ? number(result.total.score) + ' / ' + number(result.total.maxScore) : '—'}</span></td>
               <td>{grade == null ? '—' : <span className="grade-chip">{grade}</span>}</td>
-              <td><span className={'status ' + status.tone}>{status.label}</span></td>
+              <td>{item.submission ? <span className={'status ' + status.tone}>{status.label}</span>
+                : <button type="button" className="button primary compact" aria-label={'Загрузить решение ученика ' + item.student.name}
+                  onClick={() => setUploadFor(item.student)}>↑ Загрузить</button>}</td>
               <td>{result?.publishedResultRev != null ? <button className="text-button" type="button" aria-label={'Скачать отзыв для ' + item.student.name}
                 onClick={() => void exportFeedback(result, item.student).catch((cause) => setActionError(errorText(cause)))}>.md ↓</button> : '—'}</td>
             </tr>
@@ -192,13 +257,15 @@ export function WorkView({ work }: { work: Work }) {
         </tbody>
       </table>
       {!rows.length && !loading && <p className="empty-inline">В классе пока нет учеников. Добавьте ученика или загрузите работы.</p>}
-    </div> : <ClassReport report={report} error={reportError} />}
+      {rows.length > 0 && !visibleRows.length && <p className="empty-inline">Никто не подходит под фильтр. <button type="button" className="text-button" onClick={resetFilters}>Сбросить фильтры</button></p>}
+      </div>}
+    </section> : <ClassReport report={report} error={reportError} />}
     <div className="page-footer"><button className="button" type="button" onClick={() => void exportCurrent()}
       disabled={mode === 'table' ? !rows.length : !report}>↓ Экспорт в Excel</button></div>
 
-    {modal === 'upload' && <UploadSolutionsDialog work={work} onClose={() => setModal(null)} onUpload={(ids) => {
+    {uploadFor && <StudentUploadDialog work={work} student={uploadFor} onClose={() => setUploadFor(undefined)} onUpload={(ids) => {
       saveUploadIds([...new Set([...uploadIds, ...ids])])
-      setModal(null)
+      setUploadFor(undefined)
       refresh()
     }} />}
     {modal === 'student' && <NameDialog title="Добавить ученика" label="Фамилия и имя" placeholder="Смирнова Анна"
@@ -211,7 +278,8 @@ export function WorkView({ work }: { work: Work }) {
     {removeStudent && <ConfirmDialog title="Удалить ученика?" text={removeStudent.name + ' исчезнет из текущего списка класса.'}
       onClose={() => setRemoveStudent(undefined)} action={async () => { await api.deleteStudent(classId, removeStudent.studentId); refresh() }} />}
     {row && <ReviewDialog key={row.student.studentId} row={row} go={setStudentId} onClose={() => setStudentId(undefined)}
-      previous={rows[rowIndex - 1]?.student.studentId} next={rows[rowIndex + 1]?.student.studentId} reload={reload} refresh={refresh} />}
+      previous={rowIndex > 0 ? visibleRows[rowIndex - 1].student.studentId : undefined}
+      next={rowIndex >= 0 ? visibleRows[rowIndex + 1]?.student.studentId : undefined} reload={reload} refresh={refresh} />}
   </>
 }
 

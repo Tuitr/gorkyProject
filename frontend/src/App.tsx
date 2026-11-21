@@ -1,21 +1,21 @@
 import { useEffect, useState } from 'react'
 import { api, type ClassItem, type Work } from './api'
-import { ConfirmDialog, CreateWorkDialog, ErrorText, errorText, NameDialog } from './Dialogs'
+import { AddStudentsDialog, ConfirmDialog, CreateWorkDialog, ErrorText, errorText, NameDialog } from './Dialogs'
 import { dateLabel, readWorks, subjectName, workName } from './workspace'
 import { WorkView } from './WorkView'
+import type { Account } from './Auth'
 
 function route() {
   return window.location.hash.match(/^#work\/([0-9a-z-]+)$/i)?.[1] ?? ''
 }
 
-export function App() {
+export function App({ account }: { account: Account }) {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [works, setWorks] = useState<Work[]>([])
   const [workId, setWorkId] = useState(route)
   const [selectedClass, setSelectedClass] = useState('')
   const [sort, setSort] = useState('newest')
-  const [removing, setRemoving] = useState(false)
-  const [modal, setModal] = useState<'work' | 'class' | null>(null)
+  const [modal, setModal] = useState<'work' | 'class' | 'students' | null>(null)
   const [toDelete, setToDelete] = useState<Work>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -55,14 +55,23 @@ export function App() {
     <header className="site-header">
       <div className="site-inner">
         <a className="brand" href="#" aria-label="Проверка работ — главная"><span className="brand-mark" aria-hidden="true">✓</span>Проверка работ</a>
-        <div className="account"><span aria-hidden="true">У</span>Кабинет учителя</div>
+        <div className="header-side">
+          {!selected && <div className="header-actions">
+            <button className="button" type="button" onClick={() => setModal('class')}>+ Добавить класс</button>
+            <button className="button" type="button" disabled={!classes.length}
+              title={classes.length ? undefined : 'Сначала добавьте класс'} onClick={() => setModal('students')}>+ Добавить учеников</button>
+          </div>}
+          <div className="account">
+            <span aria-hidden="true">{(account.name.trim()[0] ?? 'У').toUpperCase()}</span>{account.name || 'Кабинет учителя'}
+            <button className="text-button account-logout" type="button" onClick={account.logout}>Выйти</button>
+          </div>
+        </div>
       </div>
     </header>
-    <main className="page">
+    <main className={'page' + (selected ? ' work-page' : '')}>
       {selected ? <WorkView key={selected.assignmentId + ':' + selected.assignmentRev} work={selected} /> : <>
         <div className="page-head home-head">
           <h1>Работы</h1>
-          <button className="button" type="button" onClick={() => setModal('class')}>+ Добавить класс</button>
         </div>
         <div className="home-toolbar">
           <div className="filter-set" aria-label="Фильтры работ">
@@ -74,8 +83,6 @@ export function App() {
               <option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option>
             </select></label>
           </div>
-          <button className="button" type="button" aria-pressed={removing} disabled={!visible.length}
-            onClick={() => setRemoving(!removing)}>{removing ? 'Закончить удаление' : 'Удалить работу'}</button>
         </div>
         <ErrorText message={error} />
         {error && <button type="button" className="button" onClick={() => { setLoading(true); setReloadKey((key) => key + 1) }}>Повторить загрузку</button>}
@@ -87,11 +94,12 @@ export function App() {
             <span>Создать работу</span>
           </button>
           {visible.map((work) => <article className="work-card saved-card" key={work.assignmentId}>
+            <button type="button" className="card-remove" aria-label={'Удалить работу ' + workName(work)}
+              title="Удалить работу" onClick={() => setToDelete(work)}>×</button>
             <div className="card-top"><time dateTime={work.assignmentDate}>{dateLabel(work.assignmentDate)}</time><span className="subject-pill">{subjectName(work.subject)}</span></div>
             <a className="card-title" href={'#work/' + work.assignmentId}>{workName(work)}</a>
             <div className="card-bottom"><span>{work.className}</span>
-              {removing ? <button className="text-button danger-ink" type="button" onClick={() => setToDelete(work)}
-                aria-label={'Удалить работу ' + workName(work)}>Удалить</button> : <span aria-hidden="true">↗</span>}
+              <span aria-hidden="true">↗</span>
             </div>
           </article>)}
         </div>
@@ -100,6 +108,7 @@ export function App() {
     </main>
     {modal === 'class' && <NameDialog title="Добавить класс" label="Название класса" placeholder="Например, 7А"
       action={async (name) => { const added = await api.createClass(name); setClasses((list) => [...list, added]) }} onClose={() => setModal(null)} />}
+    {modal === 'students' && <AddStudentsDialog classes={classes} selectedClass={selectedClass} onClose={() => setModal(null)} />}
     {modal === 'work' && <CreateWorkDialog classes={classes} selectedClass={selectedClass} onClose={() => setModal(null)}
       onCreated={(work) => { setWorks((list) => [work, ...list]); setModal(null); open(work) }} />}
     {toDelete && <ConfirmDialog title="Удалить работу?" text={'Работа «' + workName(toDelete) + '» и её результаты исчезнут из кабинета.'}

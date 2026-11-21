@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { api, type ClassItem, type Work } from './api'
-import { extension, FORMATS, PHOTO_FORMATS, prepare, TASK_FORMATS } from './convert'
+import { api, type ClassItem, type Student, type Work } from './api'
+import { extension, PHOTO_FORMATS, prepare, TASK_FORMATS } from './convert'
 import { number, requirementsOf, today } from './workspace'
 
 export function Dialog({ title, children, onClose, wide = false }: {
@@ -43,6 +43,55 @@ export function NameDialog({ title, label, placeholder, action, onClose }: {
       <ErrorText message={error} />
       <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>Отмена</button>
         <button className="button primary" disabled={busy || !name.trim()}>{busy ? 'Сохраняем…' : 'Добавить'}</button></div>
+    </form>
+  </Dialog>
+}
+
+// Несколько учеников за раз: по одному на строку. Добавляем по очереди, при сбое оставляем в поле тех, кто не добавлен.
+export function AddStudentsDialog({ classes, selectedClass, onClose }: {
+  classes: ClassItem[]; selectedClass: string; onClose: () => void
+}) {
+  const [classId, setClassId] = useState(selectedClass || classes[0]?.classId || '')
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [added, setAdded] = useState(0)
+  const names = [...new Set(text.split(/\r?\n/).map((line) => line.trim().replace(/\s+/g, ' ')).filter(Boolean))]
+  const tooLong = names.find((name) => name.length > 120)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    let done = 0
+    try {
+      for (const name of names) {
+        await api.addStudent(classId, name)
+        done += 1
+        setAdded((count) => count + 1)
+      }
+      onClose()
+    } catch (cause) {
+      setText(names.slice(done).join('\n'))
+      setError(errorText(cause))
+      setBusy(false)
+    }
+  }
+
+  return <Dialog title="Добавить учеников" onClose={busy ? () => {} : onClose}>
+    <form className="form" onSubmit={submit}>
+      <label>Класс<select required value={classId} onChange={(event) => setClassId(event.target.value)}>
+        {classes.map((item) => <option key={item.classId} value={item.classId}>{item.name}</option>)}
+      </select></label>
+      <label>Фамилия и имя<small>Каждый ученик с новой строки.</small>
+        <textarea required autoFocus rows={8} placeholder={'Смирнова Анна\nИванов Пётр'} value={text}
+          onChange={(event) => setText(event.target.value)} /></label>
+      {tooLong && <p className="notice-error">Слишком длинное имя: «{tooLong.slice(0, 40)}…». Не больше 120 символов.</p>}
+      {added > 0 && <p className="hint" role="status">Добавлено: {added}.</p>}
+      <ErrorText message={error} />
+      <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>{added ? 'Закрыть' : 'Отмена'}</button>
+        <button className="button primary" disabled={busy || !classId || !names.length || Boolean(tooLong)}>
+          {busy ? 'Добавляем…' : names.length > 1 ? 'Добавить ' + names.length : 'Добавить'}</button></div>
     </form>
   </Dialog>
 }
@@ -121,40 +170,68 @@ export function CreateWorkDialog({ classes, selectedClass, onClose, onCreated }:
   </Dialog>
 }
 
-export function UploadSolutionsDialog({ work, onClose, onUpload }: {
-  work: Work; onClose: () => void; onUpload: (ids: string[]) => void
+// Решение одного ученика. Файлы называем его именем (по имени кабинет и привязывает),
+// а то, что кабинет не смог привязать сам, подтверждаем за этого ученика.
+export function StudentUploadDialog({ work, student, onClose, onUpload }: {
+  work: Work; student: Student; onClose: () => void; onUpload: (ids: string[]) => void
 }) {
   const [files, setFiles] = useState<File[]>([])
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const onlyPhotos = files.every((file) => PHOTO_FORMATS.includes(extension(file)))
-  const invalid = files.some((file) => !FORMATS.includes(extension(file))) ||
-    (files.length > 1 && !onlyPhotos)
+  const photos = files.every((file) => PHOTO_FORMATS.includes(extension(file)))
+  const invalid = files.some((file) => !STUDENT_FORMATS.includes(extension(file))) || (files.length > 1 && !photos)
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!files.length || invalid) return
-    setBusy(true)
     setError('')
     try {
+      setBusy('Загружаем…')
+      const base = student.name.replace(/[\\/:*?"<>|_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Ученик'
       const prepared = await Promise.all(files.map(prepare))
-      const response = await api.uploadWork(work, prepared)
-      onUpload([response.uploadId])
-    } catch (cause) { setError(errorText(cause)); setBusy(false) }
+      const named = prepared.map((file, index) => {
+        const page = prepared.length > 1 ? '__' + String(index + 1).padStart(2, '0') : ''
+        return new File([file], base + page + '.' + extension(file), { type: file.type })
+      })
+      const { uploadId } = await api.uploadWork(work, named)
+      setBusy('Привязываем к ученику…')
+      await bindToStudent(uploadId, student.studentId)
+      onUpload([uploadId])
+    } catch (cause) { setError(errorText(cause)); setBusy('') }
   }
-  return <Dialog title="Загрузить решения" onClose={busy ? () => {} : onClose}>
+  return <Dialog title={'Решение: ' + student.name} onClose={busy ? () => {} : onClose}>
     <form className="form" onSubmit={submit}>
       <label className="file-field">Выберите файлы<input type="file" required multiple autoFocus
-        accept={FORMATS.map((format) => '.' + format).join(',')}
+        accept={STUDENT_FORMATS.map((format) => '.' + format).join(',')}
         onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); setError('') }} /></label>
       <div className="upload-hint">
-        <p>Один ZIP со снимками или несколько фотографий одним запросом. Также можно загрузить один DOCX или TXT.</p>
-        <p>Для нескольких листов одного ученика используйте <code>Смирнова Анна__01.jpg</code> и <code>Смирнова Анна__02.jpg</code>.</p>
+        <p>Фотографии листов (в порядке выбора — страница 1, 2, …) или один DOCX / TXT.</p>
       </div>
-      <ErrorText message={invalid ? 'Выберите несколько фото либо один архив или документ.' : error} />
-      <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>Отмена</button>
-        <button className="button primary" disabled={!files.length || invalid || busy}>{busy ? 'Загружаем…' : 'Загрузить'}</button></div>
+      <ErrorText message={invalid ? 'Выберите фотографии либо один документ.' : error} />
+      <div className="actions"><button type="button" className="button" disabled={Boolean(busy)} onClick={onClose}>Отмена</button>
+        <button className="button primary" disabled={!files.length || invalid || Boolean(busy)}>{busy || 'Загрузить'}</button></div>
     </form>
   </Dialog>
+}
+
+const STUDENT_FORMATS = ['docx', 'txt', ...PHOTO_FORMATS]
+
+// Ждём, пока кабинет разберёт загрузку (до ~30 с), и подтверждаем ученика там, где кабинет спрашивает.
+async function bindToStudent(uploadId: string, studentId: string) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const upload = await api.upload(uploadId)
+    if (!upload.files.some((file) => file.status === 'pending_binding')) {
+      const seen = new Set<string>()
+      for (const file of upload.files) {
+        if (file.status !== 'needs_confirmation' || file.reasonCode === 'invalid_page_order') continue
+        const group = file.groupId ?? file.fileId
+        if (seen.has(group)) continue
+        seen.add(group)
+        await api.bind(uploadId, file.fileId, { studentId })
+      }
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  }
 }
 
 export const errorText = (error: unknown) => error instanceof Error ? error.message : 'Не удалось выполнить действие.'
