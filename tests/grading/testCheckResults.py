@@ -5,6 +5,7 @@ import json
 import os
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from io import BytesIO
 from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
@@ -12,6 +13,7 @@ from uuid import uuid4
 import boto3
 import pytest
 from botocore.client import Config
+from botocore.response import StreamingBody
 from botocore.stub import Stubber
 from fastapi.testclient import TestClient
 from redis import Redis
@@ -20,18 +22,19 @@ from sqlalchemy.orm import Session
 
 from contracts.v1.events.checks import DATA_FIELD
 from contracts.v1.grading.assignmentreport import AssignmentReport
-from contracts.v1.grading.checkresult import PublishedCheck
+from contracts.v1.grading.checkresult import CheckOutcome, PublishedCheck
 from contracts.v1.grading.reviewpublication import PublishReviewReceipt
 from contracts.v1.grading.taskresult import Issue, TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceReady
 from dataset.docxwriter import Paragraph, buildDocx
 from grading.main import createApp
-from grading.markdown import inlineText
+from grading.markdown import inlineText, renderCheckMarkdown
 from grading.markdownStorage import MarkdownStorage
 from grading.results import ArtifactUnavailable, ResultConflict
 from grading.settings import Settings
 from grading.stream import StreamConsumer
+from grading.submission import SubmissionReading
 from grading.tables import CheckResultRevision
 from grading.worker import GradingWorker
 from shared.clock import ManualClock
@@ -213,7 +216,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
                {"op": "setTaskScore", "taskId": "t1", "score": -1}]:
         invalid = {"baseRev": 2, "editId": "invalid", "actorId": "teacher", "changes": [op]}
         assert api.patch(url + "/review", headers=headers, json=invalid).status_code == 422
-    manualText = "Мой отзыв о решении."
+    manualText = "Мой отзыв о решении.\n- Проверьте **знак**.\n\nЗапишите $1/2$."
     manual = {"baseRev": 2, "editId": "manual", "actorId": "teacher", "changes": [
         {"op": "setOverallReview", "overallReview": manualText},
         {"op": "setGrade", "grade": 4},
@@ -253,6 +256,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert scoreRev["grade"] == 4 and scoreRev["teacherComment"] == "Проверьте вычисления"
     assert api.post(publishUrl, headers=headers, json={"resultRev": 4, "actorId": "teacher"}).status_code == 200
     gradedMarkdown = api.get(downloadUrl, params={"rev": 4}, headers=headers).text
+    assert "Мой отзыв о решении\\.  \n\\- Проверьте \\*\\*знак\\*\\*\\.\n\nЗапишите $1/2$\\." in gradedMarkdown
     assert gradedMarkdown.rstrip().endswith("Оценка — 4") and "Проверьте вычисления" in gradedMarkdown
     clear = {"baseRev": 4, "editId": "clear", "actorId": "teacher", "changes": [
         {"op": "setGrade", "grade": None}, {"op": "setTeacherComment", "teacherComment": None},
@@ -266,6 +270,36 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert api.get(downloadUrl, params={"rev": 5}, headers=headers).status_code == 404
     assert api.get(downloadUrl, params={"rev": 4}, headers=headers).text == gradedMarkdown
     assert api.get(downloadUrl, params={"rev": 1}, headers=headers).text == report
+
+
+def testOverallReviewKeepsLineBreaksWithoutInterpretingMarkdown() -> None:
+    outcome = CheckOutcome(
+        checkId="c1", attemptId="a1", resultRev=1, taskResults=[], grade=4,
+        overallReview="## Что повторить\r\n- Проверьте **знак**\r\n   \r\nЗапишите $1/2$.",
+    )
+
+    report = renderCheckMarkdown(outcome, SubmissionReading((), (), ()), ())
+
+    assert report == (
+        "# Разбор работы\n\n## Общий отзыв\n\n"
+        "\\#\\# Что повторить  \n\\- Проверьте \\*\\*знак\\*\\*\n\nЗапишите $1/2$\\.\n\nОценка — 4\n"
+    )
+
+
+def testMarkdownRetryAcceptsPreviousRendering() -> None:
+    original = "Первая строка Вторая строка\n"
+    body = original.encode("utf-8")
+    with closing(boto3.client("s3", region_name="us-east-1", aws_access_key_id="test", aws_secret_access_key="test")) as client:
+        with Stubber(client) as stub:
+            stub.add_client_error("put_object", http_status_code=412)
+            for _ in range(2):
+                stub.add_response("get_object", {"Body": StreamingBody(BytesIO(body), len(body)), "ContentLength": len(body)})
+
+            ref = MarkdownStorage(client).save("c1", 1, "Первая строка  \nВторая строка\n",
+                                               previousMarkdown=lambda: original)
+
+            assert ref.sha256 == hashlib.sha256(body).hexdigest()
+            stub.assert_no_pending_responses()
 
 
 def testInlineMarkupKeepsOnlySafeMath() -> None:

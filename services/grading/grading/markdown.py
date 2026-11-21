@@ -31,9 +31,17 @@ def inlineText(text: str) -> str:
     return "".join(parts)
 
 
-def renderCheckMarkdown(outcome: CheckOutcome, reading: SubmissionReading, tasks: tuple[AssignmentTask, ...]) -> str:
+def renderCheckMarkdown(
+    outcome: CheckOutcome, reading: SubmissionReading, tasks: tuple[AssignmentTask, ...],
+    *, preserveReviewLineBreaks: bool = True,
+) -> str:
     sections = ["# Разбор работы", "## Общий отзыв"]
-    sections.extend(inlineText(paragraph) for paragraph in outcome.overallReview.split("\n\n") if paragraph.strip())
+    if preserveReviewLineBreaks:
+        review = "\n".join(inlineText(line) for line in outcome.overallReview.strip().splitlines())
+        if review:
+            sections.append(re.sub(r"(?<=\S)\n(?=\S)", "  \n", review))
+    else:
+        sections.extend(inlineText(paragraph) for paragraph in outcome.overallReview.split("\n\n") if paragraph.strip())
     taskNumbers = {task.taskId: task.taskNumber for task in tasks}
     stepsByTask: dict[str, list[SolutionStep]] = defaultdict(list)
     for step in reading.steps:

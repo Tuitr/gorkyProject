@@ -56,5 +56,8 @@ def publishResultArtifact(store: ResultStore, checkId: str, resultRev: int, stor
         check = session.get_one(CheckJob, checkId)
         outcome = CheckOutcome.model_validate(row.outcome)
         source = loadResultSource(session, check, outcome)
-    ref = storage.save(checkId, resultRev, renderCheckMarkdown(outcome, source.reading, source.tasks))
+    ref = storage.save(
+        checkId, resultRev, renderCheckMarkdown(outcome, source.reading, source.tasks),
+        previousMarkdown=lambda: renderCheckMarkdown(outcome, source.reading, source.tasks, preserveReviewLineBreaks=False),
+    )
     return store.publish(checkId, resultRev, ref, storage.require)

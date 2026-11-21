@@ -58,7 +58,9 @@ class MarkdownStorage:
         if response["ContentLength"] == 0 or digest.hexdigest() != ref.sha256:
             raise ArtifactUnavailable("result artifact bytes differ from the saved reference")
 
-    def save(self, checkId: str, resultRev: int, markdown: str) -> MarkdownRef:
+    def save(
+        self, checkId: str, resultRev: int, markdown: str, *, previousMarkdown: Callable[[], str] | None = None,
+    ) -> MarkdownRef:
         if resultRev < 1 or not markdown.strip():
             raise ValueError("expected a positive revision and non-empty Markdown")
         body = markdown.encode("utf-8")
@@ -76,7 +78,16 @@ class MarkdownStorage:
             if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 412:
                 raise ArtifactUnavailable("cannot write the result artifact") from error
             # A previous attempt may have uploaded the file before the database commit.
-            self.require(ref)
+            try:
+                self.require(ref)
+            except ArtifactUnavailable:
+                if previousMarkdown is None:
+                    raise
+                previousDigest = hashlib.sha256(previousMarkdown().encode("utf-8")).hexdigest()
+                if previousDigest == ref.sha256:
+                    raise
+                ref = ref.model_copy(update={"sha256": previousDigest})
+                self.require(ref)
         except BotoCoreError as error:
             raise ArtifactUnavailable("cannot write the result artifact") from error
         return ref
