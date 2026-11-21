@@ -4,12 +4,10 @@ Without rev, GET reads the current assignment revision and returns its latest
 snapshot. With rev, GET returns exactly that saved snapshot. Each student row
 points to the completed result revision used in the counts. Draft attempts
 are ordered by submission time. Teacher acceptance takes precedence and is
-ordered by acceptance time. The selected attempt contributes its latest
-completed result, including completed teacher edits.
+ordered by acceptance time. Counts use that exact revision.
 
-Shares here use completed students. The cabinet adds the class roster and
-pending submissions to form its public denominator. A zero denominator yields
-null. See examples/grading/assignmentReport.json.
+Shares use unique submitted students known to grading, including pending checks.
+The cabinet supplies the full roster. New fields have defaults for older snapshots.
 """
 
 from typing import Annotated, Any, Literal
@@ -48,6 +46,7 @@ class CategoryTrend(BaseModel):
     category: NonEmptyStr
     affectedStudents: Count
     primaryIssues: Count
+    affectedShare: Share | None = None
     topic: NonEmptyStr | None = None
     exampleComment: NonEmptyStr | None = None
 
@@ -61,6 +60,15 @@ class CategoryTrend(BaseModel):
         return data
 
 
+class ReportTrend(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    taskId: NonEmptyStr
+    category: NonEmptyStr
+    topic: NonEmptyStr
+    exampleComment: NonEmptyStr
+
+
 class TaskDistribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -72,6 +80,8 @@ class TaskDistribution(BaseModel):
     missing: Count
     correctShare: Share | None
     categories: list[CategoryTrend]
+    incorrectShare: Share | None = None
+    unchecked: Count | None = None
 
 
 class AssignmentReport(BaseModel):
@@ -83,3 +93,6 @@ class AssignmentReport(BaseModel):
     studentCount: Count
     students: list[ReportStudent]
     tasks: list[TaskDistribution]
+    submittedCount: Count | None = None
+    waitingStudentIds: list[str] = Field(default_factory=list)
+    trends: list[ReportTrend] = Field(default_factory=list)

@@ -5,6 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from contracts.v1.cabinet.classes import StudentSummary
+from contracts.v1.cabinet.grades import Grade
 from contracts.v1.events.checks import NonEmptyStr, Revision
 from contracts.v1.grading.assessment import Grade
 from contracts.v1.grading.checks import ResultRevision

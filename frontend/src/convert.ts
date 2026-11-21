@@ -1,4 +1,4 @@
-// Кабинет принимает только DOCX, ZIP с DOCX и фото JPG/PNG/WebP.
+// Кабинет принимает DOCX, ZIP со сдачами и фото JPG/PNG/WebP.
 // Остальные поддерживаемые форматы переводим в браузере перед отправкой.
 
 export const extension = (f: File) => f.name.split('.').pop()?.toLowerCase() ?? ''
@@ -7,8 +7,8 @@ const rename = (name: string, ext: string) => name.replace(/\.[^.]+$/, '') + '.'
 /** Все форматы, которые можно выбрать. */
 export const FORMATS = ['docx', 'txt', 'zip', 'jpg', 'jpeg', 'jfif', 'png', 'webp', 'heic', 'heif']
 export const FORMATS_TEXT = 'DOCX, TXT, ZIP, JPG, PNG, WebP или HEIC'
-/** Задание (вариант контрольной) кабинет принимает только как документ. */
-export const TASK_FORMATS = ['docx', 'txt']
+export const PHOTO_FORMATS = ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'heic', 'heif']
+export const TASK_FORMATS = ['docx', 'txt', ...PHOTO_FORMATS]
 
 /** Готовит файл к отправке: HEIC → JPG, TXT → DOCX, остальное как есть. */
 export async function prepare(file: File): Promise<File> {

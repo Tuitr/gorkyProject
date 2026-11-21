@@ -114,7 +114,10 @@ export function UploadDialog(props: {
             Загрузите файл нужного формата: {FORMATS_TEXT}. Не подходит: {wrongFormat.map((f) => f.name).join(', ')}
           </p>
         )}
-        {taskNotDoc && <p style={st.error}>Вариант загружается только как документ: DOCX или TXT.</p>}
+        {taskNotDoc && <p style={st.error}>Для варианта выберите DOCX, TXT или фото.</p>}
+        {kind === 'solution' && (
+          <p style={st.legend}>Листы одного ученика выберите вместе или положите в ZIP. Назовите их «Смирнова Анна__01.jpg», «Смирнова Анна__02.jpg».</p>
+        )}
         {files.length > 0 && target === '' && (
           <p style={st.error}>
             {kind === 'task' ? (title.trim() ? 'Выберите предмет.' : 'Введите название проверочной работы.') : 'Выберите папку, куда положить ответ.'}

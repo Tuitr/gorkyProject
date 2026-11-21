@@ -1,4 +1,4 @@
-"""PUT /v1/checks/{checkId}/grade: the teacher's grade for a checked submission, 1 to 5; null removes it."""
+"""Teacher grades range from 2 to 5. A null grade clears the selection."""
 
 from pydantic import BaseModel, ConfigDict
 

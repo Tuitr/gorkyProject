@@ -21,6 +21,7 @@ from grading.main import createApp
 from grading.markdown import inlineText
 from grading.markdownStorage import MarkdownStorage
 from grading.results import ResultStore
+from grading.scoring import storedOutcome, withScores
 from grading.settings import Settings
 from grading.tables import TeacherReviewEdit
 
@@ -125,3 +126,17 @@ def testConcurrentEditsHaveOneWinnerAndReplayReturnsItsReceipt(
     with Session(gradingEngine) as session:
         history = session.query(TeacherReviewEdit).all()
         assert {row.resultRev: row.request for row in history} == {2: applied, 3: followup}
+
+def testLegacyRevisionAndMixedScoresUseConfirmedMaxima() -> None:
+    base = TaskResult(taskId="t1", answer="correct", reasoning="valid", method="optional",
+                      needsReview=False, issues=[])
+    tasks = [base, base.model_copy(update={"taskId": "t2", "answer": "unreadable", "needsReview": True}),
+             base.model_copy(update={"taskId": "t3", "answer": "skipped", "reasoning": "not_shown"}),
+             base.model_copy(update={"taskId": "t4", "reasoning": "not_shown", "method": "unconfirmed"})]
+    old = storedOutcome({"attemptId": "a", "checkId": "c", "resultRev": 1, "overallReview": "Отзыв",
+                         "taskResults": [t.model_dump() for t in tasks]})
+    assert old.total and old.total.model_dump() == {"score": 1, "maxScore": 4, "pendingCount": 2}
+    scored = withScores(old, {"t1": 3, "t2": 2}, {})
+    assert [a.score for a in scored.taskAssessments] == [3, None, 0, None]
+    assert scored.total and scored.total.model_dump() == {"score": 3, "maxScore": 7, "pendingCount": 2}
+    assert {r.topic for r in scored.recommendations} == {"Обоснование решения", "Требуемый способ"}

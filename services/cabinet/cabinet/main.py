@@ -403,7 +403,7 @@ def createApp(
     ) -> CheckStatus:
         with sessionFactory() as db:
             attemptId = requireOwnedCheck(db, checkId, teacher.teacherId)
-            legacyGrade = db.scalar(select(CheckRecord.grade).where(CheckRecord.checkId == checkId))
+            legacyGrade = readReportGrades(db, [checkId]).get(checkId)
             pages = readPhotoPages(db, [checkId]).get(checkId, [])
         response.headers["Cache-Control"] = "no-store"
         result = readGradingCheck(settings, checkId, attemptId, getTraceId(request), gradingTransport)
@@ -520,7 +520,7 @@ def createApp(
         responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError}},
     )
     def setCheckGrade(checkId: str, body: SetGrade, teacher: TeacherSession = Depends(currentTeacher)) -> CheckGrade:
-        """The teacher grades the submission from 1 to 5; null removes the grade. Repeating the same grade is harmless."""
+        """The teacher grades the submission from 2 to 5. A null grade clears it."""
         with sessionFactory.begin() as db:
             requireOwnedCheck(db, checkId, teacher.teacherId)
             db.execute(update(CheckRecord).where(CheckRecord.checkId == checkId).values(grade=body.grade))
@@ -533,7 +533,7 @@ def createApp(
     def readCheckGrade(checkId: str, response: Response, teacher: TeacherSession = Depends(currentTeacher)) -> CheckGrade:
         with sessionFactory() as db:
             requireOwnedCheck(db, checkId, teacher.teacherId)
-            grade = db.scalar(select(CheckRecord.grade).where(CheckRecord.checkId == checkId))
+            grade = readReportGrades(db, [checkId]).get(checkId)
         response.headers["Cache-Control"] = "no-store"
         return CheckGrade(checkId=checkId, grade=grade)
 

@@ -69,7 +69,13 @@ export function StudentWork(props: {
       <div style={st.columns}>
         {/* ---------- слева: фото и ошибки ---------- */}
         <section style={st.half}>
-          {work.photo && !photoFailed ? (
+          {check?.photoPages?.length ? (
+            check.photoPages.map((page) => (
+              <a key={page.pageIndex} href={page.url} target="_blank" rel="noreferrer" title="Открыть лист целиком">
+                <img src={page.url} alt={`Работа ${work.studentName}, лист ${page.pageIndex + 1}`} style={st.photo} />
+              </a>
+            ))
+          ) : work.photo && !photoFailed ? (
             <a href={api.photoUrl(work.photo.uploadId, work.photo.fileId)} target="_blank" rel="noreferrer" title="Открыть фото целиком">
               <img
                 src={api.photoUrl(work.photo.uploadId, work.photo.fileId)}
@@ -82,7 +88,7 @@ export function StudentWork(props: {
             <p style={st.note}>
               {work.photo
                 ? 'Фото не загрузилось.'
-                : 'Фото показывается для работ, загруженных в этом окне. Работа в DOCX или загружена раньше — ниже ошибки по заданиям.'}
+                : 'Фото работы недоступно. Ниже показаны замечания по заданиям.'}
             </p>
           )}
 

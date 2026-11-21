@@ -45,10 +45,10 @@ def readReportGrades(db: Session, checkIds: list[str]) -> dict[str, int]:
         checkId: grade
         for checkId, grade in db.execute(
             select(CheckRecord.checkId, CheckRecord.grade).where(
-                CheckRecord.checkId.in_(checkIds), CheckRecord.grade.is_not(None),
+                CheckRecord.checkId.in_(checkIds),
             )
         )
-        if grade is not None
+        if grade is not None and 2 <= grade <= 5
     }
 
 
@@ -88,7 +88,18 @@ def combineReport(
     total = len(submitted)
     waiting = submitted - reviewed
     tasks = []
-    trends: list[ReportTrend] = []
+    trends: dict[tuple[str, str], ReportTrend] = {
+        (trend.taskId, trend.category): ReportTrend.model_validate(trend.model_dump())
+        for trend in upstream.trends
+    }
+    if len(trends) != len(upstream.trends):
+        raise invalidGradingResponse()
+    repeatedCategories = {
+        (task.taskId, trend.category)
+        for task in upstream.tasks for trend in task.categories if trend.affectedStudents >= 2
+    }
+    if not trends.keys() <= repeatedCategories:
+        raise invalidGradingResponse()
     for task in upstream.tasks:
         correct, incorrect, skipped = (task.answer.get(verdict, 0) for verdict in ("correct", "incorrect", "skipped"))
         unreadable = task.answer.get("unreadable", 0)
@@ -103,14 +114,14 @@ def combineReport(
             incorrectShare=incorrect / total if total else None,
             skippedShare=skipped / total if total else None,
         ))
-        trends.extend(
-            ReportTrend(taskId=task.taskId, category=trend.category, topic=trend.topic, exampleComment=trend.exampleComment)
-            for trend in task.categories
-            if trend.affectedStudents >= 2 and trend.topic is not None and trend.exampleComment is not None
-        )
+        for trend in task.categories:
+            if trend.affectedStudents >= 2 and trend.topic is not None and trend.exampleComment is not None:
+                trends.setdefault((task.taskId, trend.category), ReportTrend(
+                    taskId=task.taskId, category=trend.category, topic=trend.topic, exampleComment=trend.exampleComment,
+                ))
     return AssignmentReport(
         assignmentId=assignmentId, assignmentRev=assignmentRev, students=roster, submittedCount=total,
         notSubmitted=[student for student in roster if student.studentId not in submitted],
         waiting=[student for student in roster if student.studentId in waiting],
-        results=results, tasks=tasks, trends=trends,
+        results=results, tasks=tasks, trends=list(trends.values()),
     )

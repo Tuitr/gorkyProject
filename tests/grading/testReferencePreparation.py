@@ -21,6 +21,9 @@ from contracts.v1.references.reference import (
 )
 from dataset.docxwriter import Paragraph, buildDocx
 from grading.intake import IncomingDocRef
+from grading.photoOcr import TranscribedLine
+from grading.referenceView import ReferenceReader
+from grading.resultArtifacts import parsedTasksAdapter
 from grading.stream import StreamConsumer
 from grading.tables import AssignmentJob, CheckJob
 from grading.references import ReferenceClient, ReferenceTerminalError, ReferenceUnavailableError
@@ -376,3 +379,64 @@ def testFailedReferenceLeavesNeighborAvailable(
     assert prepared.referenceErrors["t1"]["reasonCode"] == code
     if missingOnGet:
         assert prepared.referenceErrors["t1"]["referenceId"] == "r1"
+
+@pytest.mark.parametrize(("subject", "statement", "answer"), [
+    ("math", "Длина вектора (3; 4)", "5"),
+    ("physics", "Какое количество теплоты необходимо для нагревания 2 кг воды от 20 °C до 30 °C? "
+                "Удельная теплоёмкость воды 4200 Дж/(кг·°C).", "84000 Дж"),
+])
+def testPhotoAssignmentPreparesSubjectReference(
+    subject: str, statement: str, answer: str, gradingEngine: Engine, gradingStream: tuple[Redis, str],
+    contractExample: Callable[[str], Any], liveRegistry: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, stream = gradingStream
+    worker = GradingWorker(StreamConsumer(client, "photo", streamName=stream), gradingEngine)
+    photo = b"fixture-photo"
+
+    def transcribe(document: bytes, mediaType: str, *, assignment: bool) -> tuple[TranscribedLine, ...]:
+        assert (document, mediaType, assignment) == (photo, "image/jpeg", True)
+        return TranscribedLine("Задание № 1", "heading"), TranscribedLine(statement, "line")
+
+    monkeypatch.setattr("grading.assignment.transcribePhoto", transcribe)
+    event = contractExample("events/assignmentPublished.json")
+    event["payload"].update(subject=subject, requirements=[{"text": "Обоснуйте", "taskNumber": "1"}])
+    event["payload"]["docRef"].update(key="assignments/source.jpg", sha256=hashlib.sha256(photo).hexdigest())
+    client.xadd(stream, {DATA_FIELD: json.dumps(event)})
+    worker.runBatch()
+    lease = worker.jobs.claimAssignment()
+    assert lease is not None
+    assert worker.prepareAssignment(lease, lambda _: photo)["t1"].state == "ready"
+    with Session(gradingEngine) as session:
+        saved = session.get_one(AssignmentJob, lease.key)
+        assert saved.stageData
+        assert parsedTasksAdapter.validate_python(saved.stageData["tasks"])[0].requirements == ("Обоснуйте",)
+    view = ReferenceReader(gradingEngine).read(event["payload"]["assignmentId"])
+    assert view and view.tasks[0].answer and view.tasks[0].answer.startswith(answer)
+
+
+@pytest.mark.parametrize("problem", [
+    TranscribedLine("№ ?", "heading"), TranscribedLine("x + [неразборчиво]", "line"),
+    TranscribedLine("Не видна подпись рисунка", "uncertain"),
+])
+def testUnclearPhotoAssignmentStopsBeforeReferenceLookup(
+    problem: TranscribedLine, gradingEngine: Engine, gradingStream: tuple[Redis, str],
+    contractExample: Callable[[str], Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, stream = gradingStream
+    worker = GradingWorker(StreamConsumer(client, "unclear", streamName=stream), gradingEngine)
+    monkeypatch.setattr("grading.assignment.transcribePhoto", lambda *a, **kw: (
+        TranscribedLine("1. Найдите x", "heading"), problem,
+    ))
+    event = contractExample("events/assignmentPublished.json")
+    event["payload"]["docRef"].update(key="source.png", sha256=hashlib.sha256(b"photo").hexdigest())
+    client.xadd(stream, {DATA_FIELD: json.dumps(event)})
+    worker.runBatch()
+    lease = worker.jobs.claimAssignment()
+    assert lease is not None
+
+    def unexpected(request: ReferenceRequest) -> ReferenceResult:
+        pytest.fail("unclear assignment must not reach the solver")
+
+    assert worker.prepareAssignment(lease, lambda _: b"photo", requestReference=unexpected) == {}
+    view = ReferenceReader(gradingEngine).read(event["payload"]["assignmentId"])
+    assert view and view.state == "needs_review" and not view.tasks

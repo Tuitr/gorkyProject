@@ -7,6 +7,8 @@ from dataclasses import dataclass, replace
 from typing import Literal
 from xml.etree.ElementTree import Element
 
+from contracts.v1.grading.assessment import OcrStatus, PhotoBox
+from contracts.v1.grading.checkresult import PhotoPage
 from grading.assignment import AssignmentTask
 from grading.formulas import M, MathParagraph, ReadStatus
 from grading.intake import AttemptSubmittedInput, IncomingDocRef
@@ -48,6 +50,8 @@ class SourceAnchor:
     start: int
     end: int
     projection: Literal["text", "mathObjects", "wordObjects", "ocr"] = "text"
+    pageIndex: int = 0
+    box: PhotoBox | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,9 @@ class SubmissionReading:
     taskReadings: tuple[TaskReading, ...]
     unassignedFragments: tuple[UnassignedFragment, ...]
     transcriptMarkdown: str | None = None
+    photoPages: tuple[PhotoPage, ...] = ()
+    ocrStatus: OcrStatus | None = None
+    ocrReason: str | None = None
 
 
 def verifiedBody(document: bytes, ref: IncomingDocRef) -> Element:
@@ -297,6 +304,12 @@ def withoutDetachedCrossouts(text: str) -> str | None:
 def readPhotoSubmission(
     submitted: AttemptSubmittedInput, lines: Sequence[TranscribedLine], tasks: Sequence[AssignmentTask],
 ) -> SubmissionReading:
+    return readPhotoPages((submitted.docRef,), (lines,), tasks)
+
+
+def readPhotoPages(
+    refs: Sequence[IncomingDocRef], pages: Sequence[Sequence[TranscribedLine]], tasks: Sequence[AssignmentTask],
+) -> SubmissionReading:
     byNumber = {task.taskNumber: task.taskId for task in tasks}
     byTask: dict[str, list[SolutionStep]] = {}
     unassigned: list[UnassignedFragment] = []
@@ -304,33 +317,47 @@ def readPhotoSubmission(
     current = None
     reason = "Часть записи нужно сверить с фотографией."
 
-    for index, line in enumerate(lines):
-        text = line.text
-        if line.kind == "cancelled":
-            continue
-        anchor = SourceAnchor(submitted.docRef, (), index, 0, len(text), "ocr")
-        if line.kind == "heading":
-            heading = PHOTO_TASK_HEADING.match(text)
-            current = byNumber.get(heading.group(1) or heading.group(2)) if heading else None
-            if current is None:
-                unassigned.append(UnassignedFragment("Номер задания на фото нужно сверить.", anchor))
+    hasReadableContent = False
+    for pageIndex, (ref, lines) in enumerate(zip(refs, pages, strict=True)):
+        if not lines:
+            # An unreadable page may contain a new task heading.
+            anchor = SourceAnchor(ref, (), 0, 0, len(UNREADABLE), "ocr", pageIndex)
+            unassigned.append(UnassignedFragment("На странице не прочитано ни одной строки.", anchor))
+            if current is not None:
+                steps = byTask[current]
+                step = SolutionStep(current, f"s{len(steps) + 1}", UNREADABLE, anchor, "ambiguous")
+                steps.append(step)
+                ordered.append(step)
+            current = None
+        for index, line in enumerate(lines):
+            text = line.text
+            if line.kind == "cancelled":
                 continue
-            assert heading is not None
-            byTask.setdefault(current, [])
-            anchor = replace(anchor, start=heading.end())
-            text = text[heading.end():]
-        active = withoutDetachedCrossouts(text) if "~~" in text else text
-        ambiguous = active is None or line.kind == "uncertain" or UNREADABLE in active
-        text = text if active is None else active
-        if not text or ANSWER_LABEL.fullmatch(text):
-            continue
-        if current is None:
-            unassigned.append(UnassignedFragment("Не удалось определить номер задания для строки на фото.", anchor))
-        else:
-            steps = byTask[current]
-            step = SolutionStep(current, f"s{len(steps) + 1}", text, anchor, "ambiguous" if ambiguous else "read")
-            steps.append(step)
-            ordered.append(step)
+            anchor = SourceAnchor(ref, (), index, 0, len(text), "ocr", pageIndex, line.box)
+            if line.kind == "heading":
+                heading = PHOTO_TASK_HEADING.match(text)
+                current = byNumber.get(heading.group(1) or heading.group(2)) if heading else None
+                if current is None:
+                    unassigned.append(UnassignedFragment("Номер задания на фото нужно сверить.", anchor))
+                    continue
+                assert heading is not None
+                byTask.setdefault(current, [])
+                anchor = replace(anchor, start=heading.end())
+                text = text[heading.end():]
+            active = withoutDetachedCrossouts(text) if "~~" in text else text
+            ambiguous = active is None or line.kind == "uncertain" or UNREADABLE in active
+            text = text if active is None else active
+            if not text or ANSWER_LABEL.fullmatch(text):
+                continue
+            if re.search(r"\w", CROSSOUT.sub("", text).replace(UNREADABLE, "")):
+                hasReadableContent = True
+            if current is None:
+                unassigned.append(UnassignedFragment("Не удалось определить номер задания для строки на фото.", anchor))
+            else:
+                steps = byTask[current]
+                step = SolutionStep(current, f"s{len(steps) + 1}", text, anchor, "ambiguous" if ambiguous else "read")
+                steps.append(step)
+                ordered.append(step)
 
     readings = []
     for task in tasks:
@@ -338,4 +365,20 @@ def readPhotoSubmission(
         if reading.status in ("skipped", "needsReview"):
             reading = TaskReading(task.taskId, "needsReview", reason)
         readings.append(reading)
-    return SubmissionReading(tuple(ordered), tuple(readings), tuple(unassigned), renderTranscript(lines))
+    transcripts = tuple(PhotoPage(pageIndex=i, transcriptMarkdown=renderTranscript(page)) for i, page in enumerate(pages))
+    status: OcrStatus = "readable"
+    detail = None
+    if not hasReadableContent:
+        status, detail = "unreadable", "На снимках не удалось прочитать решение."
+    elif unassigned or any(item.status == "needsReview" for item in readings):
+        status = "needs_review"
+        if unassigned:
+            fragment = unassigned[0]
+            page = fragment.sourceAnchor.pageIndex + 1 if fragment.sourceAnchor else 1
+            detail = f"Страница {page}. {fragment.reviewReason}"
+        else:
+            item = next(item for item in readings if item.status == "needsReview")
+            number = next(task.taskNumber for task in tasks if task.taskId == item.taskId)
+            detail = f"Задание № {number}. {reason}"
+    return SubmissionReading(tuple(ordered), tuple(readings), tuple(unassigned),
+                             "\n".join(page.transcriptMarkdown for page in transcripts), transcripts, status, detail)

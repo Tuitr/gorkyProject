@@ -31,9 +31,12 @@ export type TaskResult = {
   issues: { issueId: string; stepId: string; category: string; comment: string; correction: string; causedByIssueId?: string | null }[]
   needsReview: boolean
 }
-export type Check =
+type CheckPhoto = { grade?: number | null; photoPages?: { pageIndex: number; url: string; transcriptMarkdown?: string }[] }
+export type Check = CheckPhoto & (
   | { checkId: string; attemptId: string; state: 'queued' | 'running' | 'waiting_reference' | 'needs_review' | 'failed'; reason: string; transcriptMarkdown?: string | null }
   | { checkId: string; attemptId: string; state: 'ready' | 'needs_review'; resultRev: number; taskResults: TaskResult[]; overallReview: string; publishedResultRev?: number | null; transcriptMarkdown?: string | null }
+
+)
 
 // Задания варианта с эталонами (contracts/v1/grading/assignmentreferences.py).
 export type References = {
@@ -68,7 +71,7 @@ export type Report = {
   submittedCount: number
   notSubmitted: Student[]
   waiting: Student[]
-  /** grade — оценка учителя 1–5 (null — ещё не выставлена). */
+  /** grade — оценка учителя 2–5 (null — ещё не выставлена). */
   results: { studentId: string; checkId: string; resultRev: number; grade?: number | null }[]
   tasks: ReportTask[]
 }
@@ -121,9 +124,9 @@ export const api = {
   },
   // Удаляет вариант со всеми ревизиями, ответами учеников и результатами.
   deleteAssignment: (assignmentId: string) => call<void>('DELETE', `/v1/assignments/${e(assignmentId)}?confirm=true`),
-  uploadWork: (a: Assignment, file: File) => {
+  uploadWork: (a: Assignment, files: File[]) => {
     const fd = new FormData()
-    fd.append('file', file)
+    for (const file of files) fd.append('file', file)
     fd.append('assignmentRev', String(a.assignmentRev))
     return call<{ uploadId: string }>('POST', `/v1/assignments/${e(a.assignmentId)}/uploads`, fd)
   },
@@ -131,9 +134,13 @@ export const api = {
     call<References>('GET', `/v1/assignments/${e(a.assignmentId)}/references?rev=${a.assignmentRev}`),
   report: (a: Assignment) => call<Report>('GET', `/v1/assignments/${e(a.assignmentId)}/report?rev=${a.assignmentRev}`),
   check: (checkId: string) => call<Check>('GET', `/v1/checks/${e(checkId)}`),
-  // Оценка учителя 1–5; null снимает оценку.
+  // Оценка учителя 2–5; null снимает оценку.
   setGrade: (checkId: string, grade: number | null) =>
     call<{ checkId: string; grade: number | null }>('PUT', `/v1/checks/${e(checkId)}/grade`, { grade }),
+  reviseGrade: (checkId: string, baseRev: number, grade: number | null) =>
+    call<{ checkId: string; resultRev: number; editId: string }>('PATCH', `/v1/checks/${e(checkId)}/review`, {
+      baseRev, editId: crypto.randomUUID(), changes: [{ type: 'set_grade', grade }],
+    }),
   // Публикация результата: вместе с оценкой учитель принимает разбор работы.
   publish: (checkId: string, resultRev: number) =>
     call<{ checkId: string; resultRev: number }>('POST', `/v1/checks/${e(checkId)}/publish`, { resultRev }),

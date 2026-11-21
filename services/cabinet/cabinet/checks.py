@@ -70,5 +70,7 @@ def attachCabinetData(result: CheckStatus, pages: Sequence[PhotoPage], legacyGra
     photoPages = [
         page.model_copy(update={"transcriptMarkdown": transcripts.get(page.pageIndex)}) for page in pages
     ]
-    grade = result.grade if "grade" in result.model_fields_set else legacyGrade
-    return result.model_copy(update={"photoPages": photoPages or None, "grade": grade})
+    updates: dict[str, object] = {"photoPages": photoPages or None}
+    if "grade" not in result.model_fields_set and legacyGrade is not None:
+        updates["grade"] = legacyGrade
+    return result.model_copy(update=updates)

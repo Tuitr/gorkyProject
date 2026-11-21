@@ -13,8 +13,10 @@ before any business processing. Rejection messages name fields and error kinds, 
 import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
+from contracts.v1.grading.assessment import MaximumScore
+from shared.submissionmedia import photoMediaType
 from contracts.v1.events.checks import NonEmptyStr, Revision, UtcTimestamp
 
 class EventRejected(Exception):
@@ -57,6 +59,11 @@ class IncomingRequirement(BaseModel):
     taskNumber: NonEmptyStr | None = None
 
 
+class TaskPoints(BaseModel):
+    taskNumber: NonEmptyStr
+    maxScore: MaximumScore
+
+
 class AssignmentPublishedInput(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -65,6 +72,13 @@ class AssignmentPublishedInput(BaseModel):
     docRef: IncomingDocRef
     requirements: list[IncomingRequirement]
     subject: Literal["math", "physics"] = "math"
+    taskPoints: list[TaskPoints] = Field(default_factory=list, exclude_if=lambda points: not points)
+
+    @model_validator(mode="after")
+    def uniqueMaxima(self) -> "AssignmentPublishedInput":
+        if len({point.taskNumber for point in self.taskPoints}) != len(self.taskPoints):
+            raise ValueError("taskPoints must have a single maximum per task")
+        return self
 
 
 class AttemptSubmittedInput(BaseModel):
@@ -76,6 +90,15 @@ class AttemptSubmittedInput(BaseModel):
     attemptId: NonEmptyStr
     checkId: NonEmptyStr
     docRef: IncomingDocRef
+
+    pageRefs: list[IncomingDocRef] | None = Field(default=None, min_length=2, max_length=100, exclude_if=lambda refs: refs is None)
+
+    @model_validator(mode="after")
+    def verifyPages(self) -> "AttemptSubmittedInput":
+        if self.pageRefs is not None:
+            if self.pageRefs[0] != self.docRef or any(photoMediaType(ref.key) is None for ref in self.pageRefs):
+                raise ValueError("pageRefs must contain ordered photo references starting with docRef")
+        return self
 
 
 def rejectBooleanVersion(value: object) -> object:

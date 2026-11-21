@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from contracts.v1.common.errors import ApiError
-from contracts.v1.grading.assessment import ReviewGrade, Score
+from contracts.v1.grading.assessment import Grade, Score
 from contracts.v1.grading.checks import ResultRevision
 from contracts.v1.grading.taskresult import AnswerVerdict, MethodVerdict, NonEmptyStr, ReasoningVerdict
 
@@ -51,7 +51,7 @@ class UpdateOverallReview(ReviewInput):
 
 class SetReviewGrade(ReviewInput):
     type: Literal["set_grade"]
-    grade: ReviewGrade | None
+    grade: Grade | None
 
 
 class SetTeacherComment(ReviewInput):

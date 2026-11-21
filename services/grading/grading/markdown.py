@@ -38,9 +38,13 @@ def renderCheckMarkdown(outcome: CheckOutcome, reading: SubmissionReading, tasks
     stepsByTask: dict[str, list[SolutionStep]] = defaultdict(list)
     for step in reading.steps:
         stepsByTask[step.taskId].append(step)
+    assessments = {a.taskId: a for a in outcome.taskAssessments}
     for result in outcome.taskResults:
         steps = stepsByTask[result.taskId]
         sections.append("## Задание " + inlineText(taskNumbers.get(result.taskId, result.taskId)))
+        if assessment := assessments.get(result.taskId):
+            score = "ожидает решения" if assessment.score is None else f"{assessment.score:g}"
+            sections.append(f"Балл — {score} из {assessment.maxScore:g}.")
         issues = anchoredIssues(result.issues, {step.stepId for step in steps if step.readStatus == "read"})
         byStep: dict[str, list[Issue]] = defaultdict(list)
         causeSteps = {issue.issueId: issue.stepId for issue in issues}
@@ -63,4 +67,12 @@ def renderCheckMarkdown(outcome: CheckOutcome, reading: SubmissionReading, tasks
                 sections.append("**Исправление.** " + inlineText(issue.correction))
         if result.needsReview:
             sections.append("Итог по заданию требует уточнения.")
+    if outcome.teacherComment:
+        sections.extend(["## Комментарий учителя", inlineText(outcome.teacherComment)])
+    if outcome.recommendations:
+        sections.append("## Темы для повторения")
+        for item in outcome.recommendations:
+            sections.append(f"**{inlineText(item.topic)}** — {inlineText(item.text)}")
+    if outcome.grade is not None:
+        sections.append(f"Оценка — {outcome.grade}")
     return "\n\n".join(sections) + "\n"

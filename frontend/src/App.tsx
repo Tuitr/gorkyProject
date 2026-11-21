@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { AddClassDialog } from './AddClassDialog'
 import { ClassStats } from './ClassStats'
-import { prepare } from './convert'
+import { extension, PHOTO_FORMATS, prepare } from './convert'
 import { UploadDialog, type UploadRequest } from './UploadDialog'
 import { StudentWork, type OpenWork } from './StudentWork'
 import { WorkFolders, type Work } from './WorkFolders'
@@ -178,11 +178,15 @@ export function App() {
     const folder = assignments.find((a) => a.assignmentId === r.assignmentId)
     if (!folder) return setError('Папка не найдена — обновите страницу')
     openFolder(folder.assignmentId)
-    for (const file of r.files)
-      await track(file.name, folder.assignmentId, async () => ({
+    const photos = r.files.filter((file) => PHOTO_FORMATS.includes(extension(file)))
+    const uploads = r.files.filter((file) => !PHOTO_FORMATS.includes(extension(file))).map((file) => [file])
+    if (photos.length) uploads.push(photos)
+    for (const files of uploads) {
+      await track(files.length === 1 ? files[0].name : `Фото: ${files.length}`, folder.assignmentId, async () => ({
         state: 'sent',
-        uploadId: (await api.uploadWork(folder, await prepare(file))).uploadId,
+        uploadId: (await api.uploadWork(folder, await Promise.all(files.map(prepare)))).uploadId,
       }))
+    }
   }
 
   const bind = async (uploadId: string, fileId: string, studentId: string) => {
@@ -209,18 +213,27 @@ export function App() {
   const reportGrades: Record<string, number | null | undefined> = Object.fromEntries(
     Object.values(reports).flatMap((r) => r.results.map((x) => [x.checkId, x.grade])),
   )
-  const gradeOf = (checkId: string | undefined) =>
-    checkId === undefined ? undefined : checkId in gradeEdits ? gradeEdits[checkId] : reportGrades[checkId]
+  const gradeOf = (checkId: string | undefined) => {
+    if (checkId === undefined) return undefined
+    if (checkId in gradeEdits) return gradeEdits[checkId]
+    const check = checks[checkId]
+    return check?.grade !== undefined ? check.grade : reportGrades[checkId]
+  }
 
   const setGrade = async (checkId: string, grade: number | null) => {
     try {
-      await api.setGrade(checkId, grade)
-      setGradeEdits((prev) => ({ ...prev, [checkId]: grade }))
-      // Вместе с оценкой учитель принимает разбор: публикуем результат, если ещё не опубликован.
       const c = checks[checkId]
-      if (grade != null && c && 'taskResults' in c && c.publishedResultRev !== c.resultRev) {
-        await api.publish(checkId, c.resultRev).catch(() => undefined)
+      if (c && 'taskResults' in c) {
+        const saved = await api.reviseGrade(checkId, c.resultRev, grade)
+        setGradeEdits((prev) => ({ ...prev, [checkId]: grade }))
         await reloadCheck(checkId)
+        if (grade != null || c.publishedResultRev != null) {
+          await api.publish(checkId, saved.resultRev)
+          await reloadCheck(checkId)
+        }
+      } else {
+        await api.setGrade(checkId, grade)
+        setGradeEdits((prev) => ({ ...prev, [checkId]: grade }))
       }
     } catch (e) {
       setError((e as Error).message)

@@ -15,6 +15,7 @@ from contracts.v1.grading.taskresult import Issue, TaskResult
 from grading.inbox import saveEvent
 from grading.intake import incomingEventAdapter
 from grading.main import createApp
+from grading.reports import ReportStore
 from grading.results import ResultConflict, ResultStore
 from grading.settings import Settings
 from grading.tables import AssignmentJob
@@ -65,7 +66,7 @@ def testReportSelectsAcceptedAttemptAndPinsEachRevision(
         draft = AssignmentReport.model_validate(response.json())
         assert draft.rev == 1 and draft.studentCount == 2
         assert [student.checkId for student in draft.students] == ["c2", "c3"]
-        assert draft.tasks[0].correctShare == 0.5
+        assert draft.tasks[0].correctShare == 1 / 3
 
         store.recordAcceptance("c1", 1)
         accepted = AssignmentReport.model_validate(api.get(path, headers=headers).json())
@@ -86,6 +87,8 @@ def testReportSelectsAcceptedAttemptAndPinsEachRevision(
         assert correction.resultRev == 2
         assert api.get(path, headers=headers).json() == accepted.model_dump(mode="json")
         store.publish("c1", 2, MarkdownRef(bucket="results", key="c1-edited", sha256="b" * 64), lambda _: None)
+        assert api.get(path, headers=headers).json() == accepted.model_dump(mode="json")
+        store.recordAcceptance("c1", 2)
         revised = AssignmentReport.model_validate(api.get(path, headers=headers).json())
         assert revised.rev == 3 and revised.students[0].selection == "accepted"
         assert (revised.students[0].checkId, revised.students[0].resultRev) == ("c1", 2)
@@ -103,3 +106,41 @@ def testReportSelectsAcceptedAttemptAndPinsEachRevision(
         assert empty.status_code == 200
         assert empty.json() == contractExample("grading/assignmentReportEmpty.json")
         assert api.get(path, params={"rev": 2}, headers=headers).json() == accepted.model_dump(mode="json")
+
+
+def testPhotoClassTrendsCountDistinctSubmitters(gradingEngine: Engine, contractExample: Callable[[str], Any]) -> None:
+    with Session(gradingEngine) as session, session.begin():
+        saveEvent(session, incomingEventAdapter.validate_python(contractExample("events/assignmentPublished.json")))
+        for index, student in enumerate(("s1", "s1", "s2", "s3", "s4"), 1):
+            event = contractExample("events/attemptSubmitted.json")
+            event.update(eventId=f"submission-{index}", occurredAt=f"2026-11-20T09:0{index}:00Z")
+            event["payload"].update(checkId=f"c{index}", attemptId=f"a{index}", studentId=student)
+            saveEvent(session, incomingEventAdapter.validate_python(event))
+
+    root = Issue(issueId="i1", stepId="1", category="sign", comment="Потерян знак.", correction="Проверьте знак.")
+    repeat = root.model_copy(update={"issueId": "i2"})
+    child = root.model_copy(update={"issueId": "i3", "causedByIssueId": "i1", "category": "arithmetic"})
+    wrong = TaskResult(taskId="t1", answer="incorrect", reasoning="invalid", method="optional",
+                       issues=[root, repeat, child], needsReview=False)
+    unreadable = TaskResult(taskId="t1", answer="unreadable", reasoning="unknown", method="optional",
+                            issues=[], needsReview=True)
+    store = ResultStore(gradingEngine)
+    for check, task in (("c1", wrong), ("c2", wrong), ("c3", wrong), ("c4", unreadable)):
+        result = store.saveDraft(check, "initial", (task,), "")
+        store.publish(check, result.resultRev, MarkdownRef(bucket="results", key=check, sha256="a" * 64), lambda _: None)
+
+    reports = ReportStore(gradingEngine)
+    summary = reports.read("w1", assignmentRev=1)
+    assert summary and (summary.submittedCount, summary.studentCount, summary.waitingStudentIds) == (4, 3, ["s4"])
+    assert [s.checkId for s in summary.students] == ["c2", "c3", "c4"]
+    taskSummary, = summary.tasks
+    assert taskSummary.answer == {"incorrect": 2, "correct": 0, "unreadable": 1, "skipped": 0}
+    assert (taskSummary.incorrectShare, taskSummary.unchecked, taskSummary.needsReview) == (0.5, 2, 1)
+    category, = taskSummary.categories
+    assert (category.category, category.affectedStudents, category.affectedShare, category.primaryIssues) == ("sign", 2, 0.5, 4)
+    trend, = summary.trends
+    assert (trend.taskId, trend.category, trend.topic, trend.exampleComment) == ("t1", "sign", "Знаки в выражениях", root.comment)
+
+    reduced = reports.read("w1", assignmentRev=1, excludedCheckIds=frozenset({"c3", "c5"}))
+    assert reduced and reduced.submittedCount == 2 and reduced.waitingStudentIds == [] and reduced.trends == []
+    assert reports.read("w1", rev=summary.rev) == summary

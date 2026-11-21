@@ -9,8 +9,7 @@ from contracts.v1.events.checks import NonEmptyStr
 Count = Annotated[int, Field(ge=0, strict=True)]
 Score = Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
 MaximumScore = Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
-Grade = Annotated[int, Field(ge=1, le=5, strict=True)]
-ReviewGrade = Annotated[int, Field(ge=2, le=5, strict=True)]
+Grade = Annotated[int, Field(ge=2, le=5, strict=True)]
 OcrStatus = Literal["readable", "needs_review", "unreadable"]
 
 

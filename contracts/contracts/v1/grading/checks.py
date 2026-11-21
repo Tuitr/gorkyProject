@@ -1,8 +1,8 @@
 """Draft result read contract shared by grading and the cabinet (B5.1 and A7.1)."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, SerializerFunctionWrapHandler, Tag, TypeAdapter, model_serializer
 
 from contracts.v1.grading.assessment import AssessmentTotal, Grade, OcrStatus, PhotoMark, PhotoPage, Recommendation, TaskAssessment
 from contracts.v1.grading.taskresult import NonEmptyStr, TaskResult
@@ -23,6 +23,13 @@ class CheckIdentity(BaseModel):
     ocrReason: NonEmptyStr | None = None
     grade: Grade | None = None
     """Only omit the grade upstream if the result has no revisioned grade field."""
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if "grade" in self.model_fields_set:
+            data["grade"] = self.grade
+        return data
 
 
 class CheckPending(CheckIdentity):

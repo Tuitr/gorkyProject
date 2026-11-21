@@ -5,6 +5,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from contracts.v1.events.checks import NonEmptyStr, Revision
+from contracts.v1.grading.assessment import Grade, Score
 from contracts.v1.grading.taskresult import AnswerVerdict, MethodVerdict, ReasoningVerdict
 
 RESULT_REV_HEADER = "X-Result-Rev"
@@ -58,7 +59,27 @@ class SetOverallReview(ReviewChange):
     overallReview: str
 
 
-EditChange = Annotated[RemoveIssue | UpdateIssue | SetVerdict | SetOverallReview, Field(discriminator="op")]
+class SetGrade(ReviewChange):
+    op: Literal["setGrade"]
+    grade: Grade | None
+
+
+class SetTeacherComment(ReviewChange):
+    op: Literal["setTeacherComment"]
+    teacherComment: NonEmptyStr | None
+
+
+class SetTaskScore(ReviewChange):
+    op: Literal["setTaskScore"]
+    taskId: NonEmptyStr
+    score: Score | None
+
+
+EditChange = Annotated[
+    RemoveIssue | UpdateIssue | SetVerdict | SetOverallReview | SetGrade | SetTeacherComment | SetTaskScore,
+    Field(discriminator="op"),
+]
+
 
 
 class ReviewEditRequest(BaseModel):

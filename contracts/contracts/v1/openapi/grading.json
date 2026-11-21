@@ -74,7 +74,7 @@
             "anyOf": [
               {
                 "maximum": 5,
-                "minimum": 1,
+                "minimum": 2,
                 "type": "integer"
               },
               {
@@ -184,7 +184,7 @@
             "anyOf": [
               {
                 "maximum": 5,
-                "minimum": 1,
+                "minimum": 2,
                 "type": "integer"
               },
               {

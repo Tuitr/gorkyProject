@@ -438,6 +438,7 @@ def testClassAssignmentListUsesLatestActiveRevisions(
                 classId=otherClassId if assignmentId == other else classId,
                 requirements=[], bucket="sources", objectKey=f"{assignmentId}/{revision}", sha256="0" * 64,
                 deletedAt=clock.now() if assignmentId == removed else None,
+                title=f"Контрольная {revision}" if assignmentId == first else None,
             ))
 
     listed = client.get(path)
@@ -445,7 +446,7 @@ def testClassAssignmentListUsesLatestActiveRevisions(
     assert listed.headers["Cache-Control"] == "no-store"
     assert listed.json() == [
         {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11", "subject": "math", "title": None},
-        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math", "title": None},
+        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math", "title": "Контрольная 2"},
         {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10", "subject": "math", "title": None},
     ]
     assert client.delete(f"/v1/classes/{classId}").status_code == 204
@@ -1728,10 +1729,24 @@ def testRevisionedAssessmentEditsUseGradingAndKeepLegacyGradeFallback(
             {"op": "setTaskScore", "taskId": "task-1", "score": None},
         ]
         check = client.get(path).json()
-        assert check.get("grade") is None and check.get("teacherComment") is None
+        assert check["grade"] is None and check.get("teacherComment") is None
         assert check["publishedResultRev"] == 3
         downloaded = client.get(f"{path}/markdown", params={"rev": 3})
         assert downloaded.status_code == 200 and downloaded.text == feedback
+
+
+def testTeacherGradeRange(client: TestClient, reviewedCheck: tuple[str, str], cabinetSessions: sessionmaker[Session]) -> None:
+    checkId, _ = reviewedCheck
+    path = f"/v1/checks/{checkId}/grade"
+    assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+    with cabinetSessions.begin() as db:
+        db.get_one(CheckRecord, checkId).grade = 1
+    assert client.get(path).json()["grade"] is None
+    for grade in (2, 3, 4, 5, None):
+        response = client.put(path, json={"grade": grade})
+        assert response.status_code == 200 and client.get(path).json()["grade"] == grade
+    for invalid in (1, 6, True, 2.5):
+        assert client.put(path, json={"grade": invalid}).status_code == 422
 
 
 def testRemovingRosterEntriesKeepsHistoryAndPreventsNewBindings(
