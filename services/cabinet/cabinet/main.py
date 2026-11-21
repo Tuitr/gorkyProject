@@ -29,7 +29,7 @@ from cabinet.bindingconfirmation import confirmBinding
 from cabinet.checks import readGradingCheck, requireOwnedCheck
 from cabinet.classes import ClassRecord, StudentRecord, activeStudents, deleteClass, deleteStudent, requireOwnedClass
 from cabinet.cleanupuploads import tryCleanUpload
-from cabinet.documents import readDocx
+from cabinet.documents import readDocx, readPhotoBytes
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.reports import combineReport, deletedReportCheckIds, readReportGrades, readReportRoster
@@ -46,7 +46,7 @@ from contracts.v1.cabinet.reviews import EditReview, PublishReview, ReviewConfli
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
-from contracts.v1.events.checks import Subject, TeacherRequirement
+from contracts.v1.events.checks import Subject, TaskPoints, TeacherRequirement
 from contracts.v1.grading.assignmentreferences import AssignmentReferences
 from contracts.v1.grading.assignmentreport import AssignmentReport as GradingReport
 from contracts.v1.grading.checks import CheckReady, CheckStatus
@@ -54,6 +54,7 @@ from shared.clock import Clock, SystemClock
 from shared.dotenv import loadDotEnv
 from shared.httperrors import ApiProblem, getTraceId, installErrorHandlers
 from shared.ocrconfig import parseOcrUrl
+from shared.submissionmedia import photoMediaType
 
 COOKIE = "__Host-cabinet"
 SESSION_SECONDS = 8 * 3600
@@ -254,6 +255,7 @@ def createApp(
     @v1.post(
         "/classes/{classId}/assignments",
         status_code=201,
+        dependencies=[Depends(requireOneUploadFile)],
         responses={
             401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError},
             413: {"model": ApiError}, 422: {"model": ApiError}, 503: {"model": ApiError},
@@ -267,19 +269,24 @@ def createApp(
         assignmentId: Annotated[str | None, Form(min_length=36, max_length=36, pattern=r"^[0-9a-f-]+$")] = None,
         subject: Annotated[Subject | None, Form()] = None,
         title: Annotated[str | None, Form(max_length=120)] = None,
+        taskPoints: Annotated[Json[TaskPoints | None], Form()] = None,
         teacher: TeacherSession = Depends(currentTeacher),
         event: EventContext = Depends(eventContext),
     ) -> AssignmentVersion:
-        """subject: math or physics; without it a new assignment is math and a new revision keeps its subject.
-        title: the teacher's name for the assignment; without it a new revision keeps the previous title."""
+        """Store one photo or DOCX with requirements and optional per-task maximum scores."""
         if title is not None and chr(0) in title:
             raise ApiProblem("invalid_input", "Title must not contain null characters")
         title = (title or "").strip() or None
         with sessionFactory.begin() as db:
             requireOwnedClass(db, classId, teacher.teacherId, lockForWrite=True)
+            sourceName = file.filename or ""
+            photoType = photoMediaType(sourceName)
+            if photoType is not None and subject is None:
+                raise ApiProblem("invalid_input", "Select a subject for a photo assignment")
+            original = readPhotoBytes(file, photoType) if photoType is not None else readDocx(file)
             return storeAssignment(
                 db, settings, classId, assignmentId, assignmentDate or event.occurredAt.date(),
-                requirements, readDocx(file), event, subject, title,
+                requirements, original, event, subject, title, sourceName=sourceName, taskPoints=taskPoints,
             )
 
     @v1.post(

@@ -16,7 +16,9 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     TypeAdapter,
+    model_serializer,
 )
 
 STREAM_NAME: Final = "checks.v1"
@@ -63,6 +65,24 @@ class TeacherRequirement(BaseModel):
     taskNumber: NonEmptyStr | None = None
 
 
+class TaskPoint(BaseModel):
+    """Maximum score set by the teacher for a printed task number."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    taskNumber: Annotated[str, Field(pattern=r"^[1-9][0-9]*$")]
+    maxScore: Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
+
+
+def uniqueTaskPoints(points: list[TaskPoint]) -> list[TaskPoint]:
+    if len({item.taskNumber for item in points}) != len(points):
+        raise ValueError("Each task number may have only one maximum score")
+    return points
+
+
+TaskPoints = Annotated[list[TaskPoint], AfterValidator(uniqueTaskPoints)]
+
+
 Subject = Literal["math", "physics"]
 """The school subject of an assignment. It chooses the solver prompt, the reference value schema and the review
 prompt: math gives scalar.v1 answers and review.v2, physics gives quantity.v1 answers (number and unit) and
@@ -79,6 +99,14 @@ class AssignmentPublishedPayload(BaseModel):
     docRef: DocRef
     requirements: list[TeacherRequirement]
     subject: Subject = "math"
+    taskPoints: TaskPoints = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.taskPoints:
+            data.pop("taskPoints", None)
+        return data
 
 
 class AttemptSubmittedPayload(BaseModel):

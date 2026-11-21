@@ -1,4 +1,4 @@
-"""Validate uploaded Word documents and store immutable originals in S3."""
+"""Validate uploaded documents and store immutable originals in S3."""
 
 import base64
 import hashlib
@@ -18,7 +18,7 @@ from cabinet.settings import Settings
 from contracts.v1.events.checks import DocRef
 from shared.buckets import SOURCES_BUCKET
 from shared.httperrors import ApiProblem
-from shared.submissionmedia import MAX_SOURCE_BYTES
+from shared.submissionmedia import MAX_SOURCE_BYTES, imageMediaType
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
@@ -45,6 +45,15 @@ def readDocxBytes(upload: UploadFile) -> bytes:
 def readDocx(upload: UploadFile) -> bytes:
     original = readDocxBytes(upload)
     validateDocx(original)
+    return original
+
+
+def readPhotoBytes(upload: UploadFile, mediaType: str) -> bytes:
+    original = upload.file.read(MAX_SOURCE_BYTES + 1)
+    if len(original) > MAX_SOURCE_BYTES:
+        raise ApiProblem("file_too_large", "Фото превышает 20 МБ", status=413)
+    if imageMediaType(original) != mediaType:
+        raise ApiProblem("invalid_input", "Ожидалось фото в формате JPEG, PNG или WebP")
     return original
 
 

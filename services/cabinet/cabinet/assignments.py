@@ -3,6 +3,7 @@
 import uuid
 from contextlib import closing
 from datetime import date, datetime
+from pathlib import PurePosixPath
 
 from sqlalchemy import Date, DateTime, ForeignKey, String, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB, distinct_on
@@ -10,12 +11,13 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.classes import ClassRecord
 from cabinet.database import Base
-from cabinet.documents import buildS3Client, storeDocx
+from cabinet.documents import DOCX_MEDIA_TYPE, buildS3Client, storeOriginal
 from cabinet.outbox import EventContext, enqueueEvent
 from cabinet.settings import Settings
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
-from contracts.v1.events.checks import AssignmentPublishedEvent, AssignmentPublishedPayload, Subject, TeacherRequirement
+from contracts.v1.events.checks import AssignmentPublishedEvent, AssignmentPublishedPayload, Subject, TaskPoint, TeacherRequirement
 from shared.httperrors import ApiProblem
+from shared.submissionmedia import photoMediaType
 
 
 class AssignmentRecord(Base):
@@ -29,6 +31,7 @@ class AssignmentRecord(Base):
     )
     assignmentDate: Mapped[date] = mapped_column("assignment_date", Date)
     requirements: Mapped[list[dict[str, str | None]]] = mapped_column(JSONB)
+    taskPoints: Mapped[list[dict[str, str | float]]] = mapped_column("task_points", JSONB, server_default="[]")
     subject: Mapped[str] = mapped_column(String(16), server_default="math")
     title: Mapped[str | None] = mapped_column(String(120))
     bucket: Mapped[str] = mapped_column(String(63))
@@ -72,6 +75,9 @@ def storeAssignment(
     eventContext: EventContext,
     subject: Subject | None = None,
     title: str | None = None,
+    *,
+    sourceName: str = "assignment.docx",
+    taskPoints: list[TaskPoint] | None = None,
 ) -> AssignmentVersion:
     """subject None keeps the subject of the previous revision; a new assignment without one is math.
     title None keeps the title of the previous revision; a new assignment without one has no title."""
@@ -112,15 +118,19 @@ def storeAssignment(
     if subject is None:
         subject = "math"
 
-    key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}.docx"
+    photoType = photoMediaType(sourceName)
+    extension = PurePosixPath(sourceName).suffix.lower() if photoType is not None else ".docx"
+    key = f"assignments/{assignmentId}/{revision}/{uuid.uuid4().hex}{extension}"
+    points = taskPoints if taskPoints is not None else []
     with closing(buildS3Client(settings)) as client:
-        docRef = storeDocx(client, key, original)
+        docRef = storeOriginal(client, key, original, photoType or DOCX_MEDIA_TYPE)
     db.add(AssignmentRecord(
         assignmentId=assignmentId,
         assignmentRev=revision,
         classId=classId,
         assignmentDate=assignmentDate,
         requirements=[{"text": item.text, "taskNumber": item.taskNumber} for item in requirements],
+        taskPoints=[{"taskNumber": item.taskNumber, "maxScore": item.maxScore} for item in points],
         subject=subject,
         title=title,
         bucket=docRef.bucket,
@@ -132,7 +142,7 @@ def storeAssignment(
         traceId=eventContext.traceId, occurredAt=eventContext.occurredAt,
         payload=AssignmentPublishedPayload(
             assignmentId=assignmentId, assignmentRev=revision, docRef=docRef, requirements=requirements,
-            subject=subject,
+            subject=subject, taskPoints=points,
         ),
     ))
     return AssignmentVersion(assignmentId=assignmentId, assignmentRev=revision)

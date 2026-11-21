@@ -444,9 +444,9 @@ def testClassAssignmentListUsesLatestActiveRevisions(
     assert listed.status_code == 200
     assert listed.headers["Cache-Control"] == "no-store"
     assert listed.json() == [
-        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11", "subject": "math"},
-        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math"},
-        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10", "subject": "math"},
+        {"assignmentId": newest, "assignmentRev": 1, "assignmentDate": "2025-12-11", "subject": "math", "title": None},
+        {"assignmentId": first, "assignmentRev": 2, "assignmentDate": "2025-12-10", "subject": "math", "title": None},
+        {"assignmentId": second, "assignmentRev": 1, "assignmentDate": "2025-12-10", "subject": "math", "title": None},
     ]
     assert client.delete(f"/v1/classes/{classId}").status_code == 204
     missing = client.get(path)
@@ -565,6 +565,79 @@ def testPhysicsAssignmentKeepsItsSubject(cabinetSessions: sessionmaker[Session],
         finally:
             for version in versions:
                 s3.delete_object(Bucket=version.bucket, Key=version.objectKey)
+
+
+@pytest.mark.parametrize(
+    ("imageFormat", "extension", "mediaType", "subject"),
+    [("JPEG", ".JPG", "image/jpeg", "math"), ("PNG", ".png", "image/png", "physics"),
+     ("WEBP", ".webp", "image/webp", "math")],
+)
+def testPhotoAssignmentStoresItsSourceAndPublishesTaskPoints(
+    client: TestClient, cabinetSessions: sessionmaker[Session],
+    imageFormat: str, extension: str, mediaType: str, subject: str,
+) -> None:
+    addTeacher(cabinetSessions, "teacher.photo-assignment@example.org")
+    assert login(client, "teacher.photo-assignment@example.org", PASSWORD)[0] == 200
+    classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+    path = f"/v1/classes/{classId}/assignments"
+    with BytesIO() as output:
+        Image.new("RGB", (30, 40), "white").save(output, imageFormat)
+        original = output.getvalue()
+    requirements = [{"taskNumber": "1", "text": "Объясните ход решения"}]
+    points = [{"taskNumber": "1", "maxScore": 3}, {"taskNumber": "2", "maxScore": 2.5}]
+    created = client.post(
+        path, files={"file": (f"Условия{extension}", original)},
+        data={"title": " Контрольная ", "subject": subject, "assignmentDate": "2025-12-12",
+              "requirements": json.dumps(requirements), "taskPoints": json.dumps(points)},
+    )
+    assert created.status_code == 201, created.text
+    assignment = created.json()
+    with cabinetSessions() as db, closing(buildS3Client(Settings.fromEnv())) as s3:
+        row = db.get_one(AssignmentRecord, (assignment["assignmentId"], 1))
+        try:
+            assert client.get(path).json() == [
+                {**assignment, "title": "Контрольная", "subject": subject, "assignmentDate": "2025-12-12"},
+            ]
+            assert row.classId == classId and row.taskPoints == points
+            event, = db.scalars(select(OutboxRecord)).all()
+            published = checksEventAdapter.validate_python(event.data)
+            assert isinstance(published, AssignmentPublishedEvent)
+            ref = published.payload.docRef
+            assert ref.key == row.objectKey and ref.key.endswith(extension.lower())
+            assert ref.sha256 == hashlib.sha256(original).hexdigest()
+            assert published.payload.assignmentId == assignment["assignmentId"]
+            assert published.payload.assignmentRev == 1 and published.payload.subject == subject
+            assert [item.model_dump() for item in published.payload.requirements] == requirements
+            assert [item.model_dump() for item in published.payload.taskPoints] == points
+            stored = s3.get_object(Bucket=ref.bucket, Key=ref.key)
+            with closing(stored["Body"]) as body:
+                assert body.read() == original
+            assert stored["ContentType"] == mediaType
+        finally:
+            s3.delete_object(Bucket=row.bucket, Key=row.objectKey)
+
+
+def testInvalidPhotoAssignmentDoesNotCreateARevisionOrAnEvent(
+    client: TestClient, cabinetSessions: sessionmaker[Session],
+) -> None:
+    addTeacher(cabinetSessions, "teacher.photo-assignment@example.org")
+    assert login(client, "teacher.photo-assignment@example.org", PASSWORD)[0] == 200
+    classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+    path = f"/v1/classes/{classId}/assignments"
+    with BytesIO() as output:
+        Image.new("RGB", (30, 40), "white").save(output, "PNG")
+        photo = output.getvalue()
+    part = ("Условия.png", photo)
+    form = {"requirements": "[]", "subject": "math"}
+    assert client.post(path, data={"requirements": "[]"}, files={"file": part}).status_code == 422
+    assert client.post(path, data=form, files={"file": ("Условия.jpg", photo)}).status_code == 422
+    assert client.post(path, data=form, files=[("file", part), ("file", part)]).status_code == 422
+    for points in ([{"taskNumber": "1", "maxScore": 0}], [{"taskNumber": "1", "maxScore": 2}] * 2):
+        response = client.post(path, data=form | {"taskPoints": json.dumps(points)}, files={"file": part})
+        assert response.status_code == 422, response.text
+    with cabinetSessions() as db:
+        assert db.scalar(select(AssignmentRecord)) is None
+        assert db.scalar(select(OutboxRecord)) is None
 
 
 def testIndividualSubmissionUpload(

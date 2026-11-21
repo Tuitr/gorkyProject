@@ -22,14 +22,14 @@ from cabinet.attempts import AttemptRecord, ensureAttempt, ensureCheck
 from cabinet.bindings import matchStudent, signatureNames
 from cabinet.classes import ClassRecord, StudentRecord, activeStudents
 from cabinet.database import Base
-from cabinet.documents import DOCX_MEDIA_TYPE, MAX_DOCX_BYTES, buildS3Client, loadOriginal, readDocxBytes, storeOriginal, validateDocx
+from cabinet.documents import DOCX_MEDIA_TYPE, MAX_DOCX_BYTES, buildS3Client, loadOriginal, readDocxBytes, readPhotoBytes, storeOriginal, validateDocx
 from cabinet.outbox import EventContext
 from cabinet.settings import Settings
 from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
 from contracts.v1.events.checks import DocRef
 from shared.httperrors import ApiProblem
-from shared.submissionmedia import MAX_SOURCE_BYTES, imageMediaType, photoMediaType
+from shared.submissionmedia import photoMediaType
 
 
 MAX_ZIP_BYTES = 50 * 1024 * 1024
@@ -117,11 +117,7 @@ def readSubmission(upload: UploadFile) -> list[SubmissionDocument]:
     if filename.lower().endswith(".zip"):
         return readSubmissionZip(upload)
     if (media := photoMediaType(filename)) is not None:
-        original = upload.file.read(MAX_SOURCE_BYTES + 1)
-        if len(original) > MAX_SOURCE_BYTES:
-            raise ApiProblem("file_too_large", "Фото превышает 20 МБ", status=413)
-        if imageMediaType(original) != media:
-            raise ApiProblem("invalid_input", "Ожидалось фото в формате JPEG, PNG или WebP")
+        original = readPhotoBytes(upload, media)
         return [SubmissionDocument(submissionName(filename), original, (), media)]
     original = readDocxBytes(upload)
     return [SubmissionDocument(submissionName(filename), original, signatureNames(validateDocx(original)))]

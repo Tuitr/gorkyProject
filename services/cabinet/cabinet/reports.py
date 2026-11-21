@@ -48,6 +48,7 @@ def readReportGrades(db: Session, checkIds: list[str]) -> dict[str, int]:
                 CheckRecord.checkId.in_(checkIds), CheckRecord.grade.is_not(None),
             )
         )
+        if grade is not None
     }
 
 

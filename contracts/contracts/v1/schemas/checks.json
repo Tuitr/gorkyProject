@@ -75,6 +75,13 @@
           ],
           "title": "Subject",
           "type": "string"
+        },
+        "taskPoints": {
+          "items": {
+            "$ref": "#/$defs/TaskPoint"
+          },
+          "title": "Taskpoints",
+          "type": "array"
         }
       },
       "required": [
@@ -199,6 +206,28 @@
         "sha256"
       ],
       "title": "DocRef",
+      "type": "object"
+    },
+    "TaskPoint": {
+      "additionalProperties": false,
+      "description": "Maximum score set by the teacher for a printed task number.",
+      "properties": {
+        "maxScore": {
+          "exclusiveMinimum": 0,
+          "title": "Maxscore",
+          "type": "number"
+        },
+        "taskNumber": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Tasknumber",
+          "type": "string"
+        }
+      },
+      "required": [
+        "taskNumber",
+        "maxScore"
+      ],
+      "title": "TaskPoint",
       "type": "object"
     },
     "TeacherRequirement": {
