@@ -31,6 +31,32 @@
         "title": "ApiError",
         "type": "object"
       },
+      "AssessmentTotal": {
+        "properties": {
+          "maxScore": {
+            "minimum": 0,
+            "title": "Maxscore",
+            "type": "number"
+          },
+          "pendingCount": {
+            "minimum": 0,
+            "title": "Pendingcount",
+            "type": "integer"
+          },
+          "score": {
+            "minimum": 0,
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "score",
+          "maxScore",
+          "pendingCount"
+        ],
+        "title": "AssessmentTotal",
+        "type": "object"
+      },
       "CheckPending": {
         "description": "A check without a result yet, a terminal failure, or a manual review without any draft to show.",
         "properties": {
@@ -43,6 +69,65 @@
             "minLength": 1,
             "title": "Checkid",
             "type": "string"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "maximum": 5,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Grade"
+          },
+          "ocrReason": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ocrreason"
+          },
+          "ocrStatus": {
+            "anyOf": [
+              {
+                "enum": [
+                  "readable",
+                  "needs_review",
+                  "unreadable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ocrstatus"
+          },
+          "photoPages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PhotoPage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Photopages"
           },
           "reason": {
             "minLength": 1,
@@ -95,10 +180,84 @@
             "title": "Checkid",
             "type": "string"
           },
+          "grade": {
+            "anyOf": [
+              {
+                "maximum": 5,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Grade"
+          },
+          "ocrReason": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ocrreason"
+          },
+          "ocrStatus": {
+            "anyOf": [
+              {
+                "enum": [
+                  "readable",
+                  "needs_review",
+                  "unreadable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ocrstatus"
+          },
           "overallReview": {
             "minLength": 1,
             "title": "Overallreview",
             "type": "string"
+          },
+          "photoMarks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PhotoMark"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Photomarks"
+          },
+          "photoPages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PhotoPage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Photopages"
           },
           "publishedResultRev": {
             "anyOf": [
@@ -113,6 +272,21 @@
             "default": null,
             "title": "Publishedresultrev"
           },
+          "recommendations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Recommendation"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recommendations"
+          },
           "resultRev": {
             "minimum": 1,
             "title": "Resultrev",
@@ -126,12 +300,50 @@
             "title": "State",
             "type": "string"
           },
+          "taskAssessments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TaskAssessment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Taskassessments"
+          },
           "taskResults": {
             "items": {
               "$ref": "#/components/schemas/TaskResult"
             },
             "title": "Taskresults",
             "type": "array"
+          },
+          "teacherComment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Teachercomment"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssessmentTotal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "transcriptMarkdown": {
             "anyOf": [
@@ -208,6 +420,183 @@
           "correction"
         ],
         "title": "Issue",
+        "type": "object"
+      },
+      "PhotoBox": {
+        "properties": {
+          "h": {
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "title": "H",
+            "type": "number"
+          },
+          "w": {
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "title": "W",
+            "type": "number"
+          },
+          "x": {
+            "exclusiveMaximum": 1,
+            "minimum": 0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "exclusiveMaximum": 1,
+            "minimum": 0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "title": "PhotoBox",
+        "type": "object"
+      },
+      "PhotoMark": {
+        "properties": {
+          "box": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PhotoBox"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "issueId": {
+            "minLength": 1,
+            "title": "Issueid",
+            "type": "string"
+          },
+          "lineIndex": {
+            "minimum": 0,
+            "title": "Lineindex",
+            "type": "integer"
+          },
+          "pageIndex": {
+            "minimum": 0,
+            "title": "Pageindex",
+            "type": "integer"
+          },
+          "taskId": {
+            "minLength": 1,
+            "title": "Taskid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "issueId",
+          "pageIndex",
+          "lineIndex"
+        ],
+        "title": "PhotoMark",
+        "type": "object"
+      },
+      "PhotoPage": {
+        "properties": {
+          "pageIndex": {
+            "minimum": 0,
+            "title": "Pageindex",
+            "type": "integer"
+          },
+          "transcriptMarkdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcriptmarkdown"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "required": [
+          "pageIndex"
+        ],
+        "title": "PhotoPage",
+        "type": "object"
+      },
+      "Recommendation": {
+        "properties": {
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "topic": {
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "text"
+        ],
+        "title": "Recommendation",
+        "type": "object"
+      },
+      "TaskAssessment": {
+        "properties": {
+          "comment": {
+            "minLength": 1,
+            "title": "Comment",
+            "type": "string"
+          },
+          "maxScore": {
+            "exclusiveMinimum": 0,
+            "title": "Maxscore",
+            "type": "number"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "taskId": {
+            "minLength": 1,
+            "title": "Taskid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "score",
+          "maxScore",
+          "comment"
+        ],
+        "title": "TaskAssessment",
         "type": "object"
       },
       "TaskResult": {

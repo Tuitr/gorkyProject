@@ -7,7 +7,7 @@ from cabinet.attempts import AttemptRecord, CheckRecord
 from cabinet.classes import StudentRecord
 from cabinet.gradingclient import invalidGradingResponse
 from contracts.v1.cabinet.classes import StudentSummary
-from contracts.v1.cabinet.reports import AssignmentReport, ReportResult, ReportTask
+from contracts.v1.cabinet.reports import AssignmentReport, ReportResult, ReportTask, ReportTrend
 from contracts.v1.grading.assignmentreport import AssignmentReport as GradingReport
 
 
@@ -74,7 +74,7 @@ def combineReport(
     results = [
         ReportResult(
             studentId=student.studentId, checkId=student.checkId, resultRev=student.resultRev,
-            grade=(grades or {}).get(student.checkId),
+            grade=student.grade if "grade" in student.model_fields_set else (grades or {}).get(student.checkId),
         )
         for student in upstream.students
     ]
@@ -88,22 +88,29 @@ def combineReport(
     total = len(submitted)
     waiting = submitted - reviewed
     tasks = []
+    trends: list[ReportTrend] = []
     for task in upstream.tasks:
         correct, incorrect, skipped = (task.answer.get(verdict, 0) for verdict in ("correct", "incorrect", "skipped"))
+        unreadable = task.answer.get("unreadable", 0)
         counted = correct + incorrect + skipped
         affected = {trend.category: trend.affectedStudents for trend in task.categories}
-        if counted > len(reviewed) or any(count > len(reviewed) for count in affected.values()):
+        if counted + unreadable > len(reviewed) or any(count > len(reviewed) for count in affected.values()):
             raise invalidGradingResponse()
         tasks.append(ReportTask(
             taskId=task.taskId, correct=correct, incorrect=incorrect, skipped=skipped,
-            issuesByCategory=affected, unchecked=total - counted,
+            issuesByCategory=affected, unchecked=total - counted, unreadable=unreadable,
             correctShare=correct / total if total else None,
             incorrectShare=incorrect / total if total else None,
             skippedShare=skipped / total if total else None,
         ))
+        trends.extend(
+            ReportTrend(taskId=task.taskId, category=trend.category, topic=trend.topic, exampleComment=trend.exampleComment)
+            for trend in task.categories
+            if trend.affectedStudents >= 2 and trend.topic is not None and trend.exampleComment is not None
+        )
     return AssignmentReport(
         assignmentId=assignmentId, assignmentRev=assignmentRev, students=roster, submittedCount=total,
         notSubmitted=[student for student in roster if student.studentId not in submitted],
         waiting=[student for student in roster if student.studentId in waiting],
-        results=results, tasks=tasks,
+        results=results, tasks=tasks, trends=trends,
     )

@@ -106,7 +106,7 @@ class UploadFileRecord(Base):
         "attempt_id", ForeignKey("cabinet.attempts.attempt_id", name="fk_upload_files_attempt")
     )
     checkId: Mapped[str | None] = mapped_column(
-        "check_id", ForeignKey("cabinet.attempt_checks.check_id", name="fk_upload_files_check")
+        "check_id", ForeignKey("cabinet.attempt_checks.check_id", name="fk_upload_files_check"), index=True,
     )
     bindingMode: Mapped[str | None] = mapped_column("binding_mode", String(16))
     groupId: Mapped[str | None] = mapped_column("group_id", String(36))

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.events.checks import NonEmptyStr, Revision
+from contracts.v1.grading.assessment import Grade
 from contracts.v1.grading.checks import ResultRevision
 
 Count = Annotated[int, Field(ge=0, strict=True)]
@@ -16,8 +17,8 @@ class ReportResult(BaseModel):
     studentId: NonEmptyStr
     checkId: NonEmptyStr
     resultRev: ResultRevision
-    grade: Annotated[int, Field(ge=1, le=5)] | None = None
-    """The teacher's grade from PUT /v1/checks/{checkId}/grade; None until set."""
+    grade: Grade | None = None
+    """Grade from the selected result, or a legacy grade if that result has no grade field."""
 
 
 class GradingTaskTotals(BaseModel):
@@ -30,9 +31,18 @@ class GradingTaskTotals(BaseModel):
 
 class ReportTask(GradingTaskTotals):
     unchecked: Count
+    unreadable: Count = 0
+    """Unreadable answers are a subset of unchecked."""
     correctShare: Share | None
     incorrectShare: Share | None
     skippedShare: Share | None
+
+
+class ReportTrend(BaseModel):
+    taskId: NonEmptyStr
+    category: NonEmptyStr
+    topic: NonEmptyStr
+    exampleComment: NonEmptyStr
 
 
 class AssignmentReport(BaseModel):
@@ -44,3 +54,4 @@ class AssignmentReport(BaseModel):
     waiting: list[StudentSummary]
     results: list[ReportResult]
     tasks: list[ReportTask]
+    trends: list[ReportTrend] = Field(default_factory=list)

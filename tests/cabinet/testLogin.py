@@ -1402,6 +1402,10 @@ def testOnlyOwnerReadsCheckFromGrading(
         file = progress.json()["files"][0]
         assert file["status"] == "bound"
         checkId, attemptId = file["checkId"], file["attemptId"]
+        assignmentId = assignment.json()["assignmentId"]
+        assert client.get(f"/v1/assignments/{assignmentId}/submissions?rev=1").json()["submissions"] == [
+            {"studentId": file["studentId"], "attemptId": attemptId, "checkId": checkId, "pageCount": 0},
+        ]
         path = f"/v1/checks/{checkId}"
         headers = {"X-Trace-Id": "check-read-test"}
 
@@ -1437,6 +1441,102 @@ def testOnlyOwnerReadsCheckFromGrading(
             s3.delete_object(Bucket=upload.bucket, Key=upload.objectKey)
         for variant in db.scalars(select(AssignmentRecord)):
             s3.delete_object(Bucket=variant.bucket, Key=variant.objectKey)
+
+
+def testLatestSubmissionsRestoreOriginalPhotoPages(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+    contractExample: Callable[[str], dict[str, object]],
+) -> None:
+    owner, other = "teacher.photo-owner@example.org", "teacher.other@example.org"
+    addTeacher(cabinetSessions, owner)
+    addTeacher(cabinetSessions, other)
+    settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
+    payload: dict[str, object] = {}
+    calls: list[str] = []
+
+    def grading(request: Request) -> Response:
+        calls.append(request.url.path)
+        return Response(200, json=payload)
+
+    app = createApp(settings, sessionFactory=cabinetSessions, clock=clock,
+                    passwords=Passwords(CountingHasher()), gradingTransport=MockTransport(grading))
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, owner, PASSWORD)[0] == 200
+        classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        assign = f"/v1/classes/{classId}/assignments"
+        variant = ("assignment.docx", assignmentDocx("1. Решите уравнение."))
+        created = client.post(assign, data={"requirements": "[]"}, files={"file": variant})
+        assert created.status_code == 201, created.text
+        assignmentId = created.json()["assignmentId"]
+        base = f"/v1/assignments/{assignmentId}"
+        path = f"{base}/submissions"
+
+        def upload(secondColor: str, rev: int = 1) -> list[dict[str, str]]:
+            uploaded = client.post(f"{base}/uploads", data={"assignmentRev": str(rev)}, files=[
+                ("file", ("Смирнова Анна__02.png", submissionPhoto(secondColor))),
+                ("file", ("Смирнова Анна__01.png", submissionPhoto("white"))),
+            ])
+            assert uploaded.status_code == 202, uploaded.text
+            files: list[dict[str, str]] = client.get(f"/v1/uploads/{uploaded.json()['uploadId']}").json()["files"]
+            return files
+
+        old = upload("green")[0]
+        clock.advance(60)
+        latest = upload("blue")[0]
+        assert upload("blue")[0]["checkId"] == latest["checkId"]
+        assert old["attemptId"] != latest["attemptId"]
+        row = {key: latest[key] for key in ("studentId", "attemptId", "checkId")}
+        assert client.get(path, params={"rev": 1}).json() == {
+            "assignmentId": assignmentId, "assignmentRev": 1, "submissions": [{**row, "pageCount": 2}],
+        }
+        assert client.get(path, params={"rev": 2}).status_code == 404
+        revised = client.post(assign, data={"requirements": "[]", "assignmentId": assignmentId}, files={"file": variant})
+        assert revised.status_code == 201 and revised.json()["assignmentRev"] == 2
+        assert client.get(path, params={"rev": 2}).json()["submissions"] == []
+        firstForRev2 = upload("blue", rev=2)[0]
+        clock.advance(60)
+        latestForRev2 = upload("green", rev=2)[0]
+        assert firstForRev2["attemptId"] == latest["attemptId"] and latestForRev2["attemptId"] == old["attemptId"]
+        assert client.get(path, params={"rev": 2}).json()["submissions"][0]["checkId"] == latestForRev2["checkId"]
+        assert client.get(path, params={"rev": 1}).json()["submissions"][0]["checkId"] == latest["checkId"]
+        assert calls == []
+
+        checkPath = f"/v1/checks/{latest['checkId']}"
+        payload = contractExample("grading/checkReady.json") | {
+            "attemptId": latest["attemptId"], "checkId": latest["checkId"], "ocrStatus": "needs_review",
+            "photoPages": [
+                {"pageIndex": 1, "transcriptMarkdown": "$x=4$", "url": "https://private.example/photo"},
+                {"pageIndex": 0, "transcriptMarkdown": "№ 1"},
+                {"pageIndex": 99, "transcriptMarkdown": "Foreign page", "url": "https://private.example/photo"},
+            ],
+            "photoMarks": [{"pageIndex": 1, "lineIndex": 0, "taskId": "task-1", "issueId": "i1",
+                            "box": {"x": 0.1, "y": 0.2, "w": 0.4, "h": 0.1}}],
+            "taskAssessments": [{"taskId": "task-1", "score": 2.5, "maxScore": 3, "comment": "Проверьте знак."}],
+            "total": {"score": 2.5, "maxScore": 3, "pendingCount": 0},
+            "recommendations": [{"topic": "Уравнения", "text": "Проверьте ответ подстановкой."}],
+            "teacherComment": "Хороший ход решения.",
+        }
+        result = client.get(checkPath)
+        assert result.status_code == 200, result.text
+        assert "private.example" not in result.text
+        check = result.json()
+        pages = check["photoPages"]
+        assert [(item["pageIndex"], item["transcriptMarkdown"]) for item in pages] == [(0, "№ 1"), (1, "$x=4$")]
+        for key in ("ocrStatus", "photoMarks", "taskAssessments", "total", "recommendations", "teacherComment"):
+            assert check[key] == payload[key]
+        assert client.get(pages[0]["url"]).content == submissionPhoto("white")
+        assert client.get(pages[1]["url"]).content == submissionPhoto("blue")
+
+        assert login(client, other, PASSWORD)[0] == 200
+        assert client.get(path, params={"rev": 1}).status_code == 404
+        assert client.get(checkPath).status_code == 404
+        assert client.get(pages[0]["url"]).status_code == 404
+        assert len(calls) == 1
+        assert login(client, owner, PASSWORD)[0] == 200
+        assert client.delete(f"/v1/attempts/{latest['attemptId']}?confirm=true").status_code == 204
+        assert client.get(path, params={"rev": 1}).json()["submissions"][0]["checkId"] == old["checkId"]
+        assert client.get(checkPath).status_code == 404
+        assert client.get(pages[0]["url"]).status_code == 404
 
 
 def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
@@ -1494,7 +1594,7 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
         assert report["submittedCount"] == 3
         assert [result["checkId"] for result in report["results"]] == ["new", "skip"]
         assert report["tasks"] == [{
-            "taskId": "1", "correct": 1, "incorrect": 0, "skipped": 1, "unchecked": 1,
+            "taskId": "1", "correct": 1, "incorrect": 0, "skipped": 1, "unchecked": 1, "unreadable": 0,
             "correctShare": 1 / 3, "incorrectShare": 0, "skippedShare": 1 / 3, "issuesByCategory": {"sign": 1},
         }]
         assert len(requested) == 1
@@ -1543,6 +1643,95 @@ def reviewedCheck(cabinetSessions: sessionmaker[Session], clock: ManualClock) ->
         db.flush()
         db.add(CheckRecord(checkId=checkId, attemptId=attemptId, assignmentId=assignmentId, assignmentRev=1))
     return checkId, owner
+
+
+def testRevisionedAssessmentEditsUseGradingAndKeepLegacyGradeFallback(
+    cabinetSessions: sessionmaker[Session], reviewedCheck: tuple[str, str], clock: ManualClock,
+    contractExample: Callable[[str], dict[str, object]],
+) -> None:
+    checkId, teacherId = reviewedCheck
+    with cabinetSessions() as db:
+        attemptId = db.get_one(CheckRecord, checkId).attemptId
+    draft = contractExample("grading/checkReady.json") | {"checkId": checkId, "attemptId": attemptId}
+    sent: list[dict[str, object]] = []
+    feedback = "# Отзыв\n\nОценка: 3\n"
+    published = False
+
+    def grading(request: Request) -> Response:
+        nonlocal published
+        path = request.url.path
+        if path == f"/internal/v1/checks/{checkId}":
+            return Response(200, json=draft)
+        if path.endswith("/publish"):
+            assert json.loads(request.content) == {"actorId": teacherId, "resultRev": 3}
+            published = True
+            draft["publishedResultRev"] = 3
+            return Response(200, json={"checkId": checkId, "resultRev": 3})
+        if path.endswith("/markdown"):
+            assert published and request.url.params["rev"] == "3"
+            return Response(200, text=feedback, headers={"Content-Type": "text/markdown"})
+        assert path.endswith("/review")
+        body = json.loads(request.content)
+        sent.append(body)
+        if body["editId"] == "invalid-score":
+            return Response(422, json={"code": "invalid_input", "message": "Internal error detail",
+                                       "traceId": "fixture", "retryable": False})
+        if body["baseRev"] != draft["resultRev"]:
+            return Response(409, headers={"X-Result-Rev": str(draft["resultRev"])},
+                            json={"code": "conflict", "message": "Stale", "traceId": "fixture", "retryable": False})
+        newRev = body["baseRev"] + 1
+        for change in body["changes"]:
+            if change["op"] == "setGrade":
+                draft["grade"] = change["grade"]
+            if change["op"] == "setTeacherComment":
+                draft["teacherComment"] = change["teacherComment"]
+        draft["resultRev"] = newRev
+        return Response(200, json={"checkId": checkId, "resultRev": newRev, "editId": body["editId"]})
+
+    settings = replace(Settings.fromEnv(), gradingServiceToken="test-cabinet")
+    app = createApp(settings, sessionFactory=cabinetSessions, clock=clock,
+                    passwords=Passwords(CountingHasher()), gradingTransport=MockTransport(grading))
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client, "teacher.owner@example.org", PASSWORD)[0] == 200
+        path = f"/v1/checks/{checkId}"
+        assert client.put(f"{path}/grade", json={"grade": 4}).status_code == 200
+        assert client.get(path).json()["grade"] == 4
+        assert client.patch(f"{path}/review", json={"baseRev": 2, "editId": "grade-one", "changes": [
+            {"type": "set_grade", "grade": 1},
+        ]}).status_code == 422
+        changes = [
+            {"type": "set_grade", "grade": 3},
+            {"type": "set_teacher_comment", "teacherComment": " Перепроверьте знак. "},
+            {"type": "set_task_score", "taskId": "task-1", "score": 1.5},
+        ]
+        edit = {"baseRev": 2, "editId": "edit-assessment", "changes": changes}
+        assert client.patch(f"{path}/review", json=edit).json()["resultRev"] == 3
+        assert sent[0] == {"baseRev": 2, "editId": "edit-assessment", "actorId": teacherId, "changes": [
+            {"op": "setGrade", "grade": 3}, {"op": "setTeacherComment", "teacherComment": "Перепроверьте знак."},
+            {"op": "setTaskScore", "taskId": "task-1", "score": 1.5},
+        ]}
+        assert client.get(path).json()["grade"] == 3
+        stale = client.patch(f"{path}/review", json=edit | {"editId": "stale"})
+        assert stale.status_code == 409 and stale.json()["resultRev"] == 3
+        invalid = client.patch(f"{path}/review", json={"baseRev": 3, "editId": "invalid-score", "changes": [
+            {"type": "set_task_score", "taskId": "task-1", "score": 300},
+        ]})
+        assert invalid.status_code == 422 and "Internal error detail" not in invalid.text
+        assert client.post(f"{path}/publish", json={"resultRev": 3}).status_code == 200
+        cleared = client.patch(f"{path}/review", json={"baseRev": 3, "editId": "clear", "changes": [
+            {"type": "set_grade", "grade": None}, {"type": "set_teacher_comment", "teacherComment": None},
+            {"type": "set_task_score", "taskId": "task-1", "score": None},
+        ]})
+        assert cleared.status_code == 200 and cleared.json()["resultRev"] == 4
+        assert sent[-1]["changes"] == [
+            {"op": "setGrade", "grade": None}, {"op": "setTeacherComment", "teacherComment": None},
+            {"op": "setTaskScore", "taskId": "task-1", "score": None},
+        ]
+        check = client.get(path).json()
+        assert check.get("grade") is None and check.get("teacherComment") is None
+        assert check["publishedResultRev"] == 3
+        downloaded = client.get(f"{path}/markdown", params={"rev": 3})
+        assert downloaded.status_code == 200 and downloaded.text == feedback
 
 
 def testRemovingRosterEntriesKeepsHistoryAndPreventsNewBindings(

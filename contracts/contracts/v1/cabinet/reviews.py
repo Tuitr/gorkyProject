@@ -2,9 +2,10 @@
 
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from contracts.v1.common.errors import ApiError
+from contracts.v1.grading.assessment import ReviewGrade, Score
 from contracts.v1.grading.checks import ResultRevision
 from contracts.v1.grading.taskresult import AnswerVerdict, MethodVerdict, NonEmptyStr, ReasoningVerdict
 
@@ -48,8 +49,25 @@ class UpdateOverallReview(ReviewInput):
     overallReview: NonEmptyStr
 
 
+class SetReviewGrade(ReviewInput):
+    type: Literal["set_grade"]
+    grade: ReviewGrade | None
+
+
+class SetTeacherComment(ReviewInput):
+    type: Literal["set_teacher_comment"]
+    teacherComment: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)] | None
+
+
+class SetTaskScore(ReviewInput):
+    type: Literal["set_task_score"]
+    taskId: NonEmptyStr
+    score: Score | None
+
+
 ReviewChange = Annotated[
-    RemoveIssue | UpdateIssue | UpdateVerdict | UpdateOverallReview, Field(discriminator="type")
+    RemoveIssue | UpdateIssue | UpdateVerdict | UpdateOverallReview | SetReviewGrade | SetTeacherComment | SetTaskScore,
+    Field(discriminator="type"),
 ]
 
 

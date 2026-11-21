@@ -6,8 +6,11 @@ import httpx
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from cabinet.gradingclient import invalidGradingResponse
-from contracts.v1.cabinet.reviews import RemoveIssue, ReviewChange, ReviewConflict, UpdateIssue, UpdateVerdict
+from cabinet.gradingclient import invalidGradingResponse, readGradingModel
+from contracts.v1.cabinet.reviews import (
+    RemoveIssue, ReviewChange, ReviewConflict, ReviewEdited, SetReviewGrade, SetTaskScore, SetTeacherComment,
+    UpdateIssue, UpdateOverallReview, UpdateVerdict,
+)
 from contracts.v1.common.errors import ApiError
 from contracts.v1.grading.checks import CheckReady
 from contracts.v1.grading.reviewedit import RESULT_REV_HEADER
@@ -62,9 +65,27 @@ def gradingChanges(changes: list[ReviewChange], readBase: Callable[[], CheckRead
             case UpdateVerdict():
                 verdict = change.model_dump(mode="json", exclude={"type"}, exclude_none=True)
                 translated.append({"op": "setVerdict", **verdict})
-            case _:
+            case UpdateOverallReview():
                 translated.append({"op": "setOverallReview", "overallReview": change.overallReview})
+            case SetReviewGrade():
+                translated.append({"op": "setGrade", "grade": change.grade})
+            case SetTeacherComment():
+                translated.append({"op": "setTeacherComment", "teacherComment": change.teacherComment})
+            case SetTaskScore():
+                translated.append({"op": "setTaskScore", "taskId": change.taskId, "score": change.score})
     return translated
+
+
+def readReviewReceipt(response: httpx.Response) -> ReviewEdited:
+    if response.status_code == 422:
+        try:
+            error = ApiError.model_validate_json(response.content)
+        except ValidationError:
+            raise invalidGradingResponse() from None
+        if error.code != "invalid_input":
+            raise invalidGradingResponse()
+        raise ApiProblem("invalid_input", "Grading rejected the requested review change")
+    return readGradingModel(response, ReviewEdited)
 
 
 def readMarkdown(response: httpx.Response) -> bytes:

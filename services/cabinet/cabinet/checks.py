@@ -1,5 +1,7 @@
 """Read a grading result only after checking ownership in the cabinet."""
 
+from collections.abc import Sequence
+
 import httpx
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -11,6 +13,7 @@ from cabinet.classes import ClassRecord
 from cabinet.gradingclient import invalidGradingResponse, sendGradingRequest
 from cabinet.settings import Settings
 from contracts.v1.common.errors import ApiError
+from contracts.v1.grading.assessment import PhotoPage
 from contracts.v1.grading.checks import CheckPending, CheckStatus, checkStatusAdapter
 from shared.httperrors import ApiProblem
 
@@ -58,3 +61,14 @@ def readGradingCheck(
     if result.checkId != checkId or result.attemptId != attemptId:
         raise invalidGradingResponse()
     return result
+
+
+def attachCabinetData(result: CheckStatus, pages: Sequence[PhotoPage], legacyGrade: int | None) -> CheckStatus:
+    transcripts = {page.pageIndex: page.transcriptMarkdown for page in result.photoPages or []}
+    if len(pages) == 1 and not transcripts:
+        transcripts[pages[0].pageIndex] = result.transcriptMarkdown
+    photoPages = [
+        page.model_copy(update={"transcriptMarkdown": transcripts.get(page.pageIndex)}) for page in pages
+    ]
+    grade = result.grade if "grade" in result.model_fields_set else legacyGrade
+    return result.model_copy(update={"photoPages": photoPages or None, "grade": grade})

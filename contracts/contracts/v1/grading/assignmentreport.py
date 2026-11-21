@@ -12,11 +12,12 @@ pending submissions to form its public denominator. A zero denominator yields
 null. See examples/grading/assignmentReport.json.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from contracts.v1.events.checks import NonEmptyStr, Revision
+from contracts.v1.grading.assessment import Grade
 from contracts.v1.grading.taskresult import AnswerVerdict, MethodVerdict, ReasoningVerdict
 
 Count = Annotated[int, Field(ge=0)]
@@ -31,6 +32,14 @@ class ReportStudent(BaseModel):
     checkId: NonEmptyStr
     resultRev: Revision
     selection: Literal["accepted", "draft"]
+    grade: Grade | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if "grade" not in self.model_fields_set:
+            data.pop("grade", None)
+        return data
 
 
 class CategoryTrend(BaseModel):
@@ -39,6 +48,17 @@ class CategoryTrend(BaseModel):
     category: NonEmptyStr
     affectedStudents: Count
     primaryIssues: Count
+    topic: NonEmptyStr | None = None
+    exampleComment: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.topic is None:
+            data.pop("topic", None)
+        if self.exampleComment is None:
+            data.pop("exampleComment", None)
+        return data
 
 
 class TaskDistribution(BaseModel):

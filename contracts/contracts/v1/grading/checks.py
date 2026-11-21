@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, TypeAdapter
 
+from contracts.v1.grading.assessment import AssessmentTotal, Grade, OcrStatus, PhotoMark, PhotoPage, Recommendation, TaskAssessment
 from contracts.v1.grading.taskresult import NonEmptyStr, TaskResult
 
 CHECKS_READ_RIGHT = "checks.read"
@@ -17,6 +18,11 @@ class CheckIdentity(BaseModel):
     checkId: NonEmptyStr
     attemptId: NonEmptyStr
     transcriptMarkdown: str | None = None
+    photoPages: list[PhotoPage] | None = None
+    ocrStatus: OcrStatus | None = None
+    ocrReason: NonEmptyStr | None = None
+    grade: Grade | None = None
+    """Only omit the grade upstream if the result has no revisioned grade field."""
 
 
 class CheckPending(CheckIdentity):
@@ -35,6 +41,11 @@ class CheckReady(CheckIdentity):
     """The published revision, if any. It can be older than the current resultRev."""
     taskResults: list[TaskResult]
     overallReview: NonEmptyStr
+    taskAssessments: list[TaskAssessment] | None = None
+    total: AssessmentTotal | None = None
+    teacherComment: str | None = None
+    recommendations: list[Recommendation] | None = None
+    photoMarks: list[PhotoMark] | None = None
 
 
 def checkKind(value: object) -> str:

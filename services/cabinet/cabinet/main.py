@@ -26,15 +26,16 @@ from cabinet.auth.service import TeacherAccounts
 from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecord
 from cabinet.auth.throttle import LoginThrottle
 from cabinet.bindingconfirmation import confirmBinding
-from cabinet.checks import readGradingCheck, requireOwnedCheck
+from cabinet.checks import attachCabinetData, readGradingCheck, requireOwnedCheck
 from cabinet.classes import ClassRecord, StudentRecord, activeStudents, deleteClass, deleteStudent, lockStudentCreation, requireOwnedClass
 from cabinet.cleanupuploads import tryCleanUpload
 from cabinet.documents import readDocx, readPhotoBytes
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
 from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.reports import combineReport, deletedReportCheckIds, readReportGrades, readReportRoster
-from cabinet.reviews import gradingChanges, readMarkdown, reviewConflictResponse
+from cabinet.reviews import gradingChanges, readMarkdown, readReviewReceipt, reviewConflictResponse
 from cabinet.settings import Settings
+from cabinet.submissions import readLatestSubmissions, readPhotoPages
 from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmissionFiles, readUploadPhoto, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
@@ -44,6 +45,7 @@ from contracts.v1.cabinet.registration import TeacherRegistration
 from contracts.v1.cabinet.reports import AssignmentReport
 from contracts.v1.cabinet.reviews import EditReview, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
+from contracts.v1.cabinet.submissions import AssignmentSubmissions
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import Subject, TaskPoints, TeacherRequirement
@@ -401,8 +403,23 @@ def createApp(
     ) -> CheckStatus:
         with sessionFactory() as db:
             attemptId = requireOwnedCheck(db, checkId, teacher.teacherId)
+            legacyGrade = db.scalar(select(CheckRecord.grade).where(CheckRecord.checkId == checkId))
+            pages = readPhotoPages(db, [checkId]).get(checkId, [])
         response.headers["Cache-Control"] = "no-store"
-        return readGradingCheck(settings, checkId, attemptId, getTraceId(request), gradingTransport)
+        result = readGradingCheck(settings, checkId, attemptId, getTraceId(request), gradingTransport)
+        return attachCabinetData(result, pages, legacyGrade)
+
+    @v1.get(
+        "/assignments/{assignmentId}/submissions",
+        responses={401: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError}},
+    )
+    def listAssignmentSubmissions(
+        assignmentId: str, rev: Annotated[int, Query(ge=1, le=2_147_483_647)],
+        teacher: TeacherSession = Depends(currentTeacher),
+    ) -> AssignmentSubmissions:
+        with sessionFactory() as db:
+            requireOwnedAssignment(db, assignmentId, rev, teacher.teacherId)
+            return readLatestSubmissions(db, assignmentId, rev)
 
     @v1.get(
         "/assignments/{assignmentId}/report",
@@ -493,7 +510,7 @@ def createApp(
         )
         if upstream.status_code == 409:
             return reviewConflictResponse(upstream, traceId)
-        receipt = readGradingModel(upstream, ReviewEdited)
+        receipt = readReviewReceipt(upstream)
         if receipt.checkId != checkId or receipt.editId != body.editId or receipt.resultRev <= body.baseRev:
             raise invalidGradingResponse()
         return receipt
