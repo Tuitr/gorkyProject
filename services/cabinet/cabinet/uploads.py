@@ -29,7 +29,9 @@ from cabinet.documents import (
 from cabinet.outbox import EventContext
 from cabinet.settings import Settings
 from contracts.v1.cabinet.classes import StudentSummary
-from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
+from contracts.v1.cabinet.uploads import (
+    AssignmentUploads, UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress,
+)
 from contracts.v1.events.checks import DocRef
 from shared.httperrors import ApiProblem
 from shared.submissionmedia import MAX_SOURCE_BYTES, photoMediaType
@@ -414,6 +416,28 @@ def visibleUploadFiles(uploadId: str) -> Select[UploadFileRecord]:
         AttemptRecord.attemptId == UploadFileRecord.attemptId, AttemptRecord.deletedAt.is_not(None),
     ).exists()
     return select(UploadFileRecord).where(UploadFileRecord.uploadId == uploadId, ~archived)
+
+
+def listActiveUploads(db: Session, assignmentId: str, assignmentRev: int) -> AssignmentUploads:
+    unresolvedFile = (
+        select(UploadFileRecord.fileId)
+        .where(
+            UploadFileRecord.uploadId == UploadRecord.uploadId,
+            UploadFileRecord.status.in_(("pending_binding", "needs_confirmation", "matched")),
+        )
+        .exists()
+    )
+    uploads = db.scalars(
+        select(UploadRecord)
+        .where(
+            UploadRecord.assignmentId == assignmentId, UploadRecord.assignmentRev == assignmentRev, unresolvedFile,
+        )
+        .order_by(UploadRecord.uploadedAt, UploadRecord.uploadId)
+    )
+    return AssignmentUploads(
+        assignmentId=assignmentId, assignmentRev=assignmentRev,
+        uploads=[UploadAccepted(uploadId=upload.uploadId) for upload in uploads],
+    )
 
 
 def readUploadPhoto(db: Session, settings: Settings, uploadId: str, fileId: str, teacherId: str) -> tuple[bytes, str]:

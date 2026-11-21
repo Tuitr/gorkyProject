@@ -7,7 +7,7 @@
 |---|---|---|---|---|
 | Ошибка HTTP `{code, message, retryable, traceId}` | `common/errors.py` | № 1 | все | готово |
 | Регистрация учителя `POST /v1/teachers/register` | `cabinet/registration.py`, [пример запроса](examples/cabinet/teacherRegistration.json) | № 1 | фронтенд | `201` с `TeacherSession`, `409` если адрес уже занят, `422` если поля невалидны. Вход `POST /v1/sessions` принимает `email` и `password` |
-| Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает DOCX или ZIP с работами; `GET /v1/uploads/{uploadId}` возвращает состояния файлов; `POST /v1/uploads/{uploadId}/bindings` подтверждает ученика |
+| Публичный API `/v1` (сессии, классы, варианты, загрузки, привязки, результаты) | `cabinet/`, `examples/cabinet/` | № 1 | фронтенд | OpenAPI стенда: `GET /openapi.json`; вход `POST /v1/sessions` выдаёт cookie; `GET` и `DELETE /v1/sessions/current` читают и отзывают сессию; `GET` и `POST` на `/v1/classes` и `/v1/classes/{classId}/students` доступны владельцу класса; `POST /v1/classes/{classId}/assignments` сохраняет версии варианта; `POST /v1/assignments/{assignmentId}/uploads` принимает DOCX или ZIP с работами; `GET /v1/assignments/{assignmentId}/uploads?rev=N` находит импорты с незакрытыми привязками; `GET /v1/uploads/{uploadId}` возвращает состояния файлов; `POST /v1/uploads/{uploadId}/bindings` подтверждает ученика |
 | События `checks.v1`: конверт, `assignment.published`, `attempt.submitted` | `events/checks.py`, `schemas/checks.json`, `examples/events/` | № 1 | № 2 | записываются в PostgreSQL outbox и доставляются в Redis Streams |
 | Манифест мини-набора: `caseId`, `split`, `assignmentRef`, `submissionRef`, `expectedReference`, `expectedSteps`, `expectedVerdict`, `expectedIssues`; ZIP с работами в `bundles` | `dataset/manifest.py`, `schemas/dataset.json`, `examples/dataset/` | № 1 | № 2 (шаги, вердикты, замечания, ZIP для E2E), № 3 (`expectedReference`) | эталоны [открытого mini.v1](../../../tools/dataset/releases/mini.v1/) сверены; разметка ожидает сверки № 2 |
 | Чтение проверки `/internal/v1/checks/{checkId}` | `grading/checks.py`, [OpenAPI](openapi/grading.json), [примеры](examples/grading/) | № 2 | № 1 | Кабинет читает результат через `GET /v1/checks/{checkId}`. Для фото поле `transcriptMarkdown` появляется после распознавания, оригинал читается через `GET /v1/uploads/{uploadId}/files/{fileId}/photo` |
@@ -87,6 +87,10 @@ ZIP до 50 МиБ может содержать до 100 фото или до 1
 Ответ `202` содержит `uploadId`. Учитель может загрузить работу только к ревизии варианта своего класса.
 
 `GET /v1/uploads/{uploadId}` возвращает `uploadId` и список `files` со статусом каждого документа.
+`GET /v1/assignments/{assignmentId}/uploads?rev=N` возвращает идентификаторы импортов указанной ревизии,
+в которых остались файлы со статусом `pending_binding`, `matched` или `needs_confirmation`.
+Владелец работы может восстановить прогресс в другом браузере, затем прочитать каждый импорт через обычный
+`GET /v1/uploads/{uploadId}`. Ответ не кэшируется.
 Запись содержит `fileId`, `originalName`, `status`, список `candidates` из учеников этого класса и `reason`, если есть причина отказа или уточнения.
 Кабинет сверяет имя файла и подпись в начале DOCX со списком класса. Поддерживаются подписи
 `Ученик:`, `Ученица:`, `ФИО:` и `Выполнил(а):`. При единственном полном совпадении без противоречий

@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from contracts.v1.cabinet.classes import StudentSummary
-from contracts.v1.events.checks import NonEmptyStr
+from contracts.v1.events.checks import NonEmptyStr, Revision
 
 
 UploadFileStatus = Literal["pending_binding", "needs_confirmation", "matched", "bound", "rejected"]
@@ -36,3 +36,13 @@ class UploadFileProgress(BaseModel):
 
 class UploadProgress(UploadAccepted):
     files: list[UploadFileProgress]
+
+
+class AssignmentUploads(BaseModel):
+    """Imports that still contain files awaiting a binding for this assignment revision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    assignmentId: NonEmptyStr
+    assignmentRev: Revision
+    uploads: list[UploadAccepted]

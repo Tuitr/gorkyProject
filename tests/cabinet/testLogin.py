@@ -908,6 +908,62 @@ def testPhotoGroupsRequireIdentityOrCorrectPageNumbers(
         assert len(db.scalars(select(CheckRecord)).all()) == 1
 
 
+def testUnresolvedUploadCanBeRecoveredInAnotherBrowser(
+    cabinetSessions: sessionmaker[Session], clock: ManualClock,
+) -> None:
+    owner, other = "teacher.recover-import@example.org", "teacher.other-import@example.org"
+    addTeacher(cabinetSessions, owner)
+    addTeacher(cabinetSessions, other)
+    app = createApp(Settings.fromEnv(), sessionFactory=cabinetSessions, passwords=Passwords(CountingHasher()), clock=clock)
+    with TestClient(app, base_url="https://testserver") as firstBrowser:
+        assert login(firstBrowser, owner, PASSWORD)[0] == 200
+        classId = firstBrowser.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+        twins = [
+            firstBrowser.post(f"/v1/classes/{classId}/students", json={"name": "Смирнова Анна"}).json()["studentId"]
+            for _ in range(2)
+        ]
+        assignment = firstBrowser.post(
+            f"/v1/classes/{classId}/assignments", data={"requirements": "[]"},
+            files={"file": ("assignment.docx", assignmentDocx("1. Решите уравнение."))},
+        )
+        assert assignment.status_code == 201, assignment.text
+        assignmentId = assignment.json()["assignmentId"]
+        uploaded = firstBrowser.post(
+            f"/v1/assignments/{assignmentId}/uploads", data={"assignmentRev": "1"},
+            files={"file": ("works.zip", submissionZip(
+                ("Смирнова Анна__01.png", submissionPhoto("white")),
+                ("Смирнова Анна__02.png", submissionPhoto("green")),
+            ))},
+        )
+        assert uploaded.status_code == 202, uploaded.text
+        uploadId = uploaded.json()["uploadId"]
+
+    with TestClient(app, base_url="https://testserver") as secondBrowser:
+        assert login(secondBrowser, owner, PASSWORD)[0] == 200
+        path = f"/v1/assignments/{assignmentId}/uploads"
+        recovered = secondBrowser.get(path, params={"rev": 1})
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.headers["Cache-Control"] == "private, no-store"
+        assert recovered.json() == {
+            "assignmentId": assignmentId, "assignmentRev": 1, "uploads": [{"uploadId": uploadId}],
+        }
+        progress = secondBrowser.get(f"/v1/uploads/{uploadId}")
+        assert progress.status_code == 200 and len(progress.json()["files"]) == 2
+        file = progress.json()["files"][0]
+        assert {candidate["studentId"] for candidate in file["candidates"]} == set(twins)
+        bound = secondBrowser.post(
+            f"/v1/uploads/{uploadId}/bindings",
+            json={"fileId": file["fileId"], "studentId": twins[0]},
+        )
+        assert bound.status_code == 200, bound.text
+        assert secondBrowser.get(path, params={"rev": 1}).json()["uploads"] == []
+        assert secondBrowser.get(path, params={"rev": 2}).status_code == 404
+
+    with TestClient(app, base_url="https://testserver") as otherBrowser:
+        assert login(otherBrowser, other, PASSWORD)[0] == 200
+        assert otherBrowser.get(f"/v1/assignments/{assignmentId}/uploads", params={"rev": 1}).status_code == 404
+
+
 def declaredSize(archive: bytes, name: str, size: int) -> bytes:
     """The archive with a false uncompressed size for one entry in both its local and central headers."""
     data, encoded = bytearray(archive), name.encode()

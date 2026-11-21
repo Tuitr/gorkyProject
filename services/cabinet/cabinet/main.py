@@ -36,7 +36,10 @@ from cabinet.reports import combineReport, deletedReportCheckIds, readReportGrad
 from cabinet.reviews import gradingChanges, readMarkdown, readReviewReceipt, reviewConflictResponse
 from cabinet.settings import Settings
 from cabinet.submissions import readLatestSubmissions, readPhotoPages
-from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmissionFiles, readUploadPhoto, storeUpload
+from cabinet.uploads import (
+    UploadFileRecord, UploadRecord, getUploadProgress, listActiveUploads, readSubmissionFiles, readUploadPhoto,
+    storeUpload,
+)
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
@@ -46,7 +49,7 @@ from contracts.v1.cabinet.reports import AssignmentReport
 from contracts.v1.cabinet.reviews import EditReview, PublishReview, ReviewConflict, ReviewEdited, ReviewRevision
 from contracts.v1.cabinet.sessions import LoginRequest, TeacherSession
 from contracts.v1.cabinet.submissions import AssignmentSubmissions
-from contracts.v1.cabinet.uploads import UploadAccepted, UploadProgress
+from contracts.v1.cabinet.uploads import AssignmentUploads, UploadAccepted, UploadProgress
 from contracts.v1.common.errors import ApiError
 from contracts.v1.events.checks import Subject, TaskPoints, TeacherRequirement
 from contracts.v1.grading.assignmentreferences import AssignmentReferences
@@ -325,6 +328,20 @@ def createApp(
             if uploadId is not None:
                 tryCleanUpload(sessionFactory, settings, uploadId)
             raise
+
+    @v1.get(
+        "/assignments/{assignmentId}/uploads",
+        responses={401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError}, 422: {"model": ApiError}},
+    )
+    def listAssignmentUploads(
+        assignmentId: str, response: Response, rev: Annotated[int, Query(ge=1, le=2_147_483_647)],
+        teacher: TeacherSession = Depends(currentTeacher),
+    ) -> AssignmentUploads:
+        with sessionFactory() as db:
+            requireOwnedAssignment(db, assignmentId, rev, teacher.teacherId)
+            result = listActiveUploads(db, assignmentId, rev)
+        response.headers["Cache-Control"] = "private, no-store"
+        return result
 
     @v1.delete(
         "/assignments/{assignmentId}", status_code=204,
