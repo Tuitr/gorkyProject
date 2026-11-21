@@ -4,6 +4,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import islice
+from pathlib import PurePosixPath
 from unicodedata import normalize
 from xml.etree.ElementTree import Element
 
@@ -14,6 +15,9 @@ SIGNATURE = re.compile(
     re.IGNORECASE,
 )
 WORDS = re.compile(r"[^\W\d_]+")
+PHOTO_NAME_PART = r"[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)*"
+PHOTO_STUDENT_NAME = re.compile(rf"{PHOTO_NAME_PART} {PHOTO_NAME_PART}")
+PHOTO_PAGE_NUMBER = re.compile(r"0[1-9]|[1-9][0-9]|100")
 TRANSLITERATION = str.maketrans(dict(zip(
     "абвгдежзийклмнопрстуфхцчшщъыьэюя",
     ("a", "b", "v", "g", "d", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o",
@@ -51,6 +55,26 @@ def signatureNames(document: Element) -> tuple[str, ...]:
 
 def nameKey(name: str) -> tuple[str, ...]:
     return tuple(sorted(WORDS.findall(normalize("NFKC", name).casefold().replace("ё", "е"))))
+
+
+@dataclass(frozen=True)
+class PhotoPageName:
+    groupKey: tuple[str, ...]
+    studentName: str | None
+    number: int | None  # None is unnumbered. Zero means a malformed suffix.
+
+
+def photoPageName(filename: str) -> PhotoPageName:
+    stem = normalize("NFKC", PurePosixPath(filename).stem)
+    base, separator, suffix = stem.rpartition("__")
+    name = base if separator else stem
+    displayName = " ".join(name.replace("_", " ").split())
+    studentName = displayName if len(displayName) <= 200 and PHOTO_STUDENT_NAME.fullmatch(displayName) else None
+    key = nameKey(studentName) if studentName is not None else (displayName.casefold(),)
+    number = None
+    if separator:
+        number = int(suffix) if PHOTO_PAGE_NUMBER.fullmatch(suffix) else 0
+    return PhotoPageName(key, studentName, number)
 
 
 def rosterMatch(name: tuple[str, ...], roster: Sequence[StudentRecord]) -> NameMatch:

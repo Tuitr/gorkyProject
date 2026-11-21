@@ -52,9 +52,13 @@ def readPhotoBytes(upload: UploadFile, mediaType: str) -> bytes:
     original = upload.file.read(MAX_SOURCE_BYTES + 1)
     if len(original) > MAX_SOURCE_BYTES:
         raise ApiProblem("file_too_large", "Фото превышает 20 МБ", status=413)
+    validatePhoto(original, mediaType)
+    return original
+
+
+def validatePhoto(original: bytes, mediaType: str) -> None:
     if imageMediaType(original) != mediaType:
         raise ApiProblem("invalid_input", "Ожидалось фото в формате JPEG, PNG или WebP")
-    return original
 
 
 def validateDocx(original: bytes) -> ElementTree.Element:

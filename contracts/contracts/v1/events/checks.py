@@ -7,7 +7,7 @@ The stream carries references to immutable S3 objects, never the content of a wo
 """
 
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -19,6 +19,7 @@ from pydantic import (
     SerializerFunctionWrapHandler,
     TypeAdapter,
     model_serializer,
+    model_validator,
 )
 
 STREAM_NAME: Final = "checks.v1"
@@ -120,6 +121,21 @@ class AttemptSubmittedPayload(BaseModel):
     attemptId: NonEmptyStr
     checkId: NonEmptyStr
     docRef: DocRef
+    pageRefs: Annotated[list[DocRef], Field(min_length=2, max_length=100)] | None = None
+    """Ordered originals, including docRef as the first page, for a multi-page photo submission."""
+
+    @model_validator(mode="after")
+    def firstPageMatches(self) -> Self:
+        if self.pageRefs is not None and self.pageRefs[0] != self.docRef:
+            raise ValueError("docRef must match the first reference in pageRefs")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.pageRefs is None:
+            data.pop("pageRefs", None)
+        return data
 
 
 class EventEnvelope(BaseModel):

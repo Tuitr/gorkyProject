@@ -27,7 +27,7 @@ from cabinet.auth.tables import LoginThrottleRecord, SessionRecord, TeacherRecor
 from cabinet.auth.throttle import LoginThrottle
 from cabinet.bindingconfirmation import confirmBinding
 from cabinet.checks import readGradingCheck, requireOwnedCheck
-from cabinet.classes import ClassRecord, StudentRecord, activeStudents, deleteClass, deleteStudent, requireOwnedClass
+from cabinet.classes import ClassRecord, StudentRecord, activeStudents, deleteClass, deleteStudent, lockStudentCreation, requireOwnedClass
 from cabinet.cleanupuploads import tryCleanUpload
 from cabinet.documents import readDocx, readPhotoBytes
 from cabinet.gradingclient import invalidGradingResponse, readGradingModel, sendGradingRequest
@@ -35,7 +35,7 @@ from cabinet.outbox import EventContext, OutboxRecord
 from cabinet.reports import combineReport, deletedReportCheckIds, readReportGrades, readReportRoster
 from cabinet.reviews import gradingChanges, readMarkdown, reviewConflictResponse
 from cabinet.settings import Settings
-from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmission, readUploadPhoto, storeUpload
+from cabinet.uploads import UploadFileRecord, UploadRecord, getUploadProgress, readSubmissionFiles, readUploadPhoto, storeUpload
 from contracts.v1.cabinet.assignments import AssignmentSummary, AssignmentVersion
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest
 from contracts.v1.cabinet.classes import ClassSummary, CreateClass, CreateStudent, StudentSummary
@@ -75,6 +75,12 @@ async def requireOneUploadFile(request: Request) -> None:
     parts = [name for name, part in form.multi_items() if isinstance(part, MultipartFile)]
     if parts != ["file"]:
         raise ApiProblem("invalid_input", "Expected exactly one file")
+
+
+async def requireSubmissionFileFields(request: Request) -> None:
+    form = await request.form()
+    if any(name != "file" for name, part in form.multi_items() if isinstance(part, MultipartFile)):
+        raise ApiProblem("invalid_input", "Upload files using the file field")
 
 
 def tokenHash(token: str) -> str:
@@ -234,6 +240,7 @@ def createApp(
         created = StudentSummary(studentId=str(uuid.uuid4()), name=body.name)
         with sessionFactory.begin() as db:
             requireOwnedClass(db, classId, teacher.teacherId, lockForWrite=True)
+            lockStudentCreation(db, classId)
             db.add(StudentRecord(studentId=created.studentId, classId=classId, name=created.name))
         return created
 
@@ -292,7 +299,7 @@ def createApp(
     @v1.post(
         "/assignments/{assignmentId}/uploads",
         status_code=202,
-        dependencies=[Depends(requireOneUploadFile)],
+        dependencies=[Depends(requireSubmissionFileFields)],
         responses={
             401: {"model": ApiError}, 403: {"model": ApiError}, 404: {"model": ApiError},
             413: {"model": ApiError}, 422: {"model": ApiError}, 503: {"model": ApiError},
@@ -300,7 +307,7 @@ def createApp(
     )
     def uploadSubmission(
         assignmentId: str,
-        file: Annotated[UploadFile, File()],
+        file: Annotated[list[UploadFile], File(min_length=1)],
         assignmentRev: Annotated[int, Form(ge=1, le=2_147_483_647)],
         teacher: TeacherSession = Depends(currentTeacher),
         event: EventContext = Depends(eventContext),
@@ -309,7 +316,7 @@ def createApp(
         try:
             with sessionFactory.begin() as db:
                 classId = requireOwnedAssignment(db, assignmentId, assignmentRev, teacher.teacherId, lockForWrite=True)
-                documents = readSubmission(file)
+                documents = readSubmissionFiles(file)
                 uploadId = str(uuid.uuid4())
                 return storeUpload(db, settings, assignmentId, assignmentRev, classId, documents, event, uploadId=uploadId)
         except Exception:

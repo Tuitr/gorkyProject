@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Select, String, select, update
+from sqlalchemy import DateTime, ForeignKey, Select, String, func, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.database import Base
@@ -33,6 +33,10 @@ class StudentRecord(Base):
 
 def activeStudents(classId: str) -> Select[StudentRecord]:
     return select(StudentRecord).where(StudentRecord.classId == classId, StudentRecord.deletedAt.is_(None))
+
+
+def lockStudentCreation(db: Session, classId: str) -> None:
+    db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(f"cabinet.students/{classId}", 0))))
 
 
 def requireOwnedClass(db: Session, classId: str, teacherId: str, *, lockForWrite: bool = False) -> None:

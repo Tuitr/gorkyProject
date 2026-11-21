@@ -1,5 +1,6 @@
 """Keep the original submission separate from reviews of assignment revisions."""
 
+import hashlib
 import uuid
 from datetime import datetime
 
@@ -18,7 +19,7 @@ from shared.httperrors import ApiProblem
 class AttemptRecord(Base):
     __tablename__ = "attempts"
     __table_args__ = (
-        Index("uq_attempts_submission", "assignment_id", "student_id", "sha256", unique=True,
+        Index("uq_attempts_submission", "assignment_id", "student_id", "submission_hash", unique=True,
               postgresql_where=text("deleted_at IS NULL")),
     )
 
@@ -26,6 +27,7 @@ class AttemptRecord(Base):
     assignmentId: Mapped[str] = mapped_column("assignment_id", String(36))
     studentId: Mapped[str] = mapped_column("student_id", ForeignKey("cabinet.students.student_id"))
     sha256: Mapped[str] = mapped_column(String(64))
+    submissionHash: Mapped[str] = mapped_column("submission_hash", String(64))
     bucket: Mapped[str] = mapped_column(String(63))
     objectKey: Mapped[str] = mapped_column("object_key", String(255))
     submittedAt: Mapped[datetime] = mapped_column("submitted_at", DateTime(timezone=True))
@@ -52,18 +54,23 @@ class CheckRecord(Base):
 
 def ensureAttempt(
     db: Session, assignmentId: str, studentId: str, ref: DocRef, submittedAt: datetime,
+    *, pageRefs: list[DocRef] | None = None,
 ) -> str:
+    submissionHash = ref.sha256
+    if pageRefs is not None:
+        hashes = b"".join(bytes.fromhex(page.sha256) for page in pageRefs)
+        submissionHash = hashlib.sha256(b"cabinet.photo-pages.v1\0" + hashes).hexdigest()
     # Lock the existing active attempt on a duplicate so concurrent deletion cannot archive it mid-binding.
     return db.execute(
         insert(AttemptRecord)
         .values(
             attemptId=str(uuid.uuid4()), assignmentId=assignmentId, studentId=studentId,
-            sha256=ref.sha256, bucket=ref.bucket, objectKey=ref.key, submittedAt=submittedAt,
+            sha256=ref.sha256, submissionHash=submissionHash, bucket=ref.bucket, objectKey=ref.key, submittedAt=submittedAt,
         )
         .on_conflict_do_update(
-            index_elements=[AttemptRecord.assignmentId, AttemptRecord.studentId, AttemptRecord.sha256],
+            index_elements=[AttemptRecord.assignmentId, AttemptRecord.studentId, AttemptRecord.submissionHash],
             index_where=AttemptRecord.deletedAt.is_(None),
-            set_={"sha256": AttemptRecord.sha256},
+            set_={"submission_hash": AttemptRecord.submissionHash},
         )
         .returning(AttemptRecord.attemptId)
     ).scalar_one()
@@ -92,6 +99,7 @@ def deleteAttempt(db: Session, attemptId: str, teacherId: str, deletedAt: dateti
 def ensureCheck(
     db: Session, attemptId: str, assignmentId: str, assignmentRev: int,
     studentId: str, ref: DocRef, eventContext: EventContext,
+    *, pageRefs: list[DocRef] | None = None,
 ) -> str:
     checkId = db.scalar(
         insert(CheckRecord)
@@ -105,7 +113,7 @@ def ensureCheck(
             traceId=eventContext.traceId, occurredAt=eventContext.occurredAt,
             payload=AttemptSubmittedPayload(
                 assignmentId=assignmentId, assignmentRev=assignmentRev, docRef=ref,
-                studentId=studentId, attemptId=attemptId, checkId=checkId,
+                studentId=studentId, attemptId=attemptId, checkId=checkId, pageRefs=pageRefs,
             ),
         ))
     else:

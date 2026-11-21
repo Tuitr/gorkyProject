@@ -163,6 +163,23 @@
         "docRef": {
           "$ref": "#/$defs/DocRef"
         },
+        "pageRefs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DocRef"
+              },
+              "maxItems": 100,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pagerefs"
+        },
         "studentId": {
           "minLength": 1,
           "title": "Studentid",

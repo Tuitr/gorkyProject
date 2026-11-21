@@ -785,6 +785,121 @@ def submissionZip(*entries: tuple[str | ZipInfo, bytes]) -> bytes:
     return output.getvalue()
 
 
+def submissionPhoto(color: str, imageFormat: str = "PNG") -> bytes:
+    with BytesIO() as output:
+        Image.new("RGB", (30, 40), color).save(output, imageFormat)
+        return output.getvalue()
+
+
+def testPhotoZipGroupsPagesAndConcurrentReplaysReuseItsChecks(
+    client: TestClient, cabinetSessions: sessionmaker[Session],
+) -> None:
+    addTeacher(cabinetSessions, "teacher.photo-zip@example.org")
+    assert login(client, "teacher.photo-zip@example.org", PASSWORD)[0] == 200
+    classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+    rosterPath = f"/v1/classes/{classId}/students"
+    student = client.post(rosterPath, json={"name": "Сёмина Анна"}).json()
+    otherClass = client.post("/v1/classes", json={"name": "8Б"}).json()["classId"]
+    otherStudent = client.post(f"/v1/classes/{otherClass}/students", json={"name": "Волков Иван"}).json()
+    variant = client.post(f"/v1/classes/{classId}/assignments", data={"requirements": "[]"},
+                          files={"file": ("assignment.docx", assignmentDocx("1. Решите уравнение."))})
+    path = f"/v1/assignments/{variant.json()['assignmentId']}/uploads"
+    first = ("семина_АННА__01.png", submissionPhoto("white"))
+    second = ("Сёмина Анна__02.jpg", submissionPhoto("green", "JPEG"))
+    new = ("Волков Иван.png", submissionPhoto("blue"))
+    barrier = Barrier(2)
+
+    def submit(items: tuple[tuple[str, bytes], ...]) -> list[dict[str, object]]:
+        barrier.wait(timeout=5)
+        uploaded = client.post(path, data={"assignmentRev": "1"}, files={"file": ("works.zip", submissionZip(*items))})
+        assert uploaded.status_code == 202, uploaded.text
+        rows: list[dict[str, object]] = client.get(f"/v1/uploads/{uploaded.json()['uploadId']}").json()["files"]
+        return rows
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        original = executor.submit(submit, (second, new, first))
+        replay = executor.submit(submit, (new, first, second))
+        uploadedFiles = original.result(timeout=10)
+        replayedFiles = replay.result(timeout=10)
+
+    pages = [file for file in uploadedFiles if file["studentId"] == student["studentId"]]
+    assert [file["pageIndex"] for file in pages] == [0, 1]
+    assert len({file["groupId"] for file in pages}) == len({file["attemptId"] for file in pages}) == 1
+    assert len({file["checkId"] for file in pages}) == 1
+    assert all(file["status"] == "bound" for file in uploadedFiles)
+    keys = ("studentId", "attemptId", "checkId", "pageIndex")
+    assert {tuple(file[key] for key in keys) for file in uploadedFiles} == {
+        tuple(file[key] for key in keys) for file in replayedFiles
+    }
+    createdStudents = [row for row in client.get(rosterPath).json() if row["name"] == "Волков Иван"]
+    assert len(createdStudents) == 1 and createdStudents[0]["studentId"] != otherStudent["studentId"]
+
+    changedSecond = submissionPhoto("red", "JPEG")
+    wrongField = client.post(path, data={"assignmentRev": "1"}, files=[("file", first), ("extra", second)])
+    assert wrongField.status_code == 422
+    changed = client.post(path, data={"assignmentRev": "1"}, files=[("file", (second[0], changedSecond)), ("file", first)])
+    assert changed.status_code == 202, changed.text
+    replacementId = changed.json()["uploadId"]
+    replacement = client.get(f"/v1/uploads/{replacementId}").json()["files"]
+    assert len(replacement) == 2 and replacement[0]["attemptId"] != pages[0]["attemptId"]
+    assert replacement[0]["checkId"] != pages[0]["checkId"]
+    for file, originalContent in zip(replacement, (first[1], changedSecond), strict=True):
+        assert client.get(f"/v1/uploads/{replacementId}/files/{file['fileId']}/photo").content == originalContent
+
+    with cabinetSessions() as db:
+        events = [checksEventAdapter.validate_python(row.data) for row in db.scalars(select(OutboxRecord))]
+        checks = [event.payload for event in events if isinstance(event, AttemptSubmittedEvent)]
+        assert len(checks) == 3
+        check = next(check for check in checks if check.checkId == pages[0]["checkId"])
+        assert check.pageRefs is not None and check.docRef == check.pageRefs[0]
+        assert [page.sha256 for page in check.pageRefs] == [hashlib.sha256(file[1]).hexdigest() for file in (first, second)]
+        assert next(check for check in checks if check.studentId == createdStudents[0]["studentId"]).pageRefs is None
+
+
+def testPhotoGroupsRequireIdentityOrCorrectPageNumbers(
+    client: TestClient, cabinetSessions: sessionmaker[Session],
+) -> None:
+    addTeacher(cabinetSessions, "teacher.photo-confirmation@example.org")
+    assert login(client, "teacher.photo-confirmation@example.org", PASSWORD)[0] == 200
+    classId = client.post("/v1/classes", json={"name": "8А"}).json()["classId"]
+    rosterPath = f"/v1/classes/{classId}/students"
+    twins = [client.post(rosterPath, json={"name": "Смирнова Анна"}).json()["studentId"] for _ in range(2)]
+    variant = client.post(f"/v1/classes/{classId}/assignments", data={"requirements": "[]"},
+                          files={"file": ("assignment.docx", assignmentDocx("1. Решите уравнение."))})
+    path = f"/v1/assignments/{variant.json()['assignmentId']}/uploads"
+    photo = submissionPhoto("white")
+    archive = submissionZip(
+        ("Смирнова Анна__02.png", photo), ("Смирнова Анна__01.png", photo),
+        ("Зайцев Павел__01.png", photo), ("Зайцев Павел__03.png", photo),
+        ("Котова Вера__01.png", photo), ("Котова Вера__01.jpg", submissionPhoto("white", "JPEG")),
+        ("Орлов Пётр.png", photo), ("Орлов Пётр__02.png", photo),
+    )
+    rejected = client.post(path, data={"assignmentRev": "1"}, files={"file": ("mixed.zip", submissionZip(
+        ("scan.png", photo), ("old.docx", assignmentDocx("Старый файл")),
+    ))})
+    assert rejected.status_code == 422
+    uploaded = client.post(path, data={"assignmentRev": "1"}, files={"file": ("works.zip", archive)})
+    assert uploaded.status_code == 202, uploaded.text
+    progress = f"/v1/uploads/{uploaded.json()['uploadId']}"
+    files = client.get(progress).json()["files"]
+    assert all(file["status"] == "needs_confirmation" for file in files)
+    unresolved = [file for file in files if file.get("reasonCode") == "invalid_page_order"]
+    assert len(unresolved) == 6 and all("pageIndex" not in file for file in unresolved)
+    assert len(client.get(rosterPath).json()) == 2
+    noOrder = client.post(f"{progress}/bindings", json={"fileId": unresolved[0]["fileId"], "studentId": twins[0]})
+    assert noOrder.status_code == 409
+    ambiguous = [file for file in files if file["originalName"].startswith("Смирнова")]
+    assert [file["pageIndex"] for file in ambiguous] == [0, 1]
+    assert all({s["studentId"] for s in file["candidates"]} == set(twins) for file in ambiguous)
+    for file in reversed(ambiguous):
+        confirmation = client.post(f"{progress}/bindings", json={"fileId": file["fileId"], "studentId": twins[0]})
+        assert confirmation.status_code == 200, confirmation.text
+    bound = [file for file in client.get(progress).json()["files"] if file["status"] == "bound"]
+    assert len(bound) == 2 and bound[0]["checkId"] == bound[1]["checkId"]
+    with cabinetSessions() as db:
+        assert len(db.scalars(select(CheckRecord)).all()) == 1
+
+
 def declaredSize(archive: bytes, name: str, size: int) -> bytes:
     """The archive with a false uncompressed size for one entry in both its local and central headers."""
     data, encoded = bytearray(archive), name.encode()
@@ -1344,6 +1459,7 @@ def testClassReportAddsRosterAndCountsStudentsInsteadOfAttempts(
         for checkId, studentId in (("old", "reviewed"), ("new", "reviewed"), ("skip", "skipped"), ("pending", "waiting")):
             db.add(AttemptRecord(
                 attemptId=checkId, assignmentId=assignmentId, studentId=studentId, sha256=checkId,
+                submissionHash=checkId,
                 bucket="sources", objectKey=f"test-{checkId}", submittedAt=clock.now(),
             ))
         db.flush()
@@ -1421,6 +1537,7 @@ def reviewedCheck(cabinetSessions: sessionmaker[Session], clock: ManualClock) ->
         db.flush()
         db.add(AttemptRecord(
             attemptId=attemptId, assignmentId=assignmentId, studentId=studentId, sha256="0" * 64,
+            submissionHash="0" * 64,
             bucket="sources", objectKey="test-submission", submittedAt=clock.now(),
         ))
         db.flush()

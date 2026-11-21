@@ -176,8 +176,8 @@ def testMigration0016PreservesExistingWorkAndRollsBackFailedDowngrade(
                     " 'bound', :student, :attempt, :check)"
                 ), data)
 
-            command.upgrade(config, "0016")
-            assert cabinetRevision(engine) == "0016"
+            command.upgrade(config, "head")
+            upgradedRevision = cabinetRevision(engine)
             before = client.get(oldUpload)
             assert before.status_code == 200, before.text
             (existing,) = UploadProgress.model_validate_json(before.content).files
@@ -216,12 +216,12 @@ def testMigration0016PreservesExistingWorkAndRollsBackFailedDowngrade(
             assert isinstance(refusal.value.orig, UniqueViolation)
             assert refusal.value.orig.diag.constraint_name == "uq_attempts_submission"
 
-            assert cabinetRevision(engine) == "0016"
+            assert cabinetRevision(engine) == upgradedRevision
             inspector = inspect(engine)
             for table in ("assignments", "attempts"):
                 assert "deleted_at" in {column["name"] for column in inspector.get_columns(table, schema=DB_SCHEMA)}
             (index,) = [i for i in inspector.get_indexes("attempts", schema=DB_SCHEMA) if i["name"] == "uq_attempts_submission"]
-            assert index["unique"] and index["column_names"] == ["assignment_id", "student_id", "sha256"]
+            assert index["unique"] and index["column_names"] == ["assignment_id", "student_id", "submission_hash"]
             assert index["dialect_options"]["postgresql_where"] == "(deleted_at IS NULL)"
             with sessions() as db:
                 assert db.execute(attempts).all() == rows

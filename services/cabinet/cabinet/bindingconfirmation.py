@@ -1,13 +1,13 @@
-"""Confirm a teacher's choice for exactly one uploaded document."""
+"""Confirm a teacher's choice for one document or a group of photo pages."""
 
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from cabinet.classes import StudentRecord, activeStudents
+from cabinet.classes import StudentRecord, activeStudents, lockStudentCreation
 from cabinet.outbox import EventContext
-from cabinet.uploads import UploadFileRecord, finishFileBinding, requireOwnedUpload, visibleUploadFiles
+from cabinet.uploads import INVALID_PAGE_ORDER, UploadFileRecord, finishGroupBinding, requireOwnedUpload, visibleUploadFiles
 from contracts.v1.cabinet.bindings import BindingConfirmed, BindingRequest, SelectStudentBinding
 from shared.httperrors import ApiProblem
 
@@ -27,15 +27,25 @@ def confirmBinding(
     upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     if len(request.fileId) != 36 or "\x00" in request.fileId:
         raise ApiProblem("not_found", "Upload file not found")
-    file = db.scalar(
-        visibleUploadFiles(uploadId)
-        .where(UploadFileRecord.fileId == request.fileId)
-        .with_for_update()
+    visible = visibleUploadFiles(uploadId)
+    file = db.scalar(visible.where(UploadFileRecord.fileId == request.fileId))
+    if file is None:
+        raise ApiProblem("not_found", "Upload file not found")
+    groupFilter = (
+        UploadFileRecord.groupId == file.groupId if file.groupId is not None else UploadFileRecord.fileId == file.fileId
     )
+    files = db.scalars(
+        visible.where(groupFilter)
+        .order_by(UploadFileRecord.pageIndex, UploadFileRecord.fileId)
+        .with_for_update().execution_options(populate_existing=True)
+    ).all()
+    file = next((page for page in files if page.fileId == request.fileId), None)
     if file is None:
         raise ApiProblem("not_found", "Upload file not found")
     if file.status == "rejected":
         raise ApiProblem("conflict", "Rejected files cannot be bound")
+    if file.groupId is not None and file.pageIndex is None:
+        raise ApiProblem("conflict", INVALID_PAGE_ORDER)
 
     confirmed = file.bindingMode is not None or file.status == "bound"
     if isinstance(request, SelectStudentBinding):
@@ -53,6 +63,7 @@ def confirmBinding(
             raise ApiProblem("conflict", "A student with a different name was created for this file")
         mode = "created"
     else:
+        lockStudentCreation(db, classId)
         student = StudentRecord(studentId=str(uuid.uuid4()), classId=classId, name=request.newStudent.name)
         db.add(student)
         # Save the new student before adding the foreign key from the upload file.
@@ -60,13 +71,14 @@ def confirmBinding(
         mode = "created"
 
     if not confirmed:
-        file.studentId = student.studentId
-        file.status = "matched"
-        file.bindingMode = mode
-        file.reason = None
-        file.candidateStudentIds = [student.studentId]
+        for page in files:
+            page.studentId = student.studentId
+            page.status = "matched"
+            page.bindingMode = mode
+            page.reason = None
+            page.candidateStudentIds = [student.studentId]
 
-    attemptId, checkId = finishFileBinding(db, upload, file, eventContext)
+    attemptId, checkId = finishGroupBinding(db, upload, files, eventContext)
     return BindingConfirmed(
         fileId=file.fileId,
         studentId=student.studentId,

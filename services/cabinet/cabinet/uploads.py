@@ -19,23 +19,28 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from cabinet.assignments import AssignmentRecord
 from cabinet.attempts import AttemptRecord, ensureAttempt, ensureCheck
-from cabinet.bindings import matchStudent, signatureNames
-from cabinet.classes import ClassRecord, StudentRecord, activeStudents
+from cabinet.bindings import PhotoPageName, matchStudent, nameKey, photoPageName, rosterMatch, signatureNames
+from cabinet.classes import ClassRecord, StudentRecord, activeStudents, lockStudentCreation
 from cabinet.database import Base
-from cabinet.documents import DOCX_MEDIA_TYPE, MAX_DOCX_BYTES, buildS3Client, loadOriginal, readDocxBytes, readPhotoBytes, storeOriginal, validateDocx
+from cabinet.documents import (
+    DOCX_MEDIA_TYPE, MAX_DOCX_BYTES, buildS3Client, loadOriginal, readDocxBytes, readPhotoBytes,
+    storeOriginal, validateDocx, validatePhoto,
+)
 from cabinet.outbox import EventContext
 from cabinet.settings import Settings
 from contracts.v1.cabinet.classes import StudentSummary
 from contracts.v1.cabinet.uploads import UploadAccepted, UploadFileProgress, UploadFileStatus, UploadProgress
 from contracts.v1.events.checks import DocRef
 from shared.httperrors import ApiProblem
-from shared.submissionmedia import photoMediaType
+from shared.submissionmedia import MAX_SOURCE_BYTES, photoMediaType
 
 
 MAX_ZIP_BYTES = 50 * 1024 * 1024
 MAX_UNPACKED_BYTES = 100 * 1024 * 1024
 MAX_DOCX_FILES = 100
+MAX_PHOTO_FILES = 100
 MAX_ZIP_ENTRIES = 200
+INVALID_PAGE_ORDER = "Пронумеруйте все листы по порядку: __01, __02 и далее. Загрузите комплект заново."
 
 
 @dataclass(frozen=True)
@@ -104,6 +109,8 @@ class UploadFileRecord(Base):
         "check_id", ForeignKey("cabinet.attempt_checks.check_id", name="fk_upload_files_check")
     )
     bindingMode: Mapped[str | None] = mapped_column("binding_mode", String(16))
+    groupId: Mapped[str | None] = mapped_column("group_id", String(36))
+    pageIndex: Mapped[int | None] = mapped_column("page_index")
 
 
 def submissionName(filename: str) -> str:
@@ -112,8 +119,12 @@ def submissionName(filename: str) -> str:
     return filename
 
 
+def uploadFilename(upload: UploadFile) -> str:
+    return (upload.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+
+
 def readSubmission(upload: UploadFile) -> list[SubmissionDocument]:
-    filename = (upload.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+    filename = uploadFilename(upload)
     if filename.lower().endswith(".zip"):
         return readSubmissionZip(upload)
     if (media := photoMediaType(filename)) is not None:
@@ -121,6 +132,26 @@ def readSubmission(upload: UploadFile) -> list[SubmissionDocument]:
         return [SubmissionDocument(submissionName(filename), original, (), media)]
     original = readDocxBytes(upload)
     return [SubmissionDocument(submissionName(filename), original, signatureNames(validateDocx(original)))]
+
+
+def readSubmissionFiles(uploads: Sequence[UploadFile]) -> list[SubmissionDocument]:
+    if len(uploads) == 1:
+        return readSubmission(uploads[0])
+    if len(uploads) > MAX_PHOTO_FILES:
+        raise ApiProblem("file_too_large", "Too many photos in one upload", status=413)
+    documents = []
+    remaining = MAX_UNPACKED_BYTES
+    for upload in uploads:
+        filename = uploadFilename(upload)
+        media = photoMediaType(filename)
+        if media is None:
+            raise ApiProblem("invalid_input", "Select only JPEG, PNG or WebP when uploading multiple files")
+        original = readPhotoBytes(upload, media)
+        remaining -= len(original)
+        if remaining < 0:
+            raise ApiProblem("file_too_large", "Photos exceed the total size limit", status=413)
+        documents.append(SubmissionDocument(submissionName(filename), original, (), media))
+    return documents
 
 
 def zipMemberName(member: ZipInfo) -> str:
@@ -156,23 +187,31 @@ def readSubmissionZip(upload: UploadFile) -> list[SubmissionDocument]:
                     if member.file_size:
                         raise ApiProblem("invalid_input", "ZIP contains an invalid directory")
                     continue
-                if not name.lower().endswith(".docx"):
-                    raise ApiProblem("invalid_input", "ZIP entries must be DOCX documents")
+                media = photoMediaType(name)
+                if media is None and not name.lower().endswith(".docx"):
+                    raise ApiProblem("invalid_input", "ZIP entries must be DOCX or JPEG, PNG and WebP photos")
+                if documents and (documents[0].mediaType == DOCX_MEDIA_TYPE) != (media is None):
+                    raise ApiProblem("invalid_input", "Upload photos and DOCX in separate archives")
                 name = submissionName(name)
-                if len(documents) >= MAX_DOCX_FILES:
+                fileLimit = MAX_PHOTO_FILES if media is not None else MAX_DOCX_FILES
+                if len(documents) >= fileLimit:
                     raise ApiProblem("file_too_large", "ZIP contains too many documents", status=413)
-                limit = min(remaining, MAX_DOCX_BYTES)
+                limit = min(remaining, MAX_SOURCE_BYTES if media is not None else MAX_DOCX_BYTES)
                 with archive.open(member) as source:
                     content = source.read(limit + 1)
                 if len(content) > limit:
                     raise ApiProblem("file_too_large", "ZIP exceeds the unpacked size limit", status=413)
-                documents.append(SubmissionDocument(name, content, signatureNames(validateDocx(content))))
+                if media is None:
+                    documents.append(SubmissionDocument(name, content, signatureNames(validateDocx(content))))
+                else:
+                    validatePhoto(content, media)
+                    documents.append(SubmissionDocument(name, content, (), media))
                 remaining -= len(content)
     except (BadZipFile, RuntimeError, OSError, ValueError, EOFError, ZlibError) as error:
         raise ApiProblem("invalid_input", "Expected a valid ZIP archive") from error
 
     if not documents:
-        raise ApiProblem("invalid_input", "ZIP must contain at least one DOCX document")
+        raise ApiProblem("invalid_input", "ZIP must contain at least one supported file")
     return documents
 
 
@@ -195,7 +234,6 @@ def storeUpload(
     uploadId = uploadId if uploadId is not None else str(uuid.uuid4())
     lockUploadStorage(db, uploadId)
     records = []
-    roster = db.scalars(activeStudents(classId)).all()
     with closing(buildS3Client(settings)) as client:
         for document in documents:
             fileId = str(uuid.uuid4())
@@ -204,13 +242,18 @@ def storeUpload(
                 fileId=fileId, uploadId=uploadId, originalName=document.originalName,
                 bucket=docRef.bucket, objectKey=docRef.key, sha256=docRef.sha256,
             )
-            applyMatch(file, document.signatures, roster)
             records.append(file)
     upload = UploadRecord(
         uploadId=uploadId, assignmentId=assignmentId, assignmentRev=assignmentRev, uploadedAt=eventContext.occurredAt,
     )
     db.add(upload)
     db.flush()
+    if documents[0].mediaType == DOCX_MEDIA_TYPE:
+        roster = db.scalars(activeStudents(classId)).all()
+        for file, document in zip(records, documents, strict=True):
+            applyMatch(file, document.signatures, roster)
+    else:
+        matchPhotoGroups(db, classId, records)
     finishMatchedFiles(db, upload, records, eventContext)
     db.add_all(records)
     return UploadAccepted(uploadId=uploadId)
@@ -224,22 +267,71 @@ def applyMatch(file: UploadFileRecord, signatures: tuple[str, ...], roster: Sequ
     file.reason = match.reason
 
 
-def finishFileBinding(
-    db: Session, upload: UploadRecord, file: UploadFileRecord, eventContext: EventContext,
+def matchPhotoGroups(db: Session, classId: str, files: Sequence[UploadFileRecord]) -> None:
+    lockStudentCreation(db, classId)
+    roster = list(db.scalars(activeStudents(classId)))
+    groups: dict[tuple[str, ...], list[tuple[UploadFileRecord, PhotoPageName]]] = {}
+    for file in files:
+        page = photoPageName(file.originalName)
+        groups.setdefault(page.groupKey, []).append((file, page))
+
+    for group in groups.values():
+        groupId = str(uuid.uuid4())
+        numbers = {page.number for _, page in group}
+        singleton = len(group) == 1 and numbers == {None}
+        if not singleton and numbers != set(range(1, len(group) + 1)):
+            for file, _ in group:
+                file.groupId = groupId
+                file.status = "needs_confirmation"
+                file.candidateStudentIds = []
+                file.reason = INVALID_PAGE_ORDER
+            continue
+
+        first = min((page for _, page in group), key=lambda page: page.number or 0)
+        key = first.groupKey if first.studentName is not None else nameKey(first.groupKey[0])
+        candidates = rosterMatch(key, roster)
+        studentId = None
+        if first.studentName is not None and len(candidates.exact) == 1:
+            studentId = next(iter(candidates.exact))
+        elif first.studentName is not None and not candidates.exact:
+            studentId = str(uuid.uuid4())
+            student = StudentRecord(studentId=studentId, classId=classId, name=first.studentName)
+            db.add(student)
+            roster.append(student)
+
+        candidateIds = [studentId] if studentId is not None else sorted(candidates.candidates)
+        for file, page in group:
+            file.groupId = groupId
+            file.pageIndex = (page.number or 1) - 1
+            file.status = "matched" if studentId is not None else "needs_confirmation"
+            file.studentId = studentId
+            file.candidateStudentIds = candidateIds
+            if studentId is None:
+                file.reason = "Укажите ученика для этой работы."
+
+
+def finishGroupBinding(
+    db: Session, upload: UploadRecord, files: Sequence[UploadFileRecord], eventContext: EventContext,
 ) -> tuple[str, str]:
+    file = files[0]
     if file.status == "bound":
         assert file.attemptId is not None and file.checkId is not None
         return file.attemptId, file.checkId
 
     assert file.status == "matched" and file.studentId is not None
-    ref = DocRef(bucket=file.bucket, key=file.objectKey, sha256=file.sha256)
-    attemptId = ensureAttempt(db, upload.assignmentId, file.studentId, ref, upload.uploadedAt or eventContext.occurredAt)
-    checkId = ensureCheck(
-        db, attemptId, upload.assignmentId, upload.assignmentRev, file.studentId, ref, eventContext,
+    refs = [DocRef(bucket=page.bucket, key=page.objectKey, sha256=page.sha256) for page in files]
+    ref = refs[0]
+    pageRefs = refs if len(refs) > 1 else None
+    attemptId = ensureAttempt(
+        db, upload.assignmentId, file.studentId, ref, upload.uploadedAt or eventContext.occurredAt, pageRefs=pageRefs,
     )
-    file.attemptId = attemptId
-    file.checkId = checkId
-    file.status = "bound"
+    checkId = ensureCheck(
+        db, attemptId, upload.assignmentId, upload.assignmentRev, file.studentId, ref, eventContext, pageRefs=pageRefs,
+    )
+    for page in files:
+        page.attemptId = attemptId
+        page.checkId = checkId
+        page.status = "bound"
     return attemptId, checkId
 
 
@@ -247,26 +339,29 @@ def finishMatchedFiles(
     db: Session, upload: UploadRecord, files: Sequence[UploadFileRecord], eventContext: EventContext,
 ) -> None:
     # Concurrent archives may contain the same works in different orders.
-    matched = sorted(
-        (file for file in files if file.status == "matched"),
-        key=lambda file: (file.studentId or "", file.sha256),
-    )
-    if not matched:
+    groups: dict[str, list[UploadFileRecord]] = {}
+    for file in files:
+        if file.status == "matched":
+            groups.setdefault(file.groupId or file.fileId, []).append(file)
+    if not groups:
         return
-    matchedIds = {file.studentId for file in matched if file.studentId is not None}
+    for group in groups.values():
+        group.sort(key=lambda file: file.pageIndex or 0)
+    matchedIds = {group[0].studentId for group in groups.values()}
     activeIds = set(db.scalars(
         select(StudentRecord.studentId).where(
             StudentRecord.studentId.in_(matchedIds), StudentRecord.deletedAt.is_(None),
         ).with_for_update(read=True)
     ))
-    for file in matched:
-        if file.studentId in activeIds:
-            finishFileBinding(db, upload, file, eventContext)
+    for group in sorted(groups.values(), key=lambda pages: (pages[0].studentId or "", tuple(page.sha256 for page in pages))):
+        if group[0].studentId in activeIds:
+            finishGroupBinding(db, upload, group, eventContext)
         else:
-            file.studentId = None
-            file.bindingMode = None
-            file.status = "needs_confirmation"
-            file.reason = "Ученик удалён из класса. Выберите другого ученика."
+            for file in group:
+                file.studentId = None
+                file.bindingMode = None
+                file.status = "needs_confirmation"
+                file.reason = "Ученик удалён из класса. Выберите другого ученика."
 
 
 def matchPendingFiles(
@@ -339,7 +434,8 @@ def getUploadProgress(
     upload, classId = requireOwnedUpload(db, uploadId, teacherId)
     fileQuery = (
         visibleUploadFiles(uploadId)
-        .order_by(UploadFileRecord.originalName, UploadFileRecord.fileId)
+        .order_by(UploadFileRecord.groupId.nulls_last(), UploadFileRecord.pageIndex.nulls_last(),
+                  UploadFileRecord.originalName, UploadFileRecord.fileId)
     )
     files = db.scalars(fileQuery).all()
     if any(file.status in {"pending_binding", "matched"} for file in files):
@@ -370,6 +466,9 @@ def getUploadProgress(
                 attemptId=file.attemptId,
                 checkId=file.checkId,
                 isPhoto=True if photoMediaType(file.objectKey) else None,
+                groupId=file.groupId,
+                pageIndex=file.pageIndex,
+                reasonCode="invalid_page_order" if file.groupId is not None and file.pageIndex is None else None,
             )
             for file in files
         ],

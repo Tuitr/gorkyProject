@@ -46,6 +46,20 @@ def testAttemptWithoutCheckIdIsRejected() -> None:
         checksEventAdapter.validate_python(example)
 
 
+def testPhotoPagesPreserveOrderAndStartWithDocRef() -> None:
+    example = readExample("attemptSubmitted.json")
+    payload = example["payload"]
+    first = payload["docRef"] | {"key": "uploads/a/first.jpg"}
+    second = first | {"key": "uploads/a/second.png", "sha256": "b" * 64}
+    payload.update(docRef=first, pageRefs=[first, second])
+    event = checksEventAdapter.validate_python(example)
+    assert json.loads(checksEventAdapter.dump_json(event)) == example
+
+    payload["pageRefs"] = [second, first]
+    with pytest.raises(ValidationError, match="docRef must match"):
+        checksEventAdapter.validate_python(example)
+
+
 def testAssignmentRevZeroIsRejected() -> None:
     example = readExample("assignmentPublished.json")
     example["payload"]["assignmentRev"] = 0

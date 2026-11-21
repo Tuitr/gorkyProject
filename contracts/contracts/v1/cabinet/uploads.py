@@ -1,6 +1,6 @@
 """Public responses for submission uploads and their files."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,6 +29,9 @@ class UploadFileProgress(BaseModel):
     attemptId: NonEmptyStr | None = None
     checkId: NonEmptyStr | None = None
     isPhoto: Literal[True] | None = None
+    groupId: NonEmptyStr | None = None
+    pageIndex: Annotated[int, Field(ge=0, strict=True)] | None = None
+    reasonCode: Literal["invalid_page_order"] | None = None
 
 
 class UploadProgress(UploadAccepted):
