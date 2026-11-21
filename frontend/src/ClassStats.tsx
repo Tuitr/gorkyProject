@@ -2,13 +2,13 @@ import { useState, type CSSProperties } from 'react'
 import type { Assignment, Check, Report } from './api'
 import { TasksDialog } from './TasksDialog'
 import { folderName } from './titles'
-import { isApproved } from './useChecks'
 
 // Тенденции класса по каждому заданию. Учитываются только работы, отмеченные галочкой учителя.
 export function ClassStats(props: {
   assignments: Assignment[]
   reports: Record<string, Report>
   checks: Record<string, Check>
+  gradeOf: (checkId: string) => number | null | undefined
   error?: string
   loading: boolean
 }) {
@@ -25,15 +25,19 @@ export function ClassStats(props: {
       {shown.map((a) => {
         const r = reports[a.assignmentId]
         if (!r) return null
-        return <AssignmentStats key={a.assignmentId} a={a} r={r} checks={props.checks} />
+        return <AssignmentStats key={a.assignmentId} a={a} r={r} checks={props.checks} gradeOf={props.gradeOf} />
       })}
     </div>
   )
 }
 
-function AssignmentStats({ a, r, checks }: { a: Assignment; r: Report; checks: Record<string, Check> }) {
-  // Только работы с галочкой учителя (результат опубликован).
-  const approved = r.results.map((x) => checks[x.checkId]).filter(isApproved)
+function AssignmentStats(props: { a: Assignment; r: Report; checks: Record<string, Check>; gradeOf: (checkId: string) => number | null | undefined }) {
+  const { a, r, checks } = props
+  // Только работы, которым учитель поставил оценку.
+  const graded = r.results.filter((x) => props.gradeOf(x.checkId) != null)
+  const approved = graded.map((x) => checks[x.checkId]).filter((c): c is Extract<Check, { taskResults: unknown }> => !!c && 'taskResults' in c)
+  const grades = graded.map((x) => props.gradeOf(x.checkId) as number)
+  const avgGrade = grades.length ? (grades.reduce((n, g) => n + g, 0) / grades.length).toFixed(1).replace('.', ',') : '—'
   const taskIds = r.tasks.length ? r.tasks.map((t) => t.taskId) : (approved[0]?.taskResults.map((t) => t.taskId) ?? [])
   const tasks = taskIds.map((taskId) => {
     const results = approved.flatMap((c) => c.taskResults.filter((t) => t.taskId === taskId))
@@ -49,7 +53,7 @@ function AssignmentStats({ a, r, checks }: { a: Assignment; r: Report; checks: R
     for (const cat of new Set(c.taskResults.flatMap((t) => t.issues.map((i) => i.category))))
       issues.set(cat, (issues.get(cat) ?? 0) + 1)
   const topIssues = [...issues].sort((x, y) => y[1] - x[1]).slice(0, 5)
-  const unapproved = r.results.length - approved.length
+  const unapproved = r.results.length - graded.length
   const [tasksOpen, setTasksOpen] = useState(false)
 
   return (
@@ -66,12 +70,13 @@ function AssignmentStats({ a, r, checks }: { a: Assignment; r: Report; checks: R
 
       <div style={st.tiles}>
         <Tile value={`${r.submittedCount}/${r.students.length}`} label="сдали работу" />
-        <Tile value={String(approved.length)} label="проверено учителем" />
+        <Tile value={String(graded.length)} label="оценено учителем" />
+        <Tile value={avgGrade} label="средняя оценка" />
         <Tile value={avg} label="верных ответов" />
       </div>
 
       {approved.length === 0 && (
-        <p style={st.muted}>Отметьте галочкой проверенные работы — тенденции считаются только по ним.</p>
+        <p style={st.muted}>Поставьте оценки проверенным работам — тенденции считаются только по ним.</p>
       )}
 
       {approved.length > 0 && tasks.length > 0 && (
@@ -108,7 +113,7 @@ function AssignmentStats({ a, r, checks }: { a: Assignment; r: Report; checks: R
         </>
       )}
 
-      {unapproved > 0 && <p style={st.muted}>Не отмечено учителем и не учитывается: {unapproved}</p>}
+      {unapproved > 0 && <p style={st.muted}>Без оценки и не учитывается: {unapproved}</p>}
       {r.waiting.length > 0 && <p style={st.muted}>Без результата проверки: {r.waiting.map((s) => s.name).join(', ')}</p>}
       {r.notSubmitted.length > 0 && <p style={st.muted}>Не сдали: {r.notSubmitted.map((s) => s.name).join(', ')}</p>}
     </div>
@@ -127,16 +132,16 @@ function Tile({ value, label }: { value: string; label: string }) {
 const st: Record<string, CSSProperties> = {
   muted: { color: '#6b7280', margin: '6px 0' },
   error: { color: '#b91c1c', margin: '6px 0' },
-  block: { border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, marginBottom: 12 },
+  block: { border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 14 },
   blockHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
   h3: { margin: 0, fontSize: 16 },
-  tasksButton: { padding: '4px 12px', font: 'inherit', fontSize: 14, cursor: 'pointer' },
-  tiles: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 },
-  tile: { background: '#f9fafb', borderRadius: 8, padding: '10px 12px' },
+  tasksButton: { padding: '4px 12px', fontSize: 14 },
+  tiles: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 },
+  tile: { background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 10, padding: '10px 12px' },
   caption: { fontSize: 13, color: '#6b7280', margin: '8px 0 6px' },
   barRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
-  bar: { flex: 1, height: 10, background: '#f3f4f6', borderRadius: 5, overflow: 'hidden' },
-  fill: { display: 'block', height: '100%' },
+  bar: { flex: 1, height: 8, background: '#eef2f7', borderRadius: 999, overflow: 'hidden' },
+  fill: { display: 'block', height: '100%', borderRadius: 999, transition: 'width 0.3s' },
   list: { listStyle: 'none', margin: 0, padding: 0 },
   issue: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6' },
 }

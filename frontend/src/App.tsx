@@ -204,10 +204,24 @@ export function App() {
     ...works.flatMap((w) => (w.uploadId ? (uploads[w.uploadId]?.files ?? []) : [])).flatMap((f) => (f.checkId ? [f.checkId] : [])),
   ]
   const { checks, reload: reloadCheck } = useChecks(checkIds)
-  const approve = async (checkId: string, resultRev: number) => {
+  // Оценки учителя: из отчётов кабинета; только что выставленные — поверх, до следующего чтения отчёта.
+  const [gradeEdits, setGradeEdits] = useState<Record<string, number | null>>({})
+  const reportGrades: Record<string, number | null | undefined> = Object.fromEntries(
+    Object.values(reports).flatMap((r) => r.results.map((x) => [x.checkId, x.grade])),
+  )
+  const gradeOf = (checkId: string | undefined) =>
+    checkId === undefined ? undefined : checkId in gradeEdits ? gradeEdits[checkId] : reportGrades[checkId]
+
+  const setGrade = async (checkId: string, grade: number | null) => {
     try {
-      await api.publish(checkId, resultRev)
-      await reloadCheck(checkId)
+      await api.setGrade(checkId, grade)
+      setGradeEdits((prev) => ({ ...prev, [checkId]: grade }))
+      // Вместе с оценкой учитель принимает разбор: публикуем результат, если ещё не опубликован.
+      const c = checks[checkId]
+      if (grade != null && c && 'taskResults' in c && c.publishedResultRev !== c.resultRev) {
+        await api.publish(checkId, c.resultRev).catch(() => undefined)
+        await reloadCheck(checkId)
+      }
     } catch (e) {
       setError((e as Error).message)
     }
@@ -217,8 +231,17 @@ export function App() {
     <div style={s.page}>
       <header style={s.header}>
         <div style={s.brand}>
-          {logoOk && <img src="/logo.svg" alt="Герб Нижегородской области" height={44} onError={() => setLogoOk(false)} />}
-          <span style={{ fontWeight: 600 }}>Нижегородская область</span>
+          {logoOk ? (
+            <img src="/logo.svg" alt="Герб Нижегородской области" height={40} onError={() => setLogoOk(false)} />
+          ) : (
+            <span style={s.mark} aria-hidden>
+              ✓
+            </span>
+          )}
+          <div style={{ lineHeight: 1.2 }}>
+            <div style={{ fontWeight: 700 }}>Проверка работ</div>
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Нижегородская область</div>
+          </div>
         </div>
 
         <div style={s.row}>
@@ -234,6 +257,7 @@ export function App() {
             onClick={() => setDialog({})}
             disabled={!classId}
             title={classId ? '' : 'Сначала выберите класс'}
+            className="primary"
             style={s.button}
           >
             Загрузить файлы
@@ -272,10 +296,10 @@ export function App() {
       )}
 
       {openWork ? (
-        <StudentWork work={openWork} check={openWork.checkId ? checks[openWork.checkId] : undefined} onApprove={approve} onBack={() => setOpenWork(null)} />
+        <StudentWork work={openWork} check={openWork.checkId ? checks[openWork.checkId] : undefined} grade={gradeOf(openWork.checkId)} onGrade={setGrade} onBack={() => setOpenWork(null)} />
       ) : (
         <div style={s.columns}>
-          <section style={{ ...s.half, borderRight: '1px solid #e5e7eb' }}>
+          <section style={s.half}>
             <h2 style={s.h2}>Работы учеников</h2>
             {classId ? (
               <WorkFolders
@@ -290,7 +314,8 @@ export function App() {
                 onBind={bind}
                 onAddAnswer={(folderId) => setDialog({ folderId })}
                 checks={checks}
-                onApprove={approve}
+                gradeOf={gradeOf}
+                onGrade={setGrade}
                 onOpenAnswer={(checkId, studentName, assignment) => {
                   // Фото известно только для загрузок этого окна.
                   const file = works
@@ -307,7 +332,7 @@ export function App() {
           <section style={s.half}>
             <h2 style={s.h2}>Статистика класса</h2>
             {classId ? (
-              <ClassStats assignments={assignments} reports={reports} checks={checks} error={reportsError} loading={reportsLoading} />
+              <ClassStats assignments={assignments} reports={reports} checks={checks} gradeOf={gradeOf} error={reportsError} loading={reportsLoading} />
             ) : (
               <p style={s.muted}>Выберите класс, чтобы увидеть статистику.</p>
             )}
@@ -319,15 +344,16 @@ export function App() {
 }
 
 const s: Record<string, CSSProperties> = {
-  page: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', font: '15px system-ui, sans-serif', color: '#1f2937' },
-  header: { display: 'flex', alignItems: 'center', gap: 16, minHeight: 64, flexShrink: 0, padding: '8px 16px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap', boxSizing: 'border-box' },
-  brand: { display: 'flex', alignItems: 'center', gap: 10 },
+  page: { height: '100vh', display: 'flex', flexDirection: 'column' },
+  header: { display: 'flex', alignItems: 'center', gap: 24, minHeight: 64, flexShrink: 0, padding: '10px 24px', background: '#fff', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' },
+  brand: { display: 'flex', alignItems: 'center', gap: 12 },
+  mark: { width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 18 },
   row: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   input: {},
   button: {},
   error: { color: '#b91c1c', fontSize: 14 },
-  columns: { flex: 1, display: 'flex', minHeight: 0 },
-  half: { width: '50%', padding: 16, overflowY: 'auto', boxSizing: 'border-box' },
-  h2: { margin: '0 0 12px', fontSize: 18 },
+  columns: { flex: 1, display: 'flex', gap: 16, padding: 16, minHeight: 0 },
+  half: { flex: 1, minWidth: 0, padding: 20, overflowY: 'auto', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, boxShadow: 'var(--shadow)' },
+  h2: { margin: '0 0 16px', fontSize: 17 },
   muted: { color: '#6b7280', margin: 0 },
 }

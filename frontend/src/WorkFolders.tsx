@@ -37,7 +37,8 @@ export function WorkFolders(props: {
   onBind: (uploadId: string, fileId: string, studentId: string) => void
   onAddAnswer: (assignmentId: string) => void
   checks: Record<string, Check>
-  onApprove: (checkId: string, resultRev: number) => Promise<void>
+  gradeOf: (checkId: string | undefined) => number | null | undefined
+  onGrade: (checkId: string, grade: number | null) => Promise<void>
   onOpenAnswer: (checkId: string | undefined, studentName: string, assignment: Assignment) => void
 }) {
   const { works, uploads } = props
@@ -145,7 +146,8 @@ export function WorkFolders(props: {
                       <StudentAnswer
                         name={s.name}
                         check={props.checks[checkOf.get(s.studentId) ?? '']}
-                        onApprove={props.onApprove}
+                        grade={props.gradeOf(checkOf.get(s.studentId))}
+                        onGrade={props.onGrade}
                         onOpen={(checkId) => props.onOpenAnswer(checkId ?? checkOf.get(s.studentId), s.name, a)}
                       />
                     </li>
@@ -167,16 +169,16 @@ export function WorkFolders(props: {
 
 const st: Record<string, CSSProperties> = {
   list: { listStyle: 'none', margin: 0, padding: 0 },
-  item: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, padding: '8px 12px', marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 8 },
+  item: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, padding: '10px 12px', marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff' },
   col: { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 },
   name: { wordBreak: 'break-all' },
   muted: { color: '#6b7280', margin: 0 },
   error: { color: '#b91c1c', fontSize: 14 },
   status: { fontSize: 13, whiteSpace: 'nowrap' },
   input: {},
-  folder: { marginBottom: 6 },
-  folderHead: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', font: 'inherit', cursor: 'pointer', textAlign: 'left' },
-  addAnswer: { padding: '6px 12px', font: 'inherit', fontSize: 14, cursor: 'pointer' },
+  folder: { marginBottom: 10 },
+  folderHead: { display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 14px', border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc', font: 'inherit', cursor: 'pointer', textAlign: 'left' },
+  addAnswer: { padding: '6px 12px', fontSize: 14, color: '#2563eb', borderStyle: 'dashed', borderColor: '#93c5fd', background: '#fff' },
   folderSelected: { borderColor: '#2563eb', background: '#eff6ff', boxShadow: '0 0 0 1px #2563eb' },
-  count: { marginLeft: 'auto', fontSize: 13, color: '#6b7280' },
+  count: { marginLeft: 'auto', fontSize: 12, fontWeight: 500, color: '#475569', background: '#e2e8f0', borderRadius: 999, padding: '2px 10px' },
 }

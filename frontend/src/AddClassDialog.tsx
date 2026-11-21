@@ -91,7 +91,7 @@ export function AddClassDialog(props: { onCreated: (c: ClassItem) => void; onClo
           <button type="button" style={st.button} onClick={props.onClose}>
             Отмена
           </button>
-          <button style={{ ...st.button, ...st.primary, opacity: nameOk && !busy ? 1 : 0.5 }} disabled={!nameOk || busy}>
+          <button className="primary" style={{ ...st.button, opacity: nameOk && !busy ? 1 : 0.5 }} disabled={!nameOk || busy}>
             {busy ? 'Создаём…' : `Добавить${filled.length ? ` (учеников: ${filled.length})` : ''}`}
           </button>
         </div>
@@ -101,8 +101,8 @@ export function AddClassDialog(props: { onCreated: (c: ClassItem) => void; onClo
 }
 
 const st: Record<string, CSSProperties> = {
-  backdrop: { position: 'fixed', inset: 0, background: 'rgba(17, 24, 39, 0.45)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 10 },
-  dialog: { background: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 440, maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 16 },
+  backdrop: { position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.35)', backdropFilter: 'blur(2px)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 10 },
+  dialog: { background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 440, maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 50px rgba(15, 23, 42, 0.18)', display: 'flex', flexDirection: 'column', gap: 16 },
   h2: { margin: 0, fontSize: 18 },
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
   label: { fontSize: 13, color: '#6b7280' },
@@ -114,5 +114,5 @@ const st: Record<string, CSSProperties> = {
   error: { color: '#b91c1c', margin: 0, fontSize: 13 },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: 8 },
   button: {},
-  primary: { background: '#2563eb', color: '#fff', borderColor: '#2563eb' },
+  primary: {},
 }

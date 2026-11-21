@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { api, type Assignment, type Check, type References, type TaskResult } from './api'
 import { folderName } from './titles'
-import { isApproved } from './useChecks'
+import { GradePicker } from './GradePicker'
 
 const ANSWER: Record<TaskResult['answer'], [string, string]> = {
   correct: ['Верно', '#15803d'],
@@ -38,7 +38,8 @@ export type OpenWork = { checkId?: string; studentName: string; assignment: Assi
 export function StudentWork(props: {
   work: OpenWork
   check?: Check
-  onApprove: (checkId: string, resultRev: number) => Promise<void>
+  grade?: number | null
+  onGrade: (checkId: string, grade: number | null) => Promise<void>
   onBack: () => void
 }) {
   const { work, check } = props
@@ -67,7 +68,7 @@ export function StudentWork(props: {
 
       <div style={st.columns}>
         {/* ---------- слева: фото и ошибки ---------- */}
-        <section style={{ ...st.half, borderRight: '1px solid #e5e7eb' }}>
+        <section style={st.half}>
           {work.photo && !photoFailed ? (
             <a href={api.photoUrl(work.photo.uploadId, work.photo.fileId)} target="_blank" rel="noreferrer" title="Открыть фото целиком">
               <img
@@ -133,7 +134,7 @@ export function StudentWork(props: {
         <section style={st.half}>
           <h3 style={{ ...st.h3, marginTop: 0 }}>Статистика работы</h3>
           {ready ? (
-            <WorkStats check={ready} taskInfo={taskInfo} onApprove={props.onApprove} />
+            <WorkStats check={ready} taskInfo={taskInfo} grade={props.grade} onGrade={props.onGrade} />
           ) : (
             <p style={st.muted}>{check ? pendingText(check) : work.checkId ? 'Загружаем…' : 'Статистики нет: результат проверки недоступен.'}</p>
           )}
@@ -158,7 +159,8 @@ function pendingText(c: Check) {
 function WorkStats(props: {
   check: Extract<Check, { taskResults: unknown }>
   taskInfo: (taskId: string, index: number) => { number: string }
-  onApprove: (checkId: string, resultRev: number) => Promise<void>
+  grade?: number | null
+  onGrade: (checkId: string, grade: number | null) => Promise<void>
 }) {
   const c = props.check
   const [busy, setBusy] = useState(false)
@@ -168,7 +170,6 @@ function WorkStats(props: {
   const color = review ? '#a16207' : correct === total ? '#15803d' : '#b91c1c'
   const issues = new Map<string, number>()
   for (const t of c.taskResults) for (const i of t.issues) issues.set(i.category, (issues.get(i.category) ?? 0) + 1)
-  const approved = isApproved(c)
 
   return (
     <div>
@@ -179,23 +180,22 @@ function WorkStats(props: {
           </div>
           <div style={st.muted}>заданий выполнено верно</div>
         </div>
-        <label style={st.approve}>
-          <input
-            type="checkbox"
-            checked={approved}
-            disabled={approved || busy}
-            onChange={async () => {
+        <div style={st.approve}>
+          <span style={st.muted}>Оценка учителя</span>
+          <GradePicker
+            size="large"
+            grade={props.grade}
+            disabled={busy}
+            onChange={async (g) => {
               setBusy(true)
               try {
-                await props.onApprove(c.checkId, c.resultRev)
+                await props.onGrade(c.checkId, g)
               } finally {
                 setBusy(false)
               }
             }}
-            style={{ width: 18, height: 18, margin: 0 }}
           />
-          {approved ? 'Проверено учителем' : 'Отметить как проверенную'}
-        </label>
+        </div>
       </div>
       {review && <p style={{ ...st.note, background: '#fefce8', color: '#a16207' }}>Часть работы распознана неуверенно — проверьте вручную.</p>}
 
@@ -251,10 +251,10 @@ function WorkStats(props: {
 
 const st: Record<string, CSSProperties> = {
   wrap: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 },
-  bar: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderBottom: '1px solid #e5e7eb' },
+  bar: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px 0' },
   back: { padding: '6px 12px', font: 'inherit', cursor: 'pointer' },
-  columns: { flex: 1, display: 'flex', minHeight: 0 },
-  half: { width: '50%', padding: 16, overflowY: 'auto', boxSizing: 'border-box' },
+  columns: { flex: 1, display: 'flex', gap: 16, padding: 16, minHeight: 0 },
+  half: { flex: 1, minWidth: 0, padding: 20, overflowY: 'auto', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, boxShadow: 'var(--shadow)' },
   photo: { width: '100%', borderRadius: 8, border: '1px solid #e5e7eb', display: 'block' },
   note: { margin: 0, padding: '10px 12px', borderRadius: 8, background: '#f9fafb', color: '#6b7280', fontSize: 14 },
   h3: { margin: '20px 0 10px', fontSize: 16 },
@@ -270,7 +270,7 @@ const st: Record<string, CSSProperties> = {
   transcript: { margin: 0, whiteSpace: 'pre-wrap', font: '13px/1.5 ui-monospace, Consolas, monospace', background: '#f9fafb', borderRadius: 8, padding: 10 },
   scoreRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 },
   score: { fontSize: 32, fontWeight: 800, lineHeight: 1.1 },
-  approve: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 500 },
+  approve: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 },
   table: { width: '100%', borderCollapse: 'collapse', margin: '12px 0', fontSize: 14 },
   th: { textAlign: 'left', color: '#6b7280', fontWeight: 500, fontSize: 13, padding: '6px 8px', borderBottom: '1px solid #e5e7eb' },
   td: { padding: '6px 8px', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' },

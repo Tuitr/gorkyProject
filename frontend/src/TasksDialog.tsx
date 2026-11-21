@@ -79,8 +79,8 @@ export function TasksDialog({ a, onClose }: { a: Assignment; onClose: () => void
 }
 
 const st: Record<string, CSSProperties> = {
-  backdrop: { position: 'fixed', inset: 0, background: 'rgba(17, 24, 39, 0.45)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 10 },
-  dialog: { background: '#fff', borderRadius: 12, width: '100%', maxWidth: 680, maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' },
+  backdrop: { position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.35)', backdropFilter: 'blur(2px)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 10 },
+  dialog: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 680, maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(15, 23, 42, 0.18)' },
   head: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 20px', borderBottom: '1px solid #e5e7eb' },
   h2: { margin: 0, fontSize: 18 },
   close: { border: 'none', background: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 24, lineHeight: 1 },

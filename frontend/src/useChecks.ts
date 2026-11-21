@@ -3,10 +3,6 @@ import { api, type Check } from './api'
 
 const inProgress = (c: Check) => !('taskResults' in c) && ['queued', 'running', 'waiting_reference'].includes(c.state)
 
-/** Учитель отметил работу галочкой — результат опубликован. Только такие работы идут в тенденции. */
-export const isApproved = (c: Check | undefined): c is Extract<Check, { taskResults: unknown }> =>
-  !!c && 'taskResults' in c && c.publishedResultRev != null
-
 // Проверки по их checkId — общие для кнопок учеников (слева) и тенденций (справа).
 export function useChecks(checkIds: string[]) {
   const [checks, setChecks] = useState<Record<string, Check>>({})
