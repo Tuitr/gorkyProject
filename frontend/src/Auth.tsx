@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, ApiError, SESSION_EXPIRED } from './api'
 import { ErrorText, errorText } from './Dialogs'
 
@@ -94,4 +94,31 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (displayName: string) => void
       </form>
     </div>
   </main>
+}
+
+// Круглый значок учителя в шапке; по нажатию — имя и «Выйти».
+export function AccountMenu({ account }: { account: Account }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  const name = account.name || 'Учитель'
+
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(false) }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [open])
+
+  return <div className="account" ref={box}>
+    <button type="button" className="account-avatar" aria-haspopup="true" aria-expanded={open}
+      aria-label={'Учётная запись: ' + name} title={name} onClick={() => setOpen(!open)}>
+      {(account.name.trim()[0] ?? 'У').toUpperCase()}
+    </button>
+    {open && <div className="account-menu">
+      <strong>{name}</strong>
+      <button type="button" className="button" onClick={() => { setOpen(false); account.logout() }}>Выйти</button>
+    </div>}
+  </div>
 }

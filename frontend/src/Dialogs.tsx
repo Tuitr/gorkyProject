@@ -47,26 +47,39 @@ export function NameDialog({ title, label, placeholder, action, onClose }: {
   </Dialog>
 }
 
-// Несколько учеников за раз: по одному на строку. Добавляем по очереди, при сбое оставляем в поле тех, кто не добавлен.
-export function AddStudentsDialog({ classes, selectedClass, onClose }: {
-  classes: ClassItem[]; selectedClass: string; onClose: () => void
+// Класс и ученики в одном окне: выбрать класс или создать новый, учеников — по одному на строку.
+// Добавляем по очереди, при сбое оставляем в поле тех, кто не добавлен.
+const NEW_CLASS = '__new__'
+export function ClassStudentsDialog({ classes, selectedClass, onClassCreated, onClose }: {
+  classes: ClassItem[]; selectedClass: string; onClassCreated: (item: ClassItem) => void; onClose: () => void
 }) {
-  const [classId, setClassId] = useState(selectedClass || classes[0]?.classId || '')
+  const [classId, setClassId] = useState(selectedClass || classes[0]?.classId || NEW_CLASS)
+  const [className, setClassName] = useState('')
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [added, setAdded] = useState(0)
+  const creating = classId === NEW_CLASS
   const names = [...new Set(text.split(/\r?\n/).map((line) => line.trim().replace(/\s+/g, ' ')).filter(Boolean))]
   const tooLong = names.find((name) => name.length > 120)
+  const ready = creating ? Boolean(className.trim()) : names.length > 0
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError('')
+    let target = classId
     let done = 0
     try {
+      if (creating) {
+        const created = await api.createClass(className.trim())
+        onClassCreated(created)
+        // Класс уже есть: при сбое на учениках повторная попытка не создаст его второй раз.
+        target = created.classId
+        setClassId(created.classId)
+      }
       for (const name of names) {
-        await api.addStudent(classId, name)
+        await api.addStudent(target, name)
         done += 1
         setAdded((count) => count + 1)
       }
@@ -78,20 +91,24 @@ export function AddStudentsDialog({ classes, selectedClass, onClose }: {
     }
   }
 
-  return <Dialog title="Добавить учеников" onClose={busy ? () => {} : onClose}>
+  return <Dialog title="Класс и ученики" onClose={busy ? () => {} : onClose}>
     <form className="form" onSubmit={submit}>
       <label>Класс<select required value={classId} onChange={(event) => setClassId(event.target.value)}>
         {classes.map((item) => <option key={item.classId} value={item.classId}>{item.name}</option>)}
+        <option value={NEW_CLASS}>+ Новый класс</option>
       </select></label>
-      <label>Фамилия и имя<small>Каждый ученик с новой строки.</small>
-        <textarea required autoFocus rows={8} placeholder={'Смирнова Анна\nИванов Пётр'} value={text}
+      {creating && <label>Название нового класса<input required autoFocus maxLength={120} placeholder="Например, 7А"
+        value={className} onChange={(event) => setClassName(event.target.value)} /></label>}
+      <label>Ученики<small>{creating ? 'Необязательно. ' : ''}Фамилия и имя, каждый ученик с новой строки.</small>
+        <textarea required={!creating} autoFocus={!creating} rows={8} placeholder={'Смирнова Анна\nИванов Пётр'} value={text}
           onChange={(event) => setText(event.target.value)} /></label>
       {tooLong && <p className="notice-error">Слишком длинное имя: «{tooLong.slice(0, 40)}…». Не больше 120 символов.</p>}
-      {added > 0 && <p className="hint" role="status">Добавлено: {added}.</p>}
+      {added > 0 && <p className="hint" role="status">Добавлено учеников: {added}.</p>}
       <ErrorText message={error} />
       <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>{added ? 'Закрыть' : 'Отмена'}</button>
-        <button className="button primary" disabled={busy || !classId || !names.length || Boolean(tooLong)}>
-          {busy ? 'Добавляем…' : names.length > 1 ? 'Добавить ' + names.length : 'Добавить'}</button></div>
+        <button className="button primary" disabled={busy || !ready || Boolean(tooLong)}>
+          {busy ? 'Сохраняем…' : creating ? (names.length ? 'Создать класс и добавить ' + names.length : 'Создать класс')
+            : names.length > 1 ? 'Добавить ' + names.length : 'Добавить'}</button></div>
     </form>
   </Dialog>
 }

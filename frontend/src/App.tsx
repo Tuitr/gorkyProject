@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api, type ClassItem, type Work } from './api'
-import { AddStudentsDialog, ConfirmDialog, CreateWorkDialog, ErrorText, errorText, NameDialog } from './Dialogs'
+import { ClassStudentsDialog, ConfirmDialog, CreateWorkDialog, ErrorText, errorText } from './Dialogs'
 import { dateLabel, readWorks, subjectName, workName } from './workspace'
 import { WorkView } from './WorkView'
-import type { Account } from './Auth'
+import { AccountMenu, type Account } from './Auth'
 
 function route() {
   return window.location.hash.match(/^#work\/([0-9a-z-]+)$/i)?.[1] ?? ''
@@ -15,7 +15,7 @@ export function App({ account }: { account: Account }) {
   const [workId, setWorkId] = useState(route)
   const [selectedClass, setSelectedClass] = useState('')
   const [sort, setSort] = useState('newest')
-  const [modal, setModal] = useState<'work' | 'class' | 'students' | null>(null)
+  const [modal, setModal] = useState<'work' | 'students' | null>(null)
   const [toDelete, setToDelete] = useState<Work>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -57,14 +57,9 @@ export function App({ account }: { account: Account }) {
         <a className="brand" href="#" aria-label="Проверка работ — главная"><span className="brand-mark" aria-hidden="true">✓</span>Проверка работ</a>
         <div className="header-side">
           {!selected && <div className="header-actions">
-            <button className="button" type="button" onClick={() => setModal('class')}>+ Добавить класс</button>
-            <button className="button" type="button" disabled={!classes.length}
-              title={classes.length ? undefined : 'Сначала добавьте класс'} onClick={() => setModal('students')}>+ Добавить учеников</button>
+            <button className="button" type="button" onClick={() => setModal('students')}>+ Класс и ученики</button>
           </div>}
-          <div className="account">
-            <span aria-hidden="true">{(account.name.trim()[0] ?? 'У').toUpperCase()}</span>{account.name || 'Кабинет учителя'}
-            <button className="text-button account-logout" type="button" onClick={account.logout}>Выйти</button>
-          </div>
+          <AccountMenu account={account} />
         </div>
       </div>
     </header>
@@ -106,9 +101,8 @@ export function App({ account }: { account: Account }) {
         {!visible.length && !loading && !error && selectedClass && <p className="subtle">В этом классе пока нет работ.</p>}
       </>}
     </main>
-    {modal === 'class' && <NameDialog title="Добавить класс" label="Название класса" placeholder="Например, 7А"
-      action={async (name) => { const added = await api.createClass(name); setClasses((list) => [...list, added]) }} onClose={() => setModal(null)} />}
-    {modal === 'students' && <AddStudentsDialog classes={classes} selectedClass={selectedClass} onClose={() => setModal(null)} />}
+    {modal === 'students' && <ClassStudentsDialog classes={classes} selectedClass={selectedClass} onClose={() => setModal(null)}
+      onClassCreated={(added) => setClasses((list) => [...list, added])} />}
     {modal === 'work' && <CreateWorkDialog classes={classes} selectedClass={selectedClass} onClose={() => setModal(null)}
       onCreated={(work) => { setWorks((list) => [work, ...list]); setModal(null); open(work) }} />}
     {toDelete && <ConfirmDialog title="Удалить работу?" text={'Работа «' + workName(toDelete) + '» и её результаты исчезнут из кабинета.'}
