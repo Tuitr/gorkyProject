@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { Assignment, Report, Student, Upload, UploadFile } from './api'
-import { folderName } from './UploadDialog'
+import { subjectDate, titleOf } from './titles'
 
 // Загрузка из этого сеанса: файл отправляется, не ушёл, или принят кабинетом (uploadId).
 export type Work = {
@@ -74,7 +74,8 @@ export function WorkFolders(props: {
             <button style={st.folderHead} onClick={() => props.onToggle(a.assignmentId)} aria-expanded={isOpen}>
               <span style={{ width: 14, color: '#6b7280' }}>{isOpen ? '▾' : '▸'}</span>
               <span style={{ fontSize: 18 }}>{isOpen ? '📂' : '📁'}</span>
-              <span style={{ fontWeight: 600 }}>{folderName(a)}</span>
+              <span style={{ fontWeight: 600 }}>{titleOf(a) ?? subjectDate(a)}</span>
+              {titleOf(a) && <span style={{ fontSize: 13, color: '#6b7280' }}>{subjectDate(a)}</span>}
               <span style={st.count}>{count ? `ответов: ${count}` : 'пусто'}</span>
             </button>
 

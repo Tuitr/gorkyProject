@@ -1,14 +1,13 @@
 import { useState, type CSSProperties } from 'react'
 import type { Assignment } from './api'
+import { folderName } from './titles'
 import { FORMATS, FORMATS_TEXT, TASK_FORMATS, extension } from './convert'
 
 export type Subject = 'math' | 'physics'
 export type UploadKind = 'task' | 'solution'
 export type UploadRequest =
-  | { kind: 'task'; subject: Subject; files: File[] }
+  | { kind: 'task'; subject: Subject; title: string; files: File[] }
   | { kind: 'solution'; assignmentId: string; files: File[] }
-
-export const folderName = (a: Assignment) => `${a.subject === 'physics' ? 'Физика' : 'Математика'} · ${a.assignmentDate}`
 
 // Окно загрузки. Задание (вариант проверочной) создаёт новую папку — для него выбираем предмет.
 // Ответ ученика кладётся в выбранную папку (задание).
@@ -21,17 +20,18 @@ export function UploadDialog(props: {
 }) {
   const [kind, setKind] = useState<UploadKind | ''>(props.folderId ? 'solution' : '')
   const [subject, setSubject] = useState<Subject | ''>('')
+  const [title, setTitle] = useState('')
   const [folderId, setFolderId] = useState(props.folderId ?? '')
   const [files, setFiles] = useState<File[]>([])
 
   const wrongFormat = files.filter((f) => !FORMATS.includes(extension(f)))
   const taskNotDoc = kind === 'task' && wrongFormat.length === 0 && files.some((f) => !TASK_FORMATS.includes(extension(f)))
-  const target = kind === 'task' ? subject : kind === 'solution' ? folderId : ''
+  const target = kind === 'task' ? (title.trim() ? subject : '') : kind === 'solution' ? folderId : ''
   const ready = target !== '' && files.length > 0 && wrongFormat.length === 0 && !taskNotDoc
 
   const submit = () => {
     if (!ready) return
-    if (kind === 'task') props.onSubmit({ kind, subject: subject as Subject, files })
+    if (kind === 'task') props.onSubmit({ kind, subject: subject as Subject, title: title.trim(), files })
     else props.onSubmit({ kind: 'solution', assignmentId: folderId, files })
   }
 
@@ -63,6 +63,20 @@ export function UploadDialog(props: {
             label="Ответ ученика"
           />
         </fieldset>
+
+        {kind === 'task' && (
+          <label style={st.group}>
+            <span style={st.legend}>Название проверочной работы</span>
+            <input
+              autoFocus
+              maxLength={120}
+              placeholder="Например, Тепловые явления"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              style={st.select}
+            />
+          </label>
+        )}
 
         {kind === 'task' && (
           <fieldset style={st.group}>
@@ -102,7 +116,9 @@ export function UploadDialog(props: {
         )}
         {taskNotDoc && <p style={st.error}>Вариант загружается только как документ: DOCX или TXT.</p>}
         {files.length > 0 && target === '' && (
-          <p style={st.error}>{kind === 'task' ? 'Выберите предмет.' : 'Выберите папку, куда положить ответ.'}</p>
+          <p style={st.error}>
+            {kind === 'task' ? (title.trim() ? 'Выберите предмет.' : 'Введите название проверочной работы.') : 'Выберите папку, куда положить ответ.'}
+          </p>
         )}
 
         <div style={st.actions}>

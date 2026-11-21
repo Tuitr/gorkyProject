@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import type { Assignment, Report } from './api'
 import { TasksDialog } from './TasksDialog'
+import { folderName } from './titles'
 
 // Статистика выбранного класса: отчёт кабинета по каждому заданию (отчёты грузит useReports).
 export function ClassStats(props: { assignments: Assignment[]; reports: Record<string, Report>; error?: string; loading: boolean }) {
@@ -36,7 +37,7 @@ function AssignmentStats({ a, r }: { a: Assignment; r: Report }) {
     <div style={st.block}>
       <div style={st.blockHead}>
         <h3 style={st.h3}>
-          {a.subject === 'physics' ? 'Физика' : 'Математика'} · {a.assignmentDate}
+          {folderName(a)}
         </h3>
         <button onClick={() => setTasksOpen(true)} style={st.tasksButton}>
           Задания

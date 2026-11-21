@@ -100,7 +100,9 @@ export function App() {
       // Вариант проверочной становится новой папкой.
       for (const file of r.files)
         await track(file.name, undefined, async () => {
-          const v = await api.uploadTask(classId, await prepare(file), r.subject)
+          // Несколько файлов с одним названием различаем номером.
+          const title = r.files.length > 1 ? `${r.title} (${r.files.indexOf(file) + 1})` : r.title
+          const v = await api.uploadTask(classId, await prepare(file), r.subject, title)
           openFolder(v.assignmentId)
           return null
         })

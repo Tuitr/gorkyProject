@@ -2,7 +2,14 @@
 
 export type ClassItem = { classId: string; name: string }
 export type Student = { studentId: string; name: string }
-export type Assignment = { assignmentId: string; assignmentRev: number; assignmentDate: string; subject: string }
+export type Assignment = {
+  assignmentId: string
+  assignmentRev: number
+  assignmentDate: string
+  subject: string
+  /** Название проверочной от учителя (null — не задано). */
+  title?: string | null
+}
 export type UploadFile = {
   fileId: string
   originalName: string
@@ -89,11 +96,12 @@ export const api = {
   students: (classId: string) => call<Student[]>('GET', `/v1/classes/${e(classId)}/students`),
   assignments: (classId: string) => call<Assignment[]>('GET', `/v1/classes/${e(classId)}/assignments`),
   // Задание (вариант контрольной) — POST /v1/classes/{classId}/assignments, без доп. требований.
-  uploadTask: (classId: string, file: File, subject: string) => {
+  uploadTask: (classId: string, file: File, subject: string, title: string) => {
     const fd = new FormData()
     fd.append('file', file)
     fd.append('requirements', '[]')
     fd.append('subject', subject)
+    fd.append('title', title)
     return call<{ assignmentId: string; assignmentRev: number }>('POST', `/v1/classes/${e(classId)}/assignments`, fd)
   },
   uploadWork: (a: Assignment, file: File) => {

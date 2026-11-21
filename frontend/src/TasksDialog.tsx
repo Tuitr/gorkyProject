@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { api, type Assignment, type References } from './api'
+import { folderName } from './titles'
 
 const NOT_READY: Record<string, string> = {
   missing: 'эталона нет',
@@ -39,7 +40,7 @@ export function TasksDialog({ a, onClose }: { a: Assignment; onClose: () => void
       <div style={st.dialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div style={st.head}>
           <h2 style={st.h2}>
-            Задания · {a.subject === 'physics' ? 'Физика' : 'Математика'} · {a.assignmentDate}
+            Задания · {folderName(a)}
           </h2>
           <button onClick={onClose} title="Закрыть" style={st.close}>
             ×
