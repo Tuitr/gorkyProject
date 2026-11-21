@@ -16,6 +16,28 @@ class MarkdownRef(BaseModel):
     sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
+Points = Annotated[float, Field(ge=0, strict=True, allow_inf_nan=False)]
+SchoolGrade = Annotated[int, Field(ge=2, le=5, strict=True)]
+
+
+class TaskAssessment(BaseModel):
+    taskId: NonEmptyStr
+    score: Points | None
+    maxScore: Points
+    comment: str
+
+
+class ScoreTotal(BaseModel):
+    score: Points
+    maxScore: Points
+    pendingCount: int
+
+
+class Recommendation(BaseModel):
+    topic: str
+    text: str
+
+
 class CheckOutcome(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -24,6 +46,11 @@ class CheckOutcome(BaseModel):
     resultRev: Annotated[int, Field(ge=1)]
     taskResults: list[TaskResult]
     overallReview: str
+    taskAssessments: list[TaskAssessment] = Field(default_factory=list)
+    total: ScoreTotal | None = None
+    recommendations: list[Recommendation] = Field(default_factory=list)
+    grade: SchoolGrade | None = None
+    teacherComment: str | None = None
 
 
 class PhotoBox(BaseModel):

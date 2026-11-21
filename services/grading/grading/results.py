@@ -14,6 +14,7 @@ from grading.intake import AttemptSubmittedInput
 from grading.jobs import JobLease
 from grading.photoOcr import TranscribedLine, renderTranscript
 from grading.submission import SubmissionReading
+from grading.scoring import storedOutcome, withScores
 from grading.tables import CheckJob, CheckResultRevision
 
 
@@ -39,11 +40,11 @@ class ResultStore:
     def findDraft(self, checkId: str, calculationId: str) -> CheckOutcome | None:
         with Session(self.engine) as session:
             row = session.scalar(select(CheckResultRevision).filter_by(checkId=checkId, calculationId=calculationId))
-            return CheckOutcome.model_validate(row.outcome) if row is not None else None
+            return storedOutcome(row.outcome) if row is not None else None
 
     def saveDraft(
         self, checkId: str, calculationId: str, taskResults: tuple[TaskResult, ...], overallReview: str, *,
-        lease: JobLease | None = None,
+        lease: JobLease | None = None, maxima: dict[str, float] | None = None,
     ) -> CheckOutcome:
         if not calculationId or not taskResults or len({task.taskId for task in taskResults}) != len(taskResults):
             raise ValueError("expected an identified calculation with distinct task results")
@@ -61,8 +62,9 @@ class ResultStore:
                 checkId=checkId, attemptId=submitted.attemptId, taskResults=list(taskResults), overallReview=overallReview,
                 resultRev=existing.resultRev if existing is not None else (latest.resultRev + 1 if latest is not None else 1),
             )
+            outcome = withScores(outcome, maxima or {}, {})
             if existing is not None:
-                if outcome != CheckOutcome.model_validate(existing.outcome):
+                if outcome != storedOutcome(existing.outcome):
                     raise ResultConflict("the calculation already has a different result")
                 return outcome
             if latest is not None and latest.markdownRef is None:
@@ -169,11 +171,10 @@ def photoDetails(checkpoint: dict[str, object], outcome: CheckOutcome | None) ->
 
 
 def publishedResult(outcome: dict[str, object], ref: MarkdownRef) -> PublishedCheck:
-    check = CheckOutcome.model_validate(outcome)
+    check = storedOutcome(outcome)
     state: Literal["ready", "needs_review"] = "needs_review" if any(task.needsReview for task in check.taskResults) else "ready"
     return PublishedCheck(
-        checkId=check.checkId, attemptId=check.attemptId, resultRev=check.resultRev, taskResults=check.taskResults,
-        overallReview=check.overallReview, state=state, markdownRef=ref,
+        **check.model_dump(), state=state, markdownRef=ref,
     )
 
 

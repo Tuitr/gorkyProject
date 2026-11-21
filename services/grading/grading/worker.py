@@ -15,7 +15,7 @@ from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
 from grading.assignment import AssignmentTask, AssignmentTextReader, PhotoClarification, readAssignment
 from grading.feedback import composeOverallReview
 from grading.inbox import SavedJob, saveEvent
-from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
+from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef, TaskPoints
 from grading.jobs import JobLease, JobQueue
 from grading.markdownStorage import MarkdownStorage
 from grading.photoOcr import TranscribedLine, transcribePhoto
@@ -32,6 +32,7 @@ from shared.submissionmedia import photoMediaType
 deadlinesAdapter: TypeAdapter[dict[str, datetime]] = TypeAdapter(dict[str, datetime])
 referenceAttemptsAdapter: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, int])
 referenceErrorsAdapter: TypeAdapter[dict[str, dict[str, object]]] = TypeAdapter(dict[str, dict[str, object]])
+taskPointsAdapter = TypeAdapter(list[TaskPoints])
 photoPagesAdapter = TypeAdapter(list[tuple[TranscribedLine, ...]])
 SUBMISSION_PARSE_VERSION = 4
 ASSIGNMENT_RECHECK_DELAY = timedelta(seconds=5)
@@ -44,6 +45,7 @@ class PreparedCheck:
     references: dict[str, ReferenceResult]
     referenceErrors: dict[str, dict[str, object]] = field(default_factory=dict)
     tasks: tuple[AssignmentTask, ...] = ()
+    maxima: dict[str, float] = field(default_factory=dict)
 
 
 class GradingWorker:
@@ -208,6 +210,8 @@ class GradingWorker:
             if job is not None and job.state in ("ready", "needs_review") and job.completedStage in ("references_requested", "reference_unavailable"):
                 if job.stageData is None:
                     raise ValueError("missing references for prepared assignment")
+                maxima = {f"t{point.taskNumber}": point.maxScore for point in
+                          taskPointsAdapter.validate_python(job.payload.get("taskPoints", []))}
                 references = referencesAdapter.validate_python(job.stageData["references"])
                 tasks = parsedTasksAdapter.validate_python(job.stageData["tasks"])
                 referenceErrors = referenceErrorsAdapter.validate_python(job.stageData.get("referenceErrors", {}))
@@ -249,7 +253,7 @@ class GradingWorker:
                 return None
             if not self.jobs.checkpoint(lease, "submission_parsed", data):
                 raise RuntimeError("check lease expired before partial preparation was saved")
-        return PreparedCheck(reading, available, referenceErrors, tasks)
+        return PreparedCheck(reading, available, referenceErrors, tasks, maxima)
 
     def reviewCheck(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
@@ -278,7 +282,7 @@ class GradingWorker:
         results = reviewTasks(lease.key, prepared.tasks, prepared.reading, prepared.references, transport)
         if overallReview is None:
             overallReview = composeOverallReview(prepared.tasks, prepared.reading, results, prepared.references)
-        return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease)
+        return self.results.saveDraft(lease.key, "initial", results, overallReview, lease=lease, maxima=prepared.maxima)
 
     def completeCheck(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], storage: MarkdownStorage, *,

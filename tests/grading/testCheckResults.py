@@ -71,6 +71,7 @@ def testRecoversDraftAndReadsPublishedRevisions(
     submission = buildDocx("Работа", [Paragraph("Задание 1. 2² + 1 = 4"), Paragraph("Ответ: 4")])
     published = contractExample("events/assignmentPublished.json")
     published["payload"]["requirements"] = []
+    published["payload"]["taskPoints"] = [{"taskNumber": "1", "maxScore": 3}]
     published["payload"]["docRef"]["sha256"] = hashlib.sha256(assignment).hexdigest()
     submitted = contractExample("events/attemptSubmitted.json")
     storage, checkId = resultStorage
@@ -133,6 +134,10 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert api.get(url, headers=headers).json()["reason"] == "awaiting_artifact"
     first = resume()
     assert first is not None and first.state == "ready" and first.attemptId == "a1"
+    assert first.total and (first.total.score, first.total.maxScore, first.total.pendingCount) == (0, 3, 0)
+    assert first.grade is None and first.teacherComment is None
+    assert first.taskAssessments[0].comment == issue.comment
+    assert [item.text for item in first.recommendations] == [issue.correction]
     firstRef = first.markdownRef
     loaded = storage.client.get_object(Bucket="results", Key=firstRef.key)
     with closing(loaded["Body"]) as streamBody:
@@ -204,10 +209,20 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert api.get(reportUrl, params={"assignmentRev": 2}, headers=headers).status_code == 404
     assert api.get(reportUrl, params={"rev": 1, "excludeCheckId": checkId}, headers=headers).status_code == 422
 
+    assert second.total and second.total.score == 3 and not second.recommendations
+    for op in [{"op": "setGrade", "grade": 1}, {"op": "setGrade", "grade": True},
+               {"op": "setTaskScore", "taskId": "t1", "score": 4},
+               {"op": "setTaskScore", "taskId": "t1", "score": -1}]:
+        invalid = {"baseRev": 2, "editId": "invalid", "actorId": "teacher", "changes": [op]}
+        assert api.patch(url + "/review", headers=headers, json=invalid).status_code == 422
     manualText = "Мой отзыв о решении."
     manual = {"baseRev": 2, "editId": "manual", "actorId": "teacher", "changes": [
         {"op": "setOverallReview", "overallReview": manualText},
+        {"op": "setGrade", "grade": 4},
+        {"op": "setTeacherComment", "teacherComment": "Проверьте вычисления"},
+        {"op": "setTaskScore", "taskId": "t1", "score": 1.5},
     ]}
+    assert api.patch(url + "/review", headers=headers, json=manual).json()["resultRev"] == 3
     assert api.patch(url + "/review", headers=headers, json=manual).json()["resultRev"] == 3
     later = {"baseRev": 3, "editId": "method", "actorId": "teacher", "changes": [
         {"op": "setVerdict", "taskId": "t1", "method": "met"},
@@ -230,6 +245,25 @@ def testRecoversDraftAndReadsPublishedRevisions(
     assert api.get(url, params={"resultRev": 1}, headers=headers).json() == first.model_dump(mode="json", exclude_unset=True) | {
         "publishedResultRev": 2,
     }, "publishedResultRev is the latest revision the teacher published, whichever revision is read"
+
+    scoreRev = api.get(url, headers=headers).json()
+    assert scoreRev["total"] == {"score": 1.5, "maxScore": 3, "pendingCount": 0}
+    assert scoreRev["grade"] == 4 and scoreRev["teacherComment"] == "Проверьте вычисления"
+    assert api.post(publishUrl, headers=headers, json={"resultRev": 4, "actorId": "teacher"}).status_code == 200
+    gradedMarkdown = api.get(downloadUrl, params={"rev": 4}, headers=headers).text
+    assert gradedMarkdown.rstrip().endswith("Оценка — 4") and "Проверьте вычисления" in gradedMarkdown
+    clear = {"baseRev": 4, "editId": "clear", "actorId": "teacher", "changes": [
+        {"op": "setGrade", "grade": None}, {"op": "setTeacherComment", "teacherComment": None},
+        {"op": "setTaskScore", "taskId": "t1", "score": None},
+    ]}
+    assert api.patch(url + "/review", headers=headers, json=clear).json()["resultRev"] == 5
+    current = api.get(url, headers=headers).json()
+    assert current["grade"] is None and current["teacherComment"] is None
+    assert current["taskAssessments"][0]["score"] is None
+    assert current["total"] == {"score": 0, "maxScore": 3, "pendingCount": 1}
+    assert api.get(downloadUrl, params={"rev": 5}, headers=headers).status_code == 404
+    assert api.get(downloadUrl, params={"rev": 4}, headers=headers).text == gradedMarkdown
+    assert api.get(downloadUrl, params={"rev": 1}, headers=headers).text == report
 
 
 def testInlineMarkupKeepsOnlySafeMath() -> None:

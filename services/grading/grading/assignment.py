@@ -124,6 +124,8 @@ def numberedTasks(
             raise PhotoClarification("Уточните номер первого задания на фотографии.")
     if not statements or not all(statements.values()):
         raise AssignmentReadError("missing numbered task or empty statement")
+    if any(point.taskNumber not in statements for point in published.taskPoints):
+        raise AssignmentReadError("task maximum refers to an unknown task number")
     for requirement in published.requirements:
         if requirement.taskNumber is not None and requirement.taskNumber not in statements:
             raise AssignmentReadError("teacher requirement refers to an unknown task number")

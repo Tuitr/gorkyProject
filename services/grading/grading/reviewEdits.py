@@ -4,11 +4,14 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from contracts.v1.grading.checkresult import CheckOutcome
-from contracts.v1.grading.reviewedit import RemoveIssue, ReviewEditReceipt, ReviewEditRequest, SetOverallReview, SetVerdict
+from contracts.v1.grading.reviewedit import (
+    RemoveIssue, ReviewEditReceipt, ReviewEditRequest, SetGrade, SetOverallReview, SetTaskScore, SetTeacherComment, SetVerdict,
+)
 from grading.feedback import composeOverallReview
 from grading.resultArtifacts import loadResultSource
 from grading.results import latestRevision
 from grading.review import anchoredIssues
+from grading.scoring import storedOutcome, withScores
 from grading.tables import CheckJob, CheckResultRevision, TeacherReviewEdit
 
 
@@ -46,13 +49,17 @@ class ReviewEditor:
             if latest.markdownRef is None:
                 raise ReviewConflict("the current result revision is still awaiting Markdown", currentRev)
 
-            outcome = applyChanges(CheckOutcome.model_validate(latest.outcome), edit)
             prior = session.scalars(
                 select(TeacherReviewEdit.request).filter_by(checkId=checkId)
             )
             changes = [change for requestData in prior for change in ReviewEditRequest.model_validate(requestData).changes]
+            base = storedOutcome(latest.outcome)
+            overridden = {change.taskId for change in changes if isinstance(change, SetTaskScore)}
+            outcome = applyChanges(base, edit, overridden)
             changes.extend(edit.changes)
-            if not any(isinstance(change, SetOverallReview) for change in changes):
+            updatesFeedback = any(not isinstance(change, (SetGrade, SetTaskScore, SetTeacherComment))
+                                  for change in edit.changes)
+            if updatesFeedback and not any(isinstance(change, SetOverallReview) for change in changes):
                 source = loadResultSource(session, check, outcome)
                 feedback = composeOverallReview(
                     source.tasks, source.reading, tuple(outcome.taskResults), source.references,
@@ -68,16 +75,31 @@ class ReviewEditor:
             return ReviewEditReceipt(checkId=checkId, editId=edit.editId, resultRev=outcome.resultRev)
 
 
-def applyChanges(base: CheckOutcome, edit: ReviewEditRequest) -> CheckOutcome:
+def applyChanges(base: CheckOutcome, edit: ReviewEditRequest, overridden: set[str]) -> CheckOutcome:
+    maxima = {a.taskId: a.maxScore for a in base.taskAssessments}
+    overrides = {a.taskId: a.score for a in base.taskAssessments if a.taskId in overridden}
+    grade = base.grade
+    teacherComment = base.teacherComment
     results = {result.taskId: result for result in base.taskResults}
     overall = base.overallReview
     for change in edit.changes:
+        if isinstance(change, SetGrade):
+            grade = change.grade
+            continue
+        if isinstance(change, SetTeacherComment):
+            teacherComment = change.teacherComment
+            continue
         if isinstance(change, SetOverallReview):
             overall = change.overallReview
             continue
         task = results.get(change.taskId)
         if task is None:
             raise InvalidReviewChange("the targeted task is absent from the result")
+        if isinstance(change, SetTaskScore):
+            if change.score is not None and change.score > maxima[task.taskId]:
+                raise InvalidReviewChange("score exceeds the maximum for this task")
+            overrides[task.taskId] = change.score
+            continue
         if isinstance(change, SetVerdict):
             fields = change.model_dump(exclude={"op", "taskId"}, exclude_none=True)
             results[change.taskId] = task.model_copy(update=fields)
@@ -95,4 +117,6 @@ def applyChanges(base: CheckOutcome, edit: ReviewEditRequest) -> CheckOutcome:
                 for issue in task.issues
             ]
         results[change.taskId] = task.model_copy(update={"issues": issues})
-    return base.model_copy(update={"resultRev": base.resultRev + 1, "taskResults": list(results.values()), "overallReview": overall})
+    updated = base.model_copy(update={"resultRev": base.resultRev + 1, "taskResults": list(results.values()),
+                                      "overallReview": overall, "grade": grade, "teacherComment": teacherComment})
+    return withScores(updated, maxima, overrides)
