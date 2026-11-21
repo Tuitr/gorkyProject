@@ -150,9 +150,9 @@ const st: Record<string, CSSProperties> = {
   group: { border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 },
   legend: { fontSize: 13, color: '#6b7280', marginBottom: 6, padding: 0 },
   choice: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
-  select: { padding: '8px 10px', font: 'inherit', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' },
+  select: {},
   error: { color: '#b91c1c', margin: 0, fontSize: 14 },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: 8 },
-  button: { padding: '8px 16px', font: 'inherit', cursor: 'pointer' },
-  primary: { background: '#2563eb', color: '#fff', border: '1px solid #2563eb', borderRadius: 4 },
+  button: {},
+  primary: { background: '#2563eb', color: '#fff', borderColor: '#2563eb' },
 }

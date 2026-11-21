@@ -109,7 +109,7 @@ function AssignmentStats({ a, r, checks }: { a: Assignment; r: Report; checks: R
       )}
 
       {unapproved > 0 && <p style={st.muted}>Не отмечено учителем и не учитывается: {unapproved}</p>}
-      {r.waiting.length > 0 && <p style={st.muted}>Проверяются: {r.waiting.map((s) => s.name).join(', ')}</p>}
+      {r.waiting.length > 0 && <p style={st.muted}>Без результата проверки: {r.waiting.map((s) => s.name).join(', ')}</p>}
       {r.notSubmitted.length > 0 && <p style={st.muted}>Не сдали: {r.notSubmitted.map((s) => s.name).join(', ')}</p>}
     </div>
   )

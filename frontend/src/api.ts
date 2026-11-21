@@ -18,6 +18,7 @@ export type UploadFile = {
   reason?: string | null
   studentId?: string | null
   checkId?: string | null
+  isPhoto?: true | null
 }
 export type Upload = { uploadId: string; files: UploadFile[] }
 
@@ -117,6 +118,8 @@ export const api = {
     fd.append('title', title)
     return call<{ assignmentId: string; assignmentRev: number }>('POST', `/v1/classes/${e(classId)}/assignments`, fd)
   },
+  // Удаляет вариант со всеми ревизиями, ответами учеников и результатами.
+  deleteAssignment: (assignmentId: string) => call<void>('DELETE', `/v1/assignments/${e(assignmentId)}?confirm=true`),
   uploadWork: (a: Assignment, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
@@ -130,6 +133,7 @@ export const api = {
   // Учитель принял результат (галочка). Снять публикацию кабинет не умеет.
   publish: (checkId: string, resultRev: number) =>
     call<{ checkId: string; resultRev: number }>('POST', `/v1/checks/${e(checkId)}/publish`, { resultRev }),
+  photoUrl: (uploadId: string, fileId: string) => `/v1/uploads/${e(uploadId)}/files/${e(fileId)}/photo`,
   upload: (uploadId: string) => call<Upload>('GET', `/v1/uploads/${e(uploadId)}`),
   bind: (uploadId: string, fileId: string, studentId: string) =>
     call<{ checkId: string }>('POST', `/v1/uploads/${e(uploadId)}/bindings`, { fileId, studentId }),

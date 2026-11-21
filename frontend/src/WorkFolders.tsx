@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { Assignment, Check, Report, Student, Upload, UploadFile } from './api'
 import { StudentAnswer } from './StudentAnswer'
+import { VariantWarning } from './VariantWarning'
 import { subjectDate, titleOf } from './titles'
 
 // Загрузка из этого сеанса: файл отправляется, не ушёл, или принят кабинетом (uploadId).
@@ -31,10 +32,13 @@ export function WorkFolders(props: {
   students: Student[]
   open: Set<string>
   onToggle: (assignmentId: string) => void
+  /** Выбранная папка — её удаляет клавиша Delete. */
+  selected?: string
   onBind: (uploadId: string, fileId: string, studentId: string) => void
   onAddAnswer: (assignmentId: string) => void
   checks: Record<string, Check>
   onApprove: (checkId: string, resultRev: number) => Promise<void>
+  onOpenAnswer: (checkId: string | undefined, studentName: string, assignment: Assignment) => void
 }) {
   const { works, uploads } = props
   const loose = works.filter((w) => !w.assignmentId) // загрузки заданий: отправляются или не ушли
@@ -80,13 +84,20 @@ export function WorkFolders(props: {
 
         return (
           <div key={a.assignmentId} style={st.folder}>
-            <button style={st.folderHead} onClick={() => props.onToggle(a.assignmentId)} aria-expanded={isOpen}>
+            <button
+              style={{ ...st.folderHead, ...(props.selected === a.assignmentId ? st.folderSelected : {}) }}
+              onClick={() => props.onToggle(a.assignmentId)}
+              aria-expanded={isOpen}
+              aria-selected={props.selected === a.assignmentId}
+              title="Delete — удалить папку"
+            >
               <span style={{ width: 14, color: '#6b7280' }}>{isOpen ? '▾' : '▸'}</span>
               <span style={{ fontSize: 18 }}>{isOpen ? '📂' : '📁'}</span>
               <span style={{ fontWeight: 600 }}>{titleOf(a) ?? subjectDate(a)}</span>
               {titleOf(a) && <span style={{ fontSize: 13, color: '#6b7280' }}>{subjectDate(a)}</span>}
               <span style={st.count}>{count ? `ответов: ${count}` : 'пусто'}</span>
             </button>
+            <VariantWarning a={a} />
 
             {isOpen && (
               <ul style={{ ...st.list, padding: '8px 8px 0 30px' }}>
@@ -135,6 +146,7 @@ export function WorkFolders(props: {
                         name={s.name}
                         check={props.checks[checkOf.get(s.studentId) ?? '']}
                         onApprove={props.onApprove}
+                        onOpen={(checkId) => props.onOpenAnswer(checkId ?? checkOf.get(s.studentId), s.name, a)}
                       />
                     </li>
                   ))}
@@ -161,9 +173,10 @@ const st: Record<string, CSSProperties> = {
   muted: { color: '#6b7280', margin: 0 },
   error: { color: '#b91c1c', fontSize: 14 },
   status: { fontSize: 13, whiteSpace: 'nowrap' },
-  input: { padding: '7px 10px', font: 'inherit', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' },
+  input: {},
   folder: { marginBottom: 6 },
   folderHead: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', font: 'inherit', cursor: 'pointer', textAlign: 'left' },
   addAnswer: { padding: '6px 12px', font: 'inherit', fontSize: 14, cursor: 'pointer' },
+  folderSelected: { borderColor: '#2563eb', background: '#eff6ff', boxShadow: '0 0 0 1px #2563eb' },
   count: { marginLeft: 'auto', fontSize: 13, color: '#6b7280' },
 }

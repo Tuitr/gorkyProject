@@ -13,7 +13,8 @@ const TONE: Record<Tone, { bg: string; border: string; color: string }> = {
 
 /** Зелёный — всё верно, красный — есть ошибки, жёлтый — плохо распознано, нужна ручная проверка. */
 function toneOf(c: Check | undefined): { tone: Tone; label: string } {
-  if (!c) return { tone: 'wait', label: 'Проверяется…' }
+  // Номер проверки неизвестен (работа загружена в другом браузере) — итог узнать нельзя.
+  if (!c) return { tone: 'wait', label: 'Результата пока нет' }
   if (!('taskResults' in c)) {
     if (c.state === 'failed' || c.state === 'needs_review') return { tone: 'review', label: 'Нужна ручная проверка' }
     return { tone: 'wait', label: 'Проверяется…' }
@@ -31,7 +32,8 @@ export function StudentAnswer(props: {
   name: string
   check?: Check
   onApprove: (checkId: string, resultRev: number) => Promise<void>
-  onOpen?: (checkId: string) => void
+  /** Открыть работу; checkId нет, если номер проверки неизвестен. */
+  onOpen?: (checkId?: string) => void
 }) {
   const { check } = props
   const [busy, setBusy] = useState(false)
@@ -54,8 +56,9 @@ export function StudentAnswer(props: {
     <div
       role="button"
       tabIndex={0}
-      style={{ ...st.card, background: t.bg, borderColor: t.border, cursor: props.onOpen && check ? 'pointer' : 'default' }}
-      onClick={() => check && props.onOpen?.(check.checkId)}
+      style={{ ...st.card, background: t.bg, borderColor: t.border, cursor: props.onOpen ? 'pointer' : 'default' }}
+      onClick={() => props.onOpen?.(check?.checkId)}
+      onKeyDown={(e) => e.key === 'Enter' && props.onOpen?.(check?.checkId)}
     >
       <label
         style={st.check}

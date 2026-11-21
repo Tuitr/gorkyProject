@@ -113,6 +113,6 @@ const st: Record<string, CSSProperties> = {
   remove: { border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 20, padding: '0 6px' },
   error: { color: '#b91c1c', margin: 0, fontSize: 13 },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: 8 },
-  button: { padding: '8px 16px', font: 'inherit', cursor: 'pointer' },
-  primary: { background: '#2563eb', color: '#fff', border: '1px solid #2563eb', borderRadius: 4 },
+  button: {},
+  primary: { background: '#2563eb', color: '#fff', borderColor: '#2563eb' },
 }

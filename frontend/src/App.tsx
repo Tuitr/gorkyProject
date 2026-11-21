@@ -1,14 +1,27 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { AddClassDialog } from './AddClassDialog'
 import { ClassStats } from './ClassStats'
 import { prepare } from './convert'
 import { UploadDialog, type UploadRequest } from './UploadDialog'
+import { StudentWork, type OpenWork } from './StudentWork'
 import { WorkFolders, type Work } from './WorkFolders'
 import { api, type Assignment, type ClassItem, type Student, type Upload } from './api'
 import { useChecks } from './useChecks'
 import { useReports } from './useReports'
+import { folderName } from './titles'
 
 const PENDING = new Set(['pending_binding', 'matched'])
+
+// Отправленные ответы учеников храним в браузере по классу: кабинет не отдаёт список загрузок,
+// а без uploadId после перезагрузки не узнать номер проверки и её итог.
+const worksKey = (classId: string) => `works:${classId}`
+function loadWorks(classId: string): Work[] {
+  try {
+    return JSON.parse(localStorage.getItem(worksKey(classId)) ?? '[]')
+  } catch {
+    return []
+  }
+}
 
 export function App() {
   // Окно загрузки: закрыто или открыто (с папкой, если открыли из папки).
@@ -23,10 +36,19 @@ export function App() {
   const [error, setError] = useState<string>()
 
   const [works, setWorks] = useState<Work[]>([])
+  // Класс, чьи ответы только что прочитаны из браузера: в этом проходе ещё старый список, не сохраняем.
+  const justLoaded = useRef('')
   const [uploads, setUploads] = useState<Record<string, Upload>>({})
   const [open, setOpen] = useState<Set<string>>(new Set())
   const openFolder = (id: string) => setOpen((prev) => new Set(prev).add(id))
-  const toggleFolder = (id: string) =>
+  const [selected, setSelected] = useState<string>()
+  // Открытая работа ученика (вместо папок и статистики).
+  const [openWork, setOpenWork] = useState<OpenWork | null>(null)
+  const toggleFolder = (id: string) => {
+    setSelected(id)
+    toggle(id)
+  }
+  const toggle = (id: string) =>
     setOpen((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -51,6 +73,11 @@ export function App() {
     setAssignments([])
     setStudents([])
     setOpen(new Set())
+    setSelected(undefined)
+    setOpenWork(null)
+    justLoaded.current = classId
+    setWorks(classId ? loadWorks(classId) : [])
+    setUploads({})
     if (!classId) return
     api.assignments(classId).then(
       (list) => {
@@ -61,6 +88,20 @@ export function App() {
     )
     api.students(classId).then(setStudents, (e) => setError(e.message))
   }, [classId])
+
+  useEffect(() => {
+    if (!classId) return
+    if (justLoaded.current === classId) {
+      justLoaded.current = ''
+      return
+    }
+    try {
+      const sent = works.filter((w) => w.state === 'sent' && w.uploadId && w.assignmentId)
+      localStorage.setItem(worksKey(classId), JSON.stringify(sent))
+    } catch {
+      /* хранилище недоступно — после перезагрузки статусы будут из отчёта */
+    }
+  }, [works, classId])
 
   // опрос статусов, пока кабинет определяет учеников
   useEffect(() => {
@@ -76,6 +117,29 @@ export function App() {
     }, 2000)
     return () => window.clearTimeout(t)
   }, [works, uploads])
+
+  // Delete удаляет выбранную папку (вариант со всеми ответами учеников) — после подтверждения.
+  useEffect(() => {
+    const onKey = async (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' || !selected || dialog || addClassOpen || openWork) return
+      const target = e.target as HTMLElement
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+      const folder = assignments.find((a) => a.assignmentId === selected)
+      if (!folder) return
+      e.preventDefault()
+      if (!window.confirm(`Удалить папку «${folderName(folder)}» вместе со всеми ответами учеников и результатами?`)) return
+      try {
+        await api.deleteAssignment(folder.assignmentId)
+        setAssignments((prev) => prev.filter((a) => a.assignmentId !== folder.assignmentId))
+        setWorks((prev) => prev.filter((w) => w.assignmentId !== folder.assignmentId))
+        setSelected(undefined)
+      } catch (err) {
+        setError((err as Error).message)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, assignments, dialog, addClassOpen, openWork])
 
   const loadAssignments = () =>
     api.assignments(classId).then(
@@ -207,37 +271,49 @@ export function App() {
         </div>
       )}
 
-      <div style={s.columns}>
-        <section style={{ ...s.half, borderRight: '1px solid #e5e7eb' }}>
-          <h2 style={s.h2}>Работы учеников</h2>
-          {classId ? (
-            <WorkFolders
-              assignments={assignments}
-              reports={reports}
-              works={works}
-              uploads={uploads}
-              students={students}
-              open={open}
-              onToggle={toggleFolder}
-              onBind={bind}
-              onAddAnswer={(folderId) => setDialog({ folderId })}
-              checks={checks}
-              onApprove={approve}
-            />
-          ) : (
-            <p style={s.muted}>Выберите класс, чтобы увидеть работы.</p>
-          )}
-        </section>
+      {openWork ? (
+        <StudentWork work={openWork} check={openWork.checkId ? checks[openWork.checkId] : undefined} onApprove={approve} onBack={() => setOpenWork(null)} />
+      ) : (
+        <div style={s.columns}>
+          <section style={{ ...s.half, borderRight: '1px solid #e5e7eb' }}>
+            <h2 style={s.h2}>Работы учеников</h2>
+            {classId ? (
+              <WorkFolders
+                assignments={assignments}
+                reports={reports}
+                works={works}
+                uploads={uploads}
+                students={students}
+                open={open}
+                onToggle={toggleFolder}
+                selected={selected}
+                onBind={bind}
+                onAddAnswer={(folderId) => setDialog({ folderId })}
+                checks={checks}
+                onApprove={approve}
+                onOpenAnswer={(checkId, studentName, assignment) => {
+                  // Фото известно только для загрузок этого окна.
+                  const file = works
+                    .flatMap((w) => (w.uploadId ? (uploads[w.uploadId]?.files ?? []).map((f) => ({ uploadId: w.uploadId!, f })) : []))
+                    .find(({ f }) => f.checkId === checkId && f.isPhoto)
+                  setOpenWork({ checkId, studentName, assignment, photo: file && { uploadId: file.uploadId, fileId: file.f.fileId } })
+                }}
+              />
+            ) : (
+              <p style={s.muted}>Выберите класс, чтобы увидеть работы.</p>
+            )}
+          </section>
 
-        <section style={s.half}>
-          <h2 style={s.h2}>Статистика класса</h2>
-          {classId ? (
-            <ClassStats assignments={assignments} reports={reports} checks={checks} error={reportsError} loading={reportsLoading} />
-          ) : (
-            <p style={s.muted}>Выберите класс, чтобы увидеть статистику.</p>
-          )}
-        </section>
-      </div>
+          <section style={s.half}>
+            <h2 style={s.h2}>Статистика класса</h2>
+            {classId ? (
+              <ClassStats assignments={assignments} reports={reports} checks={checks} error={reportsError} loading={reportsLoading} />
+            ) : (
+              <p style={s.muted}>Выберите класс, чтобы увидеть статистику.</p>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   )
 }
@@ -247,8 +323,8 @@ const s: Record<string, CSSProperties> = {
   header: { display: 'flex', alignItems: 'center', gap: 16, minHeight: 64, flexShrink: 0, padding: '8px 16px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap', boxSizing: 'border-box' },
   brand: { display: 'flex', alignItems: 'center', gap: 10 },
   row: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  input: { padding: '7px 10px', font: 'inherit', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' },
-  button: { padding: '8px 16px', font: 'inherit', cursor: 'pointer' },
+  input: {},
+  button: {},
   error: { color: '#b91c1c', fontSize: 14 },
   columns: { flex: 1, display: 'flex', minHeight: 0 },
   half: { width: '50%', padding: 16, overflowY: 'auto', boxSizing: 'border-box' },
