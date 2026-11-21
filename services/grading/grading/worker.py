@@ -12,7 +12,7 @@ from contracts.v1.grading.checkresult import CheckOutcome, PublishedCheck
 from contracts.v1.grading.taskresult import TaskResult
 from contracts.v1.references.modelreview import ModelReviewRequest, ModelReviewResponse
 from contracts.v1.references.reference import ReferenceRequest, ReferenceResult
-from grading.assignment import AssignmentTask, AssignmentTextReader, DocxTextReader, readAssignment
+from grading.assignment import AssignmentTask, AssignmentTextReader, PhotoClarification, readAssignment
 from grading.feedback import composeOverallReview
 from grading.inbox import SavedJob, saveEvent
 from grading.intake import AssignmentPublishedInput, AttemptSubmittedInput, IncomingDocRef
@@ -80,7 +80,7 @@ class GradingWorker:
 
     def parseAssignment(
         self, lease: JobLease, loadDocument: Callable[[IncomingDocRef], bytes], *,
-        reader: AssignmentTextReader = DocxTextReader(),
+        reader: AssignmentTextReader | None = None,
     ) -> tuple[AssignmentTask, ...]:
         """Parse a leased assignment and checkpoint the tasks for reference lookup."""
         if isinstance(lease.key, str):
@@ -103,7 +103,12 @@ class GradingWorker:
         """Register tasks once per published revision and retain partial progress on restart."""
         if isinstance(lease.key, str):
             raise ValueError("expected an assignment preparation job")
-        tasks = self.parseAssignment(lease, loadDocument)
+        try:
+            tasks = self.parseAssignment(lease, loadDocument)
+        except PhotoClarification as error:
+            if not self.jobs.finish(lease, "needs_review", "assignment_photo_unclear", {"detail": str(error)}):
+                raise RuntimeError("assignment lease expired before clarification could be saved") from error
+            return {}
         saved = lease.stageData or {}
         references = referencesAdapter.validate_python(saved.get("references", {}))
         deadlines = deadlinesAdapter.validate_python(saved.get("nextPollAt", {}))
@@ -205,6 +210,10 @@ class GradingWorker:
                 references = referencesAdapter.validate_python(job.stageData["references"])
                 tasks = parsedTasksAdapter.validate_python(job.stageData["tasks"])
                 referenceErrors = referenceErrorsAdapter.validate_python(job.stageData.get("referenceErrors", {}))
+            elif job is not None and job.completedStage == "assignment_photo_unclear":
+                if not self.jobs.finish(lease, "needs_review", "assignment_photo_unclear"):
+                    raise RuntimeError("check lease expired before clarification could be saved")
+                return None
             elif job is not None and job.state == "failed":
                 failed = True
                 references = None

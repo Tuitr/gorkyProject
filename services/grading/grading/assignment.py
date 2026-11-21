@@ -9,6 +9,8 @@ from typing import Protocol
 from pydantic import JsonValue
 
 from grading.intake import AssignmentPublishedInput
+from grading.photoOcr import UNREADABLE, transcribePhoto
+from shared.submissionmedia import photoMediaType
 from grading.word import W, WordReadError, documentBody, paragraphText
 
 SUBJECT_CONSTRAINT = "subject"
@@ -32,6 +34,28 @@ TASK_HEADER = re.compile(r"^(?:Задание\s+)?([1-9][0-9]*)[.)](?:\s+|$)", r
 
 class AssignmentReadError(ValueError):
     """The document and event cannot be mapped to unambiguous assignment tasks."""
+
+
+class PhotoClarification(AssignmentReadError):
+    """The assignment needs a clearer original before references can be prepared."""
+
+
+PHOTO_HEADER = re.compile(
+    r"^(?:(?:задание|задача)\s*)?(?:№\s*)?([1-9][0-9]*)(?:[.):](?=\s|$)|(?=\s|$))", re.IGNORECASE
+)
+
+
+def photoParagraphs(document: bytes, mediaType: str) -> Iterable[tuple[str | None, str]]:
+    for line in transcribePhoto(document, mediaType, assignment=True):
+        if line.kind in ("uncertain", "cancelled") or UNREADABLE in line.text:
+            raise PhotoClarification("Уточните неразборчивое условие, формулу или рисунок.")
+        if line.kind == "heading":
+            header = PHOTO_HEADER.match(line.text)
+            if header is None:
+                raise PhotoClarification("Уточните номер задания на фотографии.")
+            yield header.group(1), line.text[header.end():].strip()
+        else:
+            yield None, line.text
 
 
 class AssignmentTextReader(Protocol):
@@ -60,28 +84,44 @@ class AssignmentTask:
 
 
 def readAssignment(
-    published: AssignmentPublishedInput, document: bytes, *, reader: AssignmentTextReader = DocxTextReader()
+    published: AssignmentPublishedInput, document: bytes, *, reader: AssignmentTextReader | None = None
 ) -> tuple[AssignmentTask, ...]:
     """Read bytes referenced by the event. Task IDs are scoped to its assignment ID and revision."""
     if hashlib.sha256(document).hexdigest() != published.docRef.sha256:
         raise AssignmentReadError("document checksum differs from the published assignment")
 
-    statements: dict[str, list[str]] = {}
-    current: list[str] | None = None
+    mediaType = photoMediaType(published.docRef.key)
+    if reader is None and mediaType is not None:
+        try:
+            return numberedTasks(published, photoParagraphs(document, mediaType), requireHeading=True)
+        except AssignmentReadError as error:
+            raise PhotoClarification(str(error)) from error
+    return numberedTasks(published, documentParagraphs(document, reader or DocxTextReader()))
+
+
+def documentParagraphs(document: bytes, reader: AssignmentTextReader) -> Iterable[tuple[str | None, str]]:
     for paragraph in reader.paragraphs(document):
         for line in paragraph.splitlines():
             text = line.strip()
             header = TASK_HEADER.match(text)
-            if header:
-                number = header.group(1)
-                if number in statements:
-                    raise AssignmentReadError("duplicate printed task number")
-                current = []
-                statements[number] = current
-                text = text[header.end():]
-            if current is not None and text:
-                current.append(text)
+            yield (header.group(1), text[header.end():]) if header else (None, text)
 
+
+def numberedTasks(
+    published: AssignmentPublishedInput, paragraphs: Iterable[tuple[str | None, str]], *, requireHeading: bool = False,
+) -> tuple[AssignmentTask, ...]:
+    statements: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for number, text in paragraphs:
+        if number is not None:
+            if number in statements:
+                raise AssignmentReadError("duplicate printed task number")
+            current = []
+            statements[number] = current
+        if current is not None and text:
+            current.append(text)
+        elif current is None and requireHeading and text:
+            raise PhotoClarification("Уточните номер первого задания на фотографии.")
     if not statements or not all(statements.values()):
         raise AssignmentReadError("missing numbered task or empty statement")
     for requirement in published.requirements:

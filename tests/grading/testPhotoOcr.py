@@ -42,7 +42,8 @@ def samplePhoto() -> bytes:
         return file.getvalue()
 
 
-def testTwoIndependentReadsOfImageWithoutExif(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("assignment", [False, True])
+def testPhotoIsReadOnceWithoutExif(monkeypatch: pytest.MonkeyPatch, assignment: bool) -> None:
     requests: list[dict[str, Any]] = []
 
     class Response:
@@ -75,7 +76,7 @@ def testTwoIndependentReadsOfImageWithoutExif(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("OCR_API_KEY", "test-key")
     monkeypatch.setenv("OCR_MODEL", "test-model")
     monkeypatch.setattr(photoOcr, "HTTPSConnection", Connection)
-    assert transcribePhoto(samplePhoto(), "image/jpeg") == (TranscribedLine("$2 + 2 = 5$", "line"),)
+    assert transcribePhoto(samplePhoto(), "image/jpeg", assignment=assignment) == (TranscribedLine("$2 + 2 = 5$", "line"),)
     assert len(requests) == 1
     for request in requests:
         assert request["model"] == "test-model"
@@ -86,7 +87,8 @@ def testTwoIndependentReadsOfImageWithoutExif(monkeypatch: pytest.MonkeyPatch) -
         assert imageUrl.startswith("data:image/jpeg;base64,")
         with Image.open(BytesIO(base64.b64decode(imageUrl.split(",", 1)[1]))) as image:
             assert image.size == (80, 50) and not image.getexif()
-    assert "~~...~~" in requests[0]["instructions"]
+    expected = photoOcr.ASSIGNMENT_INSTRUCTIONS if assignment else photoOcr.TRANSCRIBE
+    assert requests[0]["instructions"] == expected
 
 
 @pytest.mark.parametrize("missing", ["OCR_URL", "OCR_API_KEY", "OCR_MODEL"])
