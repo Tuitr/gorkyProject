@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, ApiError, SESSION_EXPIRED } from './api'
-import { ErrorText, errorText } from './Dialogs'
+import { Brand, ErrorText, errorText } from './components'
 
 // Имя учителя приходит только при входе (у кабинета нет GET «кто я»), поэтому запоминаем его в браузере.
 const NAME_KEY = 'teacher-name'
@@ -72,7 +72,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (displayName: string) => void
 
   return <main className="auth-page">
     <div className="auth-card">
-      <div className="brand"><span className="brand-mark" aria-hidden="true">✓</span>Проверка работ</div>
+      <Brand />
       <h1>{registering ? 'Регистрация' : 'Вход'}</h1>
       <div className="auth-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={!registering} onClick={() => switchTo('login')}>Вход</button>

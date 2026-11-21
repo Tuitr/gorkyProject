@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TaskResult } from './api'
-import { number, ready, rowStatus, taskCell, type Row, type TaskColumn } from './workspace'
+import { Metrics, ProgressBar, RemoveButton, Score, scoreText, StatusBadge, UploadButton } from './components'
+import { ready, rowStatus, taskCell, type Row, type TaskColumn } from './workspace'
 
 const answers: Record<TaskResult['answer'], { label: string; tone: string }> = {
   correct: { label: 'Верно', tone: 'success' },
@@ -82,13 +83,12 @@ export function StudentCarousel({ rows, tasks, gradeOf, onOpen, onFeedback, onRe
               onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); go(position) } }}>
               <span className="carousel-avatar" aria-hidden="true">{item.student.name.trim().charAt(0).toUpperCase()}</span>
               <strong>{item.student.name}</strong>
-              <span className="score">{itemResult?.total ? number(itemResult.total.score) + ' / ' + number(itemResult.total.maxScore) : '—'}</span>
-              {item.submission ? <span className={'status ' + itemStatus.tone}>{itemStatus.label}</span>
-                : <button type="button" className="button primary compact" aria-label={'Загрузить решение ученика ' + item.student.name}
-                  onClick={(event) => { event.stopPropagation(); onUpload(item) }}>↑ Загрузить</button>}
+              <Score score={itemResult?.total?.score} maxScore={itemResult?.total?.maxScore} />
+              {item.submission ? <StatusBadge status={itemStatus} />
+                : <UploadButton studentName={item.student.name} onClick={(event) => { event.stopPropagation(); onUpload(item) }} />}
             </div>
-            <button type="button" className="carousel-remove" aria-label={'Удалить ученика ' + item.student.name}
-              title="Удалить ученика" onClick={() => onRemove(item)}>×</button>
+            <RemoveButton className="carousel-remove" label={'Удалить ученика ' + item.student.name}
+              title="Удалить ученика" onClick={() => onRemove(item)} />
           </div>
         })}
       </div>
@@ -100,7 +100,7 @@ export function StudentCarousel({ rows, tasks, gradeOf, onOpen, onFeedback, onRe
       <div className="student-stats-head">
         <div>
           <h2>{row.student.name}</h2>
-          <span className={'status ' + status.tone}>{status.label}</span>
+          <StatusBadge status={status} />
         </div>
         <div className="toolbar">
           {result?.publishedResultRev != null && <button type="button" className="button" onClick={() => onFeedback(row)}>Отзыв .md ↓</button>}
@@ -108,12 +108,12 @@ export function StudentCarousel({ rows, tasks, gradeOf, onOpen, onFeedback, onRe
         </div>
       </div>
       {!row.submission ? <p className="subtle">Работа ещё не сдана.</p> : !result ? <p className="subtle">Статистика появится после проверки.</p> : <>
-        <div className="metrics">
-          <div><strong>{total ? number(total.score) + ' / ' + number(total.maxScore) : '—'}</strong><span>Баллы{share === undefined ? '' : ' · ' + Math.round(share * 100) + '%'}</span></div>
-          <div><strong>{grade == null ? '—' : grade}</strong><span>Оценка</span></div>
-          <div><strong>{counts.correct} из {result.taskResults.length}</strong><span>Верно решено</span></div>
-        </div>
-        {share !== undefined && <div className="progress" role="img" aria-label={'Выполнено на ' + Math.round(share * 100) + '%'}><span style={{ width: share * 100 + '%' }} /></div>}
+        <Metrics items={[
+          { value: scoreText(total?.score, total?.maxScore), label: 'Баллы' + (share === undefined ? '' : ' · ' + Math.round(share * 100) + '%') },
+          { value: grade == null ? '—' : grade, label: 'Оценка' },
+          { value: counts.correct + ' из ' + result.taskResults.length, label: 'Верно решено' },
+        ]} />
+        {share !== undefined && <ProgressBar share={share} label={'Выполнено на ' + Math.round(share * 100) + '%'} />}
         <p className="subtle stats-counts">Неверно · {counts.incorrect} · Пропущено · {counts.skipped} · Неразборчиво · {counts.unreadable}</p>
         <ul className="student-tasks">{tasks.map((task) => {
           const cell = taskCell(row.check, task.id)
@@ -123,10 +123,10 @@ export function StudentCarousel({ rows, tasks, gradeOf, onOpen, onFeedback, onRe
             <strong>№ {task.number}</strong>
             <div>
               <div className="task-line">
-                {answer ? <span className={'status ' + answers[answer].tone}>{answers[answer].label}</span> : <span className="subtle">Нет данных</span>}
-                <span className="score">{cell.maxScore === undefined ? '' : (cell.score == null ? '—' : number(cell.score)) + ' / ' + number(cell.maxScore)}</span>
+                {answer ? <StatusBadge status={answers[answer]} /> : <span className="subtle">Нет данных</span>}
+                <Score score={cell.score} maxScore={cell.maxScore} empty="" />
               </div>
-              {part !== undefined && <div className="progress thin"><span style={{ width: part * 100 + '%' }} /></div>}
+              {part !== undefined && <ProgressBar share={part} thin />}
               {cell.comment && <p className="cell-comment">{cell.comment}</p>}
             </div>
           </li>

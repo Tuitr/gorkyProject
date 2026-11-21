@@ -1,51 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { api, type ClassItem, type Student, type Work } from './api'
+import { ClassOptions, Dialog, DialogActions, ErrorText, errorText } from './components'
 import { extension, PHOTO_FORMATS, prepare, TASK_FORMATS } from './convert'
 import { number, requirementsOf, today } from './workspace'
-
-export function Dialog({ title, children, onClose, wide = false }: {
-  title: string; children: ReactNode; onClose: () => void; wide?: boolean
-}) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    const element = dialog.current!
-    element.showModal()
-    return () => element.close()
-  }, [])
-  return (
-    <dialog className={'dialog' + (wide ? ' dialog-wide' : '')} ref={dialog} aria-labelledby="dialog-title"
-      onCancel={(event) => { event.preventDefault(); onClose() }}>
-      <div className="dialog-head">
-        <h2 id="dialog-title">{title}</h2>
-        <button className="icon-button close-button" type="button" aria-label="Закрыть" onClick={onClose}>×</button>
-      </div>
-      {children}
-    </dialog>
-  )
-}
-
-export function NameDialog({ title, label, placeholder, action, onClose }: {
-  title: string; label: string; placeholder: string; action: (name: string) => Promise<void>; onClose: () => void
-}) {
-  const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    try { await action(name.trim()); onClose() }
-    catch (cause) { setError(errorText(cause)); setBusy(false) }
-  }
-  return <Dialog title={title} onClose={busy ? () => {} : onClose}>
-    <form className="form" onSubmit={submit}>
-      <label>{label}<input required autoFocus maxLength={120} placeholder={placeholder} value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <ErrorText message={error} />
-      <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>Отмена</button>
-        <button className="button primary" disabled={busy || !name.trim()}>{busy ? 'Сохраняем…' : 'Добавить'}</button></div>
-    </form>
-  </Dialog>
-}
 
 // Класс и ученики в одном окне: выбрать класс или создать новый, учеников — по одному на строку.
 // Добавляем по очереди, при сбое оставляем в поле тех, кто не добавлен.
@@ -94,7 +51,7 @@ export function ClassStudentsDialog({ classes, selectedClass, onClassCreated, on
   return <Dialog title="Класс и ученики" onClose={busy ? () => {} : onClose}>
     <form className="form" onSubmit={submit}>
       <label>Класс<select required value={classId} onChange={(event) => setClassId(event.target.value)}>
-        {classes.map((item) => <option key={item.classId} value={item.classId}>{item.name}</option>)}
+        <ClassOptions classes={classes} />
         <option value={NEW_CLASS}>+ Новый класс</option>
       </select></label>
       {creating && <label>Название нового класса<input required autoFocus maxLength={120} placeholder="Например, 7А"
@@ -105,30 +62,10 @@ export function ClassStudentsDialog({ classes, selectedClass, onClassCreated, on
       {tooLong && <p className="notice-error">Слишком длинное имя: «{tooLong.slice(0, 40)}…». Не больше 120 символов.</p>}
       {added > 0 && <p className="hint" role="status">Добавлено учеников: {added}.</p>}
       <ErrorText message={error} />
-      <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>{added ? 'Закрыть' : 'Отмена'}</button>
-        <button className="button primary" disabled={busy || !ready || Boolean(tooLong)}>
-          {busy ? 'Сохраняем…' : creating ? (names.length ? 'Создать класс и добавить ' + names.length : 'Создать класс')
-            : names.length > 1 ? 'Добавить ' + names.length : 'Добавить'}</button></div>
+      <DialogActions busy={busy} onCancel={onClose} cancelLabel={added ? 'Закрыть' : 'Отмена'} disabled={!ready || Boolean(tooLong)}>
+        {busy ? 'Сохраняем…' : creating ? (names.length ? 'Создать класс и добавить ' + names.length : 'Создать класс')
+          : names.length > 1 ? 'Добавить ' + names.length : 'Добавить'}</DialogActions>
     </form>
-  </Dialog>
-}
-
-export function ConfirmDialog({ title, text, action, onClose }: {
-  title: string; text: string; action: () => Promise<void>; onClose: () => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  async function confirm() {
-    setBusy(true)
-    setError('')
-    try { await action(); onClose() }
-    catch (cause) { setError(errorText(cause)); setBusy(false) }
-  }
-  return <Dialog title={title} onClose={busy ? () => {} : onClose}>
-    <div className="form"><p>{text}</p><ErrorText message={error} />
-      <div className="actions"><button className="button" autoFocus disabled={busy} onClick={onClose}>Отмена</button>
-        <button className="button destructive" disabled={busy} onClick={() => void confirm()}>{busy ? 'Удаляем…' : 'Удалить'}</button></div>
-    </div>
   </Dialog>
 }
 
@@ -171,13 +108,13 @@ export function CreateWorkDialog({ classes, selectedClass, onClose, onCreated }:
       <div className="field-row">
         <label>Класс<select aria-label="Класс" required value={classId} onChange={(event) => setClassId(event.target.value)}>
           <option value="" disabled>Выберите класс</option>
-          {classes.map((item) => <option key={item.classId} value={item.classId}>{item.name}</option>)}
+          <ClassOptions classes={classes} />
         </select></label>
         <label>Дата работы<input type="date" required value={date} onChange={(event) => setDate(event.target.value)} /></label>
       </div>
       <ErrorText message={error || formatError || parsed.error} />
-      <div className="actions"><button type="button" className="button" disabled={busy} onClick={onClose}>Отмена</button>
-        <button className="button primary" disabled={busy || !classes.length || Boolean(formatError || parsed.error)}>{busy ? 'Создаём…' : 'Далее →'}</button></div>
+      <DialogActions busy={busy} onCancel={onClose} disabled={!classes.length || Boolean(formatError || parsed.error)}>
+        {busy ? 'Создаём…' : 'Далее →'}</DialogActions>
     </form>
   </Dialog>
 }
@@ -219,8 +156,7 @@ export function StudentUploadDialog({ work, student, onClose, onUpload }: {
         <p>Фотографии листов (в порядке выбора — страница 1, 2, …) или один DOCX / TXT.</p>
       </div>
       <ErrorText message={invalid ? 'Выберите фотографии либо один документ.' : error} />
-      <div className="actions"><button type="button" className="button" disabled={Boolean(busy)} onClick={onClose}>Отмена</button>
-        <button className="button primary" disabled={!files.length || invalid || Boolean(busy)}>{busy || 'Загрузить'}</button></div>
+      <DialogActions busy={Boolean(busy)} onCancel={onClose} disabled={!files.length || invalid}>{busy || 'Загрузить'}</DialogActions>
     </form>
   </Dialog>
 }
@@ -244,9 +180,4 @@ async function bindToStudent(uploadId: string, studentId: string) {
     }
     await new Promise((resolve) => setTimeout(resolve, 1500))
   }
-}
-
-export const errorText = (error: unknown) => error instanceof Error ? error.message : 'Не удалось выполнить действие.'
-export function ErrorText({ message }: { message?: string }) {
-  return message ? <p className="notice-error" role="alert">{message}</p> : null
 }

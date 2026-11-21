@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { api, ApiError, type Grade, type PhotoMark, type ReviewChange } from './api'
-import { Dialog, ErrorText, errorText } from './Dialogs'
+import { Dialog, ErrorText, errorText, StatusBadge } from './components'
 import { categories, exportFeedback, number, ready, rowStatus, taskNumber, type Row } from './workspace'
 
 export function ReviewDialog({ row, previous, next, go, onClose, reload, refresh }: {
@@ -69,7 +69,7 @@ export function ReviewDialog({ row, previous, next, go, onClose, reload, refresh
   return <Dialog title={row.student.name} onClose={busy ? () => {} : close} wide>
     <div className="review-content">
       <section className="review-source" aria-label="Работа ученика">
-        <div className="section-line"><h3>Работа ученика</h3><span className={'status ' + status.tone}>{status.label}</span></div>
+        <div className="section-line"><h3>Работа ученика</h3><StatusBadge status={status} /></div>
         {!page && !transcript && <p className="empty-inline">{checkId ? 'Скан работы недоступен.' : 'Ученик ещё не сдал работу.'}</p>}
         {pages.length > 1 && <div className="page-picker" aria-label="Листы работы">
           {pages.map((item) => <button className="button compact" type="button" key={item.pageIndex}

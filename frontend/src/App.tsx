@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api, type ClassItem, type Work } from './api'
-import { ClassStudentsDialog, ConfirmDialog, CreateWorkDialog, ErrorText, errorText } from './Dialogs'
-import { dateLabel, readWorks, subjectName, workName } from './workspace'
+import { Brand, ClassOptions, ConfirmDialog, CreateWorkCard, ErrorText, errorText, WorkCard } from './components'
+import { ClassStudentsDialog, CreateWorkDialog } from './Dialogs'
+import { readWorks, workName } from './workspace'
 import { WorkView } from './WorkView'
 import { AccountMenu, type Account } from './Auth'
 
@@ -54,7 +55,7 @@ export function App({ account }: { account: Account }) {
   return <>
     <header className="site-header">
       <div className="site-inner">
-        <a className="brand" href="#" aria-label="Проверка работ — главная"><span className="brand-mark" aria-hidden="true">✓</span>Проверка работ</a>
+        <Brand href="#" />
         <div className="header-side">
           {!selected && <div className="header-actions">
             <button className="button" type="button" onClick={() => setModal('students')}>+ Класс и ученики</button>
@@ -72,7 +73,7 @@ export function App({ account }: { account: Account }) {
           <div className="filter-set" aria-label="Фильтры работ">
             <label>Класс<select aria-label="Класс" value={selectedClass} onChange={(event) => setSelectedClass(event.target.value)}>
               <option value="">Все классы</option>
-              {classes.map((item) => <option key={item.classId} value={item.classId}>{item.name}</option>)}
+              <ClassOptions classes={classes} />
             </select></label>
             <label>Порядок<select value={sort} onChange={(event) => setSort(event.target.value)}>
               <option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option>
@@ -84,19 +85,8 @@ export function App({ account }: { account: Account }) {
         {workId && !loading && !error && <p className="notice-error">Работа не найдена. Выберите работу из списка.</p>}
         {loading && <p className="subtle" role="status">Загружаем работы…</p>}
         <div className="cards">
-          <button className="work-card create-card" type="button" onClick={() => setModal('work')}>
-            <span className="create-mark" aria-hidden="true">+</span>
-            <span>Создать работу</span>
-          </button>
-          {visible.map((work) => <article className="work-card saved-card" key={work.assignmentId}>
-            <button type="button" className="card-remove" aria-label={'Удалить работу ' + workName(work)}
-              title="Удалить работу" onClick={() => setToDelete(work)}>×</button>
-            <div className="card-top"><time dateTime={work.assignmentDate}>{dateLabel(work.assignmentDate)}</time><span className="subject-pill">{subjectName()}</span></div>
-            <a className="card-title" href={'#work/' + work.assignmentId}>{workName(work)}</a>
-            <div className="card-bottom"><span>{work.className}</span>
-              <span aria-hidden="true">↗</span>
-            </div>
-          </article>)}
+          <CreateWorkCard onClick={() => setModal('work')} />
+          {visible.map((work) => <WorkCard key={work.assignmentId} work={work} onRemove={setToDelete} />)}
         </div>
         {!visible.length && !loading && !error && selectedClass && <p className="subtle">В этом классе пока нет работ.</p>}
       </>}

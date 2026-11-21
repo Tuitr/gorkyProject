@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Report, type Student, type Submission, type Upload, type UploadFile, type Work } from './api'
-import { ConfirmDialog, ErrorText, errorText, NameDialog, StudentUploadDialog } from './Dialogs'
+import { ConfirmDialog, ErrorText, errorText, Metrics, NameDialog, Score, StatusBadge, UploadButton } from './components'
+import { StudentUploadDialog } from './Dialogs'
 import { ReviewDialog } from './ReviewDialog'
 import { StudentCarousel } from './StudentCarousel'
 import { useChecks } from './useChecks'
-import { categories, dateLabel, exportFeedback, exportWorkbook, number, ready, rowStatus, subjectName, taskCell, taskNumber, workName, type Row, type TaskColumn } from './workspace'
+import { categories, dateLabel, exportFeedback, exportWorkbook, ready, rowStatus, subjectName, taskCell, taskNumber, workName, type Row, type TaskColumn } from './workspace'
 
 const uploadKey = (work: Work) => 'teacher-workspace:uploads:' + work.assignmentId + ':' + work.assignmentRev
 function loadUploadIds(work: Work): string[] {
@@ -241,15 +242,14 @@ export function WorkView({ work }: { work: Work }) {
               {tasks.map((task) => {
                 const cell = taskCell(item.check, task.id)
                 return <td className="task-cell" key={task.id}>
-                  <span className="score">{cell.maxScore === undefined ? '—' : (cell.score == null ? '—' : number(cell.score)) + ' / ' + number(cell.maxScore)}</span>
+                  <Score score={cell.score} maxScore={cell.maxScore} />
                   {cell.comment && <span className="cell-comment">{cell.comment}</span>}
                 </td>
               })}
-              <td><span className="score">{result?.total ? number(result.total.score) + ' / ' + number(result.total.maxScore) : '—'}</span></td>
+              <td><Score score={result?.total?.score} maxScore={result?.total?.maxScore} /></td>
               <td>{grade == null ? '—' : <span className="grade-chip">{grade}</span>}</td>
-              <td>{item.submission ? <span className={'status ' + status.tone}>{status.label}</span>
-                : <button type="button" className="button primary compact" aria-label={'Загрузить решение ученика ' + item.student.name}
-                  onClick={() => setUploadFor(item.student)}>↑ Загрузить</button>}</td>
+              <td>{item.submission ? <StatusBadge status={status} />
+                : <UploadButton studentName={item.student.name} onClick={() => setUploadFor(item.student)} />}</td>
               <td>{result?.publishedResultRev != null ? <button className="text-button" type="button" aria-label={'Скачать отзыв для ' + item.student.name}
                 onClick={() => void exportFeedback(result, item.student).catch((cause) => setActionError(errorText(cause)))}>.md ↓</button> : '—'}</td>
             </tr>
@@ -287,11 +287,11 @@ function ClassReport({ report, error }: { report?: Report; error: string }) {
   if (!report) return <div className="report-panel">{error ? <ErrorText message={error} /> : <p className="empty-inline">Отчёт готовится.</p>}</div>
   return <div className="report-panel">
     <ErrorText message={error} />
-    <div className="metrics">
-      <div><strong>{report.submittedCount}</strong><span>Сдали</span></div>
-      <div><strong>{report.waiting.length}</strong><span>Ждут проверки</span></div>
-      <div><strong>{report.notSubmitted.length}</strong><span>Не сдали</span></div>
-    </div>
+    <Metrics items={[
+      { value: report.submittedCount, label: 'Сдали' },
+      { value: report.waiting.length, label: 'Ждут проверки' },
+      { value: report.notSubmitted.length, label: 'Не сдали' },
+    ]} />
     <h2>Что повторить с классом</h2>
     {report.trends?.length ? <div className="trends">{report.trends.map((trend) => {
       const affected = report.tasks.find((task) => task.taskId === trend.taskId)?.issuesByCategory[trend.category] ?? 0
