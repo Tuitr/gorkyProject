@@ -69,6 +69,7 @@ export type Check = ReadyCheck | (CheckIdentity & {
 })
 export type ReviewChange =
   | { type: 'set_grade'; grade: Grade | null }
+  | { type: 'set_task_score'; taskId: string; score: number | null }
   | { type: 'update_overall_review'; overallReview: string }
 
 // Задания варианта с эталонами (contracts/v1/grading/assignmentreferences.py).

@@ -101,9 +101,24 @@ export function ReviewDialog({ row, previous, next, go, onClose, reload, refresh
         {result?.taskResults.map((task) => {
           const score = result.taskAssessments?.find((item) => item.taskId === task.taskId)
           return <article key={task.taskId} className="review-task">
-            <div className="section-line"><strong>Задание № {taskNumber(task.taskId)}</strong>
-              {score && <span className="score">{score.score == null ? 'На проверке' : number(score.score) + ' / ' + number(score.maxScore)}</span>}</div>
-            {score && <p className="subtle">{score.comment}</p>}
+            <div className="section-line"><strong>Задание № {taskNumber(task.taskId)}</strong></div>
+            {score && <form key={task.taskId + '/' + result.resultRev} className="task-score-form" onSubmit={(event) => {
+              event.preventDefault()
+              const value = new FormData(event.currentTarget).get('score')
+              if (typeof value === 'string') {
+                void change([{ type: 'set_task_score', taskId: task.taskId, score: Number(value) }])
+              }
+            }}>
+              <label>Баллы
+                <input aria-label={'Баллы за задание № ' + taskNumber(task.taskId)} name="score" type="number"
+                  min="0" max={score.maxScore} step="any" required defaultValue={score.score ?? ''} />
+              </label>
+              <span className="subtle">из {number(score.maxScore)}</span>
+              <button className="button compact" type="submit" disabled={busy}>Сохранить</button>
+              <button className="text-button" type="button" disabled={busy || score.score == null}
+                onClick={() => void change([{ type: 'set_task_score', taskId: task.taskId, score: null }])}>Сбросить</button>
+            </form>}
+            {score && <p className="subtle">{score.score == null ? 'Ожидает ручной оценки.' : score.comment}</p>}
             {task.issues.map((issue) => {
               const mark = marks.find((item) => item.taskId === task.taskId && item.issueId === issue.issueId)
               return <div className={'issue' + (mark && selected(mark) ? ' issue-active' : '')} key={issue.issueId}>
