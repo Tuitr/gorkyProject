@@ -21,6 +21,19 @@ export type UploadFile = {
 }
 export type Upload = { uploadId: string; files: UploadFile[] }
 
+// Результат проверки (GET /v1/checks/{checkId}): пока нет taskResults — проверка идёт или не удалась.
+export type TaskResult = {
+  taskId: string
+  answer: 'correct' | 'incorrect' | 'skipped' | 'unreadable'
+  reasoning: string
+  method: string
+  issues: { issueId: string; stepId: string; category: string; comment: string; correction: string; causedByIssueId?: string | null }[]
+  needsReview: boolean
+}
+export type Check =
+  | { checkId: string; attemptId: string; state: 'queued' | 'running' | 'waiting_reference' | 'needs_review' | 'failed'; reason: string; transcriptMarkdown?: string | null }
+  | { checkId: string; attemptId: string; state: 'ready' | 'needs_review'; resultRev: number; taskResults: TaskResult[]; overallReview: string; publishedResultRev?: number | null; transcriptMarkdown?: string | null }
+
 // Задания варианта с эталонами (contracts/v1/grading/assignmentreferences.py).
 export type References = {
   assignmentId: string
@@ -113,6 +126,10 @@ export const api = {
   references: (a: Assignment) =>
     call<References>('GET', `/v1/assignments/${e(a.assignmentId)}/references?rev=${a.assignmentRev}`),
   report: (a: Assignment) => call<Report>('GET', `/v1/assignments/${e(a.assignmentId)}/report?rev=${a.assignmentRev}`),
+  check: (checkId: string) => call<Check>('GET', `/v1/checks/${e(checkId)}`),
+  // Учитель принял результат (галочка). Снять публикацию кабинет не умеет.
+  publish: (checkId: string, resultRev: number) =>
+    call<{ checkId: string; resultRev: number }>('POST', `/v1/checks/${e(checkId)}/publish`, { resultRev }),
   upload: (uploadId: string) => call<Upload>('GET', `/v1/uploads/${e(uploadId)}`),
   bind: (uploadId: string, fileId: string, studentId: string) =>
     call<{ checkId: string }>('POST', `/v1/uploads/${e(uploadId)}/bindings`, { fileId, studentId }),

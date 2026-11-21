@@ -1,10 +1,17 @@
 import { useState, type CSSProperties } from 'react'
-import type { Assignment, Report } from './api'
+import type { Assignment, Check, Report } from './api'
 import { TasksDialog } from './TasksDialog'
 import { folderName } from './titles'
+import { isApproved } from './useChecks'
 
-// Статистика выбранного класса: отчёт кабинета по каждому заданию (отчёты грузит useReports).
-export function ClassStats(props: { assignments: Assignment[]; reports: Record<string, Report>; error?: string; loading: boolean }) {
+// Тенденции класса по каждому заданию. Учитываются только работы, отмеченные галочкой учителя.
+export function ClassStats(props: {
+  assignments: Assignment[]
+  reports: Record<string, Report>
+  checks: Record<string, Check>
+  error?: string
+  loading: boolean
+}) {
   const { reports, error, loading } = props
   const shown = props.assignments
 
@@ -18,19 +25,31 @@ export function ClassStats(props: { assignments: Assignment[]; reports: Record<s
       {shown.map((a) => {
         const r = reports[a.assignmentId]
         if (!r) return null
-        return <AssignmentStats key={a.assignmentId} a={a} r={r} />
+        return <AssignmentStats key={a.assignmentId} a={a} r={r} checks={props.checks} />
       })}
     </div>
   )
 }
 
-function AssignmentStats({ a, r }: { a: Assignment; r: Report }) {
-  const answered = r.tasks.reduce((n, t) => n + t.correct + t.incorrect + t.skipped, 0)
-  const correct = r.tasks.reduce((n, t) => n + t.correct, 0)
+function AssignmentStats({ a, r, checks }: { a: Assignment; r: Report; checks: Record<string, Check> }) {
+  // Только работы с галочкой учителя (результат опубликован).
+  const approved = r.results.map((x) => checks[x.checkId]).filter(isApproved)
+  const taskIds = r.tasks.length ? r.tasks.map((t) => t.taskId) : (approved[0]?.taskResults.map((t) => t.taskId) ?? [])
+  const tasks = taskIds.map((taskId) => {
+    const results = approved.flatMap((c) => c.taskResults.filter((t) => t.taskId === taskId))
+    const correct = results.filter((t) => t.answer === 'correct').length
+    return { taskId, correct, total: results.length, share: results.length ? correct / results.length : 0 }
+  })
+  const answered = tasks.reduce((n, t) => n + t.total, 0)
+  const correct = tasks.reduce((n, t) => n + t.correct, 0)
   const avg = answered ? Math.round((correct / answered) * 100) + '%' : '—'
+  // Типичные ошибки: сколько учеников допустили ошибку этой категории.
   const issues = new Map<string, number>()
-  for (const t of r.tasks) for (const [c, n] of Object.entries(t.issuesByCategory)) issues.set(c, (issues.get(c) ?? 0) + n)
+  for (const c of approved)
+    for (const cat of new Set(c.taskResults.flatMap((t) => t.issues.map((i) => i.category))))
+      issues.set(cat, (issues.get(cat) ?? 0) + 1)
   const topIssues = [...issues].sort((x, y) => y[1] - x[1]).slice(0, 5)
+  const unapproved = r.results.length - approved.length
   const [tasksOpen, setTasksOpen] = useState(false)
 
   return (
@@ -47,15 +66,19 @@ function AssignmentStats({ a, r }: { a: Assignment; r: Report }) {
 
       <div style={st.tiles}>
         <Tile value={`${r.submittedCount}/${r.students.length}`} label="сдали работу" />
-        <Tile value={String(r.results.length)} label="проверено" />
+        <Tile value={String(approved.length)} label="проверено учителем" />
         <Tile value={avg} label="верных ответов" />
       </div>
 
-      {r.tasks.length > 0 && (
+      {approved.length === 0 && (
+        <p style={st.muted}>Отметьте галочкой проверенные работы — тенденции считаются только по ним.</p>
+      )}
+
+      {approved.length > 0 && tasks.length > 0 && (
         <>
           <div style={st.caption}>Доля верных ответов по заданиям</div>
-          {r.tasks.map((t, i) => {
-            const share = t.correctShare ?? 0
+          {tasks.map((t, i) => {
+            const share = t.share
             return (
               <div key={t.taskId} style={st.barRow}>
                 <span style={{ width: 28 }}>№{i + 1}</span>
@@ -63,7 +86,7 @@ function AssignmentStats({ a, r }: { a: Assignment; r: Report }) {
                   <span style={{ ...st.fill, width: `${Math.round(share * 100)}%`, background: share >= 0.7 ? '#16a34a' : share >= 0.4 ? '#d97706' : '#dc2626' }} />
                 </span>
                 <span style={{ width: 120, textAlign: 'right', color: '#6b7280', fontSize: 13 }}>
-                  {t.correct} из {t.correct + t.incorrect + t.skipped} · {Math.round(share * 100)}%
+                  {t.correct} из {t.total} · {Math.round(share * 100)}%
                 </span>
               </div>
             )
@@ -85,6 +108,7 @@ function AssignmentStats({ a, r }: { a: Assignment; r: Report }) {
         </>
       )}
 
+      {unapproved > 0 && <p style={st.muted}>Не отмечено учителем и не учитывается: {unapproved}</p>}
       {r.waiting.length > 0 && <p style={st.muted}>Проверяются: {r.waiting.map((s) => s.name).join(', ')}</p>}
       {r.notSubmitted.length > 0 && <p style={st.muted}>Не сдали: {r.notSubmitted.map((s) => s.name).join(', ')}</p>}
     </div>

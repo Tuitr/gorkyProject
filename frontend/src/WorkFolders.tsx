@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
-import type { Assignment, Report, Student, Upload, UploadFile } from './api'
+import type { Assignment, Check, Report, Student, Upload, UploadFile } from './api'
+import { StudentAnswer } from './StudentAnswer'
 import { subjectDate, titleOf } from './titles'
 
 // Загрузка из этого сеанса: файл отправляется, не ушёл, или принят кабинетом (uploadId).
@@ -32,6 +33,8 @@ export function WorkFolders(props: {
   onToggle: (assignmentId: string) => void
   onBind: (uploadId: string, fileId: string, studentId: string) => void
   onAddAnswer: (assignmentId: string) => void
+  checks: Record<string, Check>
+  onApprove: (checkId: string, resultRev: number) => Promise<void>
 }) {
   const { works, uploads } = props
   const loose = works.filter((w) => !w.assignmentId) // загрузки заданий: отправляются или не ушли
@@ -64,6 +67,12 @@ export function WorkFolders(props: {
           return files.filter((f) => f.status !== 'bound').map((f) => ({ w, f }))
         })
         const checked = new Set(report?.results.map((r) => r.studentId))
+        // Проверка ученика: из отчёта, а если результата там ещё нет — из загрузки этого сеанса.
+        const checkOf = new Map<string, string>()
+        for (const w of sessionWorks)
+          for (const f of (w.uploadId && uploads[w.uploadId]?.files) || [])
+            if (f.studentId && f.checkId) checkOf.set(f.studentId, f.checkId)
+        for (const r of report?.results ?? []) checkOf.set(r.studentId, r.checkId)
         const waiting = new Set(report?.waiting.map((s) => s.studentId))
         const submitted = (report?.students ?? []).filter((s) => checked.has(s.studentId) || waiting.has(s.studentId))
         const count = submitted.length + pendingRows.length
@@ -81,11 +90,6 @@ export function WorkFolders(props: {
 
             {isOpen && (
               <ul style={{ ...st.list, padding: '8px 8px 0 30px' }}>
-                <li style={{ marginBottom: 8 }}>
-                  <button style={st.addAnswer} onClick={() => props.onAddAnswer(a.assignmentId)}>
-                    + Добавить ответ ученика
-                  </button>
-                </li>
                 {count === 0 && <li style={{ ...st.muted, paddingBottom: 8 }}>Ответов пока нет.</li>}
 
                 {pendingRows.map(({ w, f }) => (
@@ -126,15 +130,20 @@ export function WorkFolders(props: {
                   .slice()
                   .sort((x, y) => x.name.localeCompare(y.name, 'ru'))
                   .map((s) => (
-                    <li key={s.studentId} style={st.item}>
-                      <span>{s.name}</span>
-                      {checked.has(s.studentId) ? (
-                        <span style={{ ...st.status, color: '#15803d' }}>Проверено</span>
-                      ) : (
-                        <span style={{ ...st.status, color: '#2563eb' }}>Проверяется</span>
-                      )}
+                    <li key={s.studentId}>
+                      <StudentAnswer
+                        name={s.name}
+                        check={props.checks[checkOf.get(s.studentId) ?? '']}
+                        onApprove={props.onApprove}
+                      />
                     </li>
                   ))}
+
+                <li style={{ marginBottom: 8 }}>
+                  <button style={st.addAnswer} onClick={() => props.onAddAnswer(a.assignmentId)}>
+                    + Добавить ответ ученика
+                  </button>
+                </li>
               </ul>
             )}
           </div>

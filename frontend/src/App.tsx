@@ -5,6 +5,7 @@ import { prepare } from './convert'
 import { UploadDialog, type UploadRequest } from './UploadDialog'
 import { WorkFolders, type Work } from './WorkFolders'
 import { api, type Assignment, type ClassItem, type Student, type Upload } from './api'
+import { useChecks } from './useChecks'
 import { useReports } from './useReports'
 
 const PENDING = new Set(['pending_binding', 'matched'])
@@ -133,6 +134,21 @@ export function App() {
   const boundCount = works.flatMap((w) => (w.uploadId ? (uploads[w.uploadId]?.files ?? []) : [])).filter((f) => f.status === 'bound').length
   const { reports, error: reportsError, loading: reportsLoading } = useReports(assignments, boundCount)
 
+  // Проверки учеников: из отчётов и из загрузок этого сеанса.
+  const checkIds = [
+    ...Object.values(reports).flatMap((r) => r.results.map((x) => x.checkId)),
+    ...works.flatMap((w) => (w.uploadId ? (uploads[w.uploadId]?.files ?? []) : [])).flatMap((f) => (f.checkId ? [f.checkId] : [])),
+  ]
+  const { checks, reload: reloadCheck } = useChecks(checkIds)
+  const approve = async (checkId: string, resultRev: number) => {
+    try {
+      await api.publish(checkId, resultRev)
+      await reloadCheck(checkId)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   return (
     <div style={s.page}>
       <header style={s.header}>
@@ -205,6 +221,8 @@ export function App() {
               onToggle={toggleFolder}
               onBind={bind}
               onAddAnswer={(folderId) => setDialog({ folderId })}
+              checks={checks}
+              onApprove={approve}
             />
           ) : (
             <p style={s.muted}>Выберите класс, чтобы увидеть работы.</p>
@@ -214,7 +232,7 @@ export function App() {
         <section style={s.half}>
           <h2 style={s.h2}>Статистика класса</h2>
           {classId ? (
-            <ClassStats assignments={assignments} reports={reports} error={reportsError} loading={reportsLoading} />
+            <ClassStats assignments={assignments} reports={reports} checks={checks} error={reportsError} loading={reportsLoading} />
           ) : (
             <p style={s.muted}>Выберите класс, чтобы увидеть статистику.</p>
           )}
