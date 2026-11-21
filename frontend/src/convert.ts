@@ -6,7 +6,6 @@ const rename = (name: string, ext: string) => name.replace(/\.[^.]+$/, '') + '.'
 
 /** Все форматы, которые можно выбрать. */
 export const FORMATS = ['docx', 'txt', 'zip', 'jpg', 'jpeg', 'jfif', 'png', 'webp', 'heic', 'heif']
-export const FORMATS_TEXT = 'DOCX, TXT, ZIP, JPG, PNG, WebP или HEIC'
 export const PHOTO_FORMATS = ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'heic', 'heif']
 export const TASK_FORMATS = ['docx', 'txt', ...PHOTO_FORMATS]
 
